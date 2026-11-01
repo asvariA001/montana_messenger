@@ -885,7 +885,7 @@ object CallLine {
         am.mode = AudioManager.MODE_IN_COMMUNICATION
         // EVERY ROUTE CHANGE DURING A CALL IS NAMED (iOS 15.28, 1369): where the sound went; the platform tells no reason
         if (Build.VERSION.SDK_INT >= 31) runCatching { am.addOnCommunicationDeviceChangedListener(java.util.concurrent.Executor { it.run() }, routeWatch) }
-        route(speaker)
+        route(speaker, system = speaker)   // the system's call starts on its own default; only a chosen loudspeaker is asked of it
     }
     private val routeWatch = AudioManager.OnCommunicationDeviceChangedListener { d -> log("audio_route_change now=" + way(d?.type)); MainThread.post { updateProximity() } }
     private fun way(t: Int?): String = when (t) {
@@ -903,7 +903,7 @@ object CallLine {
     private fun audioOff() {
         val am = am() ?: return
         if (Build.VERSION.SDK_INT >= 31) runCatching { am.removeOnCommunicationDeviceChangedListener(routeWatch) }
-        route(false)
+        route(false, system = false)
         am.mode = AudioManager.MODE_NORMAL
         focus?.let { am.abandonAudioFocusRequest(it) }
         focus = null
@@ -914,13 +914,19 @@ object CallLine {
     /** The loudspeaker, or whatever the system holds for a call (the earpiece, the headset): its own communication device. */
     fun setSpeaker(on: Boolean) { speaker = on; synchronized(gate) { line }?.speakerDecided = true; route(on); MainThread.post { updateProximity() } }
 
+    /** iOS reassertSpeaker (MontanaCall.swift 5755): the loudspeaker chosen before a moment that re-routes the call survives it. */
+    fun reassertRoute(why: String) { if (!speaker) return; log("audio_route reassert why=" + why); route(true) }
+
     @Suppress("DEPRECATION")
-    private fun route(on: Boolean) {
+    private fun route(on: Boolean, system: Boolean = true) {
+        // the system's own call (SystemCall) holds the route while it stands: the way is asked of it too, else it takes it back
+        if (system) SystemCall.routeTo(if (on) AudioDeviceInfo.TYPE_BUILTIN_SPEAKER else AudioDeviceInfo.TYPE_BUILTIN_EARPIECE)
         val am = am() ?: return
         if (Build.VERSION.SDK_INT >= 31) {
             val loud = am.availableCommunicationDevices.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
-            if (on && loud != null) am.setCommunicationDevice(loud) else am.clearCommunicationDevice()
-            log("audio_route speaker=" + (if (on) 1 else 0) + " landed=" + way(am.communicationDevice?.type))   // the switch names where it landed (1369)
+            val took = if (on && loud != null) am.setCommunicationDevice(loud) else { am.clearCommunicationDevice(); true }
+            if (!took) am.isSpeakerphoneOn = on   // a phone that refuses the device keeps the old switch
+            log("audio_route speaker=" + (if (on) 1 else 0) + (if (took) "" else " refused") + " landed=" + way(am.communicationDevice?.type))   // the switch names where it landed (1369)
         } else am.isSpeakerphoneOn = on
     }
 
@@ -973,6 +979,7 @@ object CallLine {
             out.add(Way(name, now?.id == d.id) {
                 speaker = d.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                 synchronized(gate) { line }?.speakerDecided = true
+                SystemCall.routeTo(d.type, d.productName?.toString())   // the system's own call holds the route (route above)
                 am.setCommunicationDevice(d)
             })
         }

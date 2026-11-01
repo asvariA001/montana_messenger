@@ -3,11 +3,13 @@ package quest.montana.app
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.media.AudioDeviceInfo
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.OutcomeReceiver
 import android.telecom.CallAttributes
+import android.telecom.CallAudioState
 import android.telecom.CallControl
 import android.telecom.CallControlCallback
 import android.telecom.CallEndpoint
@@ -109,7 +111,40 @@ object SystemCall {
 
     /** Both ends hold the call: its talk begins here, and the call log counts it from now. */
     fun talking(seed: String) = MainThread.post {
-        if (modern) Transact.talking(seed) else synchronized(this) { held[seed] }?.setActive()
+        if (modern) return@post Transact.talking(seed)
+        val line = synchronized(this) { held[seed] } ?: return@post
+        line.setActive()
+        CallLine.reassertRoute("system active")   // the system's call takes its own route at its activation
+    }
+
+    /**
+     * WHERE THE SOUND GOES WHILE THE SYSTEM HOLDS THE CALL: Telecom owns the route of its own call and takes back a route set
+     * beside it on the AudioManager (the loudspeaker button did nothing from 645 on), so the way is asked of the system itself --
+     * the call's endpoint from Android 14 (CallControl.requestCallEndpointChange), the Connection's audio route below. The way is
+     * named by its AudioDeviceInfo type (the earpiece for «off»); a device's own name picks among several of a kind.
+     */
+    fun routeTo(type: Int, name: String? = null) = MainThread.post {
+        if (!on) return@post
+        if (modern) return@post Transact.routeTo(type, name)
+        val line = synchronized(this) { held.values.firstOrNull() } ?: return@post
+        val route = when (endpointOf(type)) {
+            CallEndpoint.TYPE_SPEAKER -> CallAudioState.ROUTE_SPEAKER
+            CallEndpoint.TYPE_BLUETOOTH -> CallAudioState.ROUTE_BLUETOOTH
+            CallEndpoint.TYPE_WIRED_HEADSET -> CallAudioState.ROUTE_WIRED_HEADSET
+            else -> CallAudioState.ROUTE_WIRED_OR_EARPIECE
+        }
+        @Suppress("DEPRECATION") line.setAudioRoute(route)
+        log("system_call route=" + route)
+    }
+
+    // the system's kind of way for a device of the phone's (CallEndpoint's types; their values are constants, read on any Android)
+    private fun endpointOf(type: Int) = when (type) {
+        AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> CallEndpoint.TYPE_SPEAKER
+        AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, AudioDeviceInfo.TYPE_BLE_HEADSET,
+        AudioDeviceInfo.TYPE_BLE_SPEAKER, AudioDeviceInfo.TYPE_HEARING_AID -> CallEndpoint.TYPE_BLUETOOTH
+        AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_WIRED_HEADPHONES, AudioDeviceInfo.TYPE_USB_HEADSET,
+        AudioDeviceInfo.TYPE_USB_DEVICE -> CallEndpoint.TYPE_WIRED_HEADSET
+        else -> CallEndpoint.TYPE_EARPIECE
     }
 
     /** The call ended (Calls.end): the system's call ends with it, by its own cause -- missed, declined, ours or theirs. */
@@ -221,6 +256,7 @@ object SystemCall {
                             if (ended == null) controls[seed] = control else calls.remove(seed)
                         }
                         if (ended != null) control.disconnect(DisconnectCause(ended), main, quiet) else if (talk) activate(seed, control)
+                        else CallLine.reassertRoute("system call")   // a loudspeaker chosen while the system was asked stands
                         log("system_call " + (if (w.incoming) "in" else "out") + " epoch=" + Calls.epochOf(seed).take(8) + (if (ended != null) " ended" else ""))
                     }
                     override fun onError(e: CallException) {
@@ -239,7 +275,27 @@ object SystemCall {
         private fun activate(seed: String, control: CallControl) {
             val main = Book.ctx.mainExecutor
             val w = synchronized(this) { calls[seed] } ?: return
-            if (w.incoming) control.answer(if (w.video) CallAttributes.VIDEO_CALL else CallAttributes.AUDIO_CALL, main, quiet) else control.setActive(main, quiet)
+            // the system's call takes its own route at its activation: the way chosen before it is asked again once it stands
+            val stood = object : OutcomeReceiver<Void, CallException> {
+                override fun onResult(r: Void?) { CallLine.reassertRoute("system active") }
+                override fun onError(e: CallException) { log("system_call step refused code=" + e.code) }
+            }
+            if (w.incoming) control.answer(if (w.video) CallAttributes.VIDEO_CALL else CallAttributes.AUDIO_CALL, main, stood) else control.setActive(main, stood)
+        }
+
+        fun routeTo(type: Int, name: String?) {
+            val control = synchronized(this) { controls.values.firstOrNull() } ?: return
+            val kind = endpointOf(type)
+            val all = Events.endpoints
+            val same = all.filter { it.endpointType == kind }
+            val e = same.firstOrNull { name != null && it.endpointName.toString() == name } ?: same.firstOrNull()
+                ?: (if (kind == CallEndpoint.TYPE_EARPIECE) all.firstOrNull { it.endpointType == CallEndpoint.TYPE_WIRED_HEADSET } else null)
+                ?: return log("system_call route kind=" + kind + " absent of " + all.size)
+            if (Events.current?.identifier == e.identifier) return
+            control.requestCallEndpointChange(e, Book.ctx.mainExecutor, object : OutcomeReceiver<Void, CallException> {
+                override fun onResult(r: Void?) { log("system_call route kind=" + kind) }
+                override fun onError(err: CallException) { log("system_call route kind=" + kind + " refused code=" + err.code) }
+            })
         }
 
         fun end(seed: String, code: Int) {
@@ -264,8 +320,10 @@ object SystemCall {
         }
 
         private object Events : CallEventCallback {
-            override fun onCallEndpointChanged(endpoint: CallEndpoint) {}
-            override fun onAvailableCallEndpointsChanged(endpoints: List<CallEndpoint>) {}
+            @Volatile var current: CallEndpoint? = null
+            @Volatile var endpoints: List<CallEndpoint> = emptyList()
+            override fun onCallEndpointChanged(endpoint: CallEndpoint) { current = endpoint; log("system_call endpoint now=" + endpoint.endpointType) }
+            override fun onAvailableCallEndpointsChanged(endpoints: List<CallEndpoint>) { this.endpoints = endpoints }
             override fun onMuteStateChanged(muted: Boolean) {}
             override fun onCallStreamingFailed(reason: Int) {}
             override fun onEvent(event: String, extras: Bundle) {}
