@@ -214,6 +214,8 @@ object CallLine {
     @Volatile var powerSaving = false
         private set
     @Volatile private var powerFloorNow = 0
+    /** The power's floor now (iOS MontanaPower.floorNow): the recording's film slows under 2 and stops at 4 (CallFilm). */
+    val powerFloor: Int get() = powerFloorNow
     @Volatile var peerSharing = false   // their screen rides the video line
         private set
     @Volatile var sharing = false   // my screen rides it (iOS screenSharing)
@@ -229,12 +231,13 @@ object CallLine {
     val camera: Boolean get() = synchronized(gate) { line?.vtrack != null }
 
     /** A picture's way to the screen (iOS VideoView's side): the track draws into it, the screen lends it a surface or none. */
-    class Slot : VideoSink {
+    class Slot(private val local: Boolean) : VideoSink {
         @Volatile var into: VideoSink? = null
-        override fun onFrame(f: VideoFrame) { into?.onFrame(f) }
+        // a rolling tape takes the picture too, whether the screen shows it or not (iOS MTCallRecordingVideo beside the view)
+        override fun onFrame(f: VideoFrame) { CallFilm.frame(f, local); into?.onFrame(f) }
     }
-    val theirs = Slot()
-    val own = Slot()
+    val theirs = Slot(false)
+    val own = Slot(true)
 
     // their frames pass here first: the first one drawn makes the call a video call (iOS MTFirstFrameSniffer, remoteVideoArrived)
     private val sniff = object : VideoSink {

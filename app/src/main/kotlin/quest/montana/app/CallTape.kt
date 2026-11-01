@@ -32,8 +32,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * The call's side (iOS MTCallRecording begin/finish/consent/changed/toggleByHand, MontanaCall.refreshRecording): a call that
  * connects is recorded by itself from level 7 (the person's switch and one consent) or by the call screen's mark on any level, unless
  * the correspondent's switch holds; the chat is told once; the caller sends the recording to the chat, or the one who answered when
- * the caller does not record -- one copy, never none. DEVIATION: a voice only (iOS draws a video call's pictures into its film too),
- * and a tape cut by the app's death is not brought back (iOS recover).
+ * the caller does not record -- one copy, never none. A video call's pictures are filmed beside the voices (CallFilm) and leave
+ * with them as one .mp4. DEVIATION: a tape cut by the app's death is not brought back (iOS recover).
  */
 object CallTape {
     const val KEY = "callRecordingEnabled"   // NOT-UI: iOS MTCallRecordingPolicy.key, on by default
@@ -126,7 +126,7 @@ object CallTape {
             Post.send(call.ref, mid, words)
         }
         live = call
-        tape = Tape(File(dir(), call.id))
+        tape = Tape(File(dir(), call.id)).also { CallFilm.roll(it.base, it.origin) }   // a video call's pictures roll with its voices
         log("start sends=" + call.sendsToChat)
     }
 
@@ -140,21 +140,26 @@ object CallTape {
         val call = live?.takeIf { it.seed == seed } ?: return
         val t = tape ?: return
         live = null; tape = null
+        val reel = CallFilm.stop()
         val out = File(dir(), call.id + ".m4a")
         t.close {
             val secs = runCatching { export(t, out) }.onFailure { log("export fail " + it.javaClass.simpleName + " " + it.message) }.getOrNull() ?: 0.0
             t.delete()
+            // a call whose pictures were filmed leaves as one .mp4, the voices beside the film (iOS «call_<id>.mp4», kind vid)
+            val mp4 = File(dir(), call.id + ".mp4")
+            val film = reel?.let { if (secs > 0.0) CallFilm.join(it, out, mp4) else CallFilm.drop(it) } == true
             val c = Book.ctx
             when {
-                !deliver || !call.sendsToChat -> log("kept on this phone s=" + secs.toInt())
+                !deliver || !call.sendsToChat -> { if (film) out.delete(); log("kept on this phone s=" + secs.toInt() + if (film) " film" else "") }
                 secs <= 0.0 -> {
-                    out.delete()
+                    out.delete(); mp4.delete()
                     val mid = Marks.mintMid()
                     Book.edit(call.ref) { it.msgs.add(Msg(mid, c.getString(R.string.call_rec_none), true, System.currentTimeMillis(), state = 1)) }
                 }
                 else -> {
-                    Media.send(c, call.ref, Media.Picked(out.readBytes(), "aud", "m4a", null, secs), c.getString(R.string.call_rec_row))
-                    out.delete()
+                    val p = if (film) Media.Picked(mp4.readBytes(), "vid", "mp4", null, secs) else Media.Picked(out.readBytes(), "aud", "m4a", null, secs)
+                    Media.send(c, call.ref, p, c.getString(R.string.call_rec_row))
+                    out.delete(); mp4.delete()
                     log("queued s=" + secs.toInt())
                 }
             }

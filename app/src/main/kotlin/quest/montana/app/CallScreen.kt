@@ -450,6 +450,14 @@ object CallScreen {
         // the screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen. The
         // corner stands whether my camera runs or not (iOS shown = pip && !peerSharing): a sleeping camera wears my own face.
         var coverSaid = ""
+        // THE RECORDING IS TOLD WHAT STANDS WHERE (iOS MTCallRecordingLayout's writers, applySides and MTCallMini): the screen's
+        // shape, which picture fills it, where the corner stands, whether mine is mirrored and theirs a shared screen shown whole
+        fun film(bigLocal: Boolean, shown: Boolean, x: Float = miniBox.translationX, y: Float = miniBox.translationY) {
+            if (pictures.width == 0) return
+            CallFilm.shape = CallFilm.Shape(pictures.width, pictures.height, bigLocal,
+                if (shown) android.graphics.RectF(x, y, x + c.dp(MINI_W), y + c.dp(MINI_H)) else null,
+                CallLine.front, CallLine.peerSharing, c.dp(12).toFloat())
+        }
         fun sides() {
             if (CallFloat.standing) return   // the window over other apps holds the peer's picture while it stands
             // the sharer sees the peer's ground, not the screen it shares (iOS 6566-6574): no picture is drawn
@@ -478,6 +486,7 @@ object CallScreen {
             val ownCovered = CallLine.video && (CallLine.held || !CallLine.camera || CallLine.selfPaused)
             selfCoverBig.visibility = if (ownCovered && bigLocal) View.VISIBLE else View.GONE
             selfCoverMini.visibility = if (ownCovered && !bigLocal && shown) View.VISIBLE else View.GONE
+            film(bigLocal, shown)
             val said = "remote=" + (if (covered) 1 else 0) + " self=" + (if (ownCovered) 1 else 0)
             if (said != coverSaid) { coverSaid = said; Log.d("Montana", "call_cover " + said) }
         }
@@ -512,6 +521,7 @@ object CallScreen {
             val bottomEdge = if (up) raised else pictures.height - column.paddingBottom - c.dp(14)
             val x = (if (corner % 2 == 0) c.dp(14) else pictures.width - c.dp(14) - c.dp(MINI_W)).toFloat()
             val y = (if (corner < 2) topEdge else maxOf(topEdge, bottomEdge - c.dp(MINI_H))).toFloat()
+            CallFilm.shape.let { f -> if (f.mini != null) film(f.bigLocal, true, x, y) }
             if (glide && placed) miniBox.animate().translationX(x).translationY(y).setDuration(300).start()
             else { miniBox.animate().cancel(); miniBox.translationX = x; miniBox.translationY = y }
             placed = true
