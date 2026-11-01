@@ -2,9 +2,9 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
-## 1.0 (2334) - 2026-11-01
+## 1.0 (2335) - 2026-11-01
 
-Source commit `dd2876e0d73d`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2334.md).
+Source commit `e46ce11cc870`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2335.md).
 
 - The chats scroll at once after the app opens: the key is no longer derived from your words at every launch -- it is derived once and kept on this device.
 - Opening the chats no longer builds the music and the feed pages behind them; a page is built when you look at it, and the music library is gathered off the main thread.
