@@ -550,6 +550,7 @@
     <string name="chess_accept">接受</string>
     <string name="chess_decline">拒绝</string>
     <string name="wall_comments">评论</string>
+    <string name="wall_draft">草稿</string>   <!-- iOS MTBoardDraftCell «Draft» -->
     <string name="wall_write_comment">写评论</string>
     <string name="wall_no_comments">还没有评论</string>
     <string name="wall_link_not_held">此帖子尚未在这部手机上。请打开作者的页面，然后再次点击链接。</string>
