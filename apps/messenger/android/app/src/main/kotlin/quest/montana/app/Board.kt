@@ -785,18 +785,35 @@ object Board {
         if (p.optBoolean("mine")) return ""
         return if (p.optBoolean("own")) wall else null
     }
-    /** The post where it stands as itself -- my wall, else the first wall by its reference this phone holds -- and its writer there
-     * (iOS originalWriter 2190-2194, original(of:besides:) 2182-2188). */
+    /** A repost's writer, read off the post where it stands as itself -- my wall, else the first wall by its reference this phone
+     * holds (iOS originalWriter 2190-2194). */
     private fun originalWriter(id: String, besides: String): String? {
         MyWall.writerOf(id)?.let { return it }
-        val o = synchronized(lock) {
-            ensure()
-            pages.keys.sorted().filter { it != besides }.firstNotNullOfOrNull { w ->
-                val ps = pages[w]?.optJSONArray("ps") ?: JSONArray()
-                (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { q -> q.optString("id") == id && !q.has("from") }?.let { q -> w to q }
-            }
-        } ?: return null
+        val o = original(id, besides) ?: return null
         return writer(o.first, o.second)
+    }
+    /** The post itself, where it stands as itself on a wall this phone holds -- the first such wall by its reference, so the answer
+     * never depends on the order a map walks in (iOS original(of:besides:), MontanaBoard.swift:2251-2258 at 2336). */
+    private fun original(id: String, besides: String): Pair<String, JSONObject>? = synchronized(lock) {
+        ensure()
+        pages.keys.sorted().filter { it != besides }.firstNotNullOfOrNull { w ->
+            val ps = pages[w]?.optJSONArray("ps") ?: JSONArray()
+            (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { q -> q.optString("id") == id && !q.has("from") }?.let { q -> w to q }
+        }
+    }
+    /**
+     * THE THREAD A POST'S COMMENTS LIVE IN (iOS MTBoard.thread, MontanaBoard.swift:2238-2249 at 2336, atom d71617c6; the author's word
+     * 25.09: «the comments belong to the original's access»): a post's own; a repost's are its original's -- one thread for the post
+     * wherever it is taken -- read where this phone holds the original as itself (mine, the wall my repost was taken from, else the
+     * first wall by its reference), and written to that wall's owner, whose rules alone say who sees them and who writes them.
+     * Null -- this phone holds the original nowhere, and its comments are not this phone's to see.
+     */
+    fun thread(wall: String, p: JSONObject): Pair<String, JSONObject>? {
+        if (!p.has("from")) return wall to p
+        val id = p.optString("id")
+        MyWall.post(id)?.takeIf { !it.has("from") }?.let { return "" to it }
+        if (wall.isEmpty()) MyWall.srcOf(id)?.let { s -> post(s, id)?.takeIf { !it.has("from") }?.let { return s to it } }
+        return original(id, wall)
     }
     /** WHO WROTE A COMMENT, AS FAR AS THIS PHONE KNOWS (iOS commenter, MontanaBoard.swift:2195-2207 at 2155): on my wall its writer's
      * reference is mine to read; on another's the owner says which are this visitor's own («m») and which the owner's («o»). */
@@ -1389,7 +1406,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             }, lp(WRAP, dp(44)).apply { marginEnd = dp(14) })
             val liked = p.optBoolean("liked")
             mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like) { Board.like(it.wall, p) }
-            mark(R.drawable.ic_set_textbubble, p.optInt("commentCount"), MT.gray, R.string.wall_comments, if (whole) null else openComments)
+            // a repost counts its original's thread (iOS d71617c6, board.thread(of:on:)?.post.commentCount ?? 0)
+            mark(R.drawable.ic_set_textbubble, Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0, MT.gray, R.string.wall_comments, if (whole) null else openComments)
             // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
             mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
                 Thread { if (p.optBoolean("kept")) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
@@ -2006,7 +2024,9 @@ private fun fileRow(act: MainActivity, wall: String, p: JSONObject, i: Int, m: J
 /**
  * THE COMMENTS OF A POST (iOS MTBoardComments 2246-2440): the post whole on top, its chain newest first, each comment under its
  * writer's head with its number in the chain and its moment; the field below for one who may write on the wall, else the words
- * that say who may.
+ * that say who may. THE ONE THREAD (iOS d71617c6, MTBoardComments.thread): a repost's page is its original's -- the original whole,
+ * its chain, the field to its wall's owner under that wall's rules; a repost whose original this phone holds nowhere says its
+ * comments are under the original and draws no field.
  */
 fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () -> Unit, focus: String? = null): View {
     val c: Context = act
@@ -2029,8 +2049,11 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
     var scrolled = focus == null
     fun draw() {
         body.removeAllViews()
-        val p = Board.post(wall, id) ?: return
-        body.addView(postCell(act, Board.Item(wall, p), whole = true), lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
+        val (tw, p) = Board.post(wall, id)?.let { Board.thread(wall, it) } ?: run {
+            if (Board.post(wall, id) != null) body.addView(c.text(c.getString(R.string.wall_under_original), 15f, MT.gray).apply { setPadding(0, dp(16), 0, 0) }, lp())
+            return
+        }
+        body.addView(postCell(act, Board.Item(tw, p), whole = true), lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
         val cs = p.optJSONArray("comments") ?: JSONArray()
         if (cs.length() == 0) { body.addView(c.text(c.getString(R.string.wall_no_comments), 15f, MT.gray), lp()); return }
         val base = p.optInt("commentCount") - cs.length()
@@ -2039,7 +2062,7 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
             val name = k.optString("by").ifEmpty { c.getString(R.string.wall_someone) }
             val face = when {
                 k.optBoolean("m") -> SelfFace.bytes(c)?.let { b -> BitmapFactory.decodeByteArray(b, 0, b.size) }
-                k.optBoolean("o") -> Book.face(wall).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) }
+                k.optBoolean("o") -> Book.face(tw).takeIf { f -> f.exists() }?.let { f -> BitmapFactory.decodeFile(f.path) }
                 else -> null
             } ?: poster(k.optString("fc"))
             body.addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -2051,7 +2074,7 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
                     addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
                     // A COMMENTER'S HEAD OPENS THEIR PAGE (iOS MTBoardComments.row, MontanaBoardViews.swift:2338-2349 at 2155): me, the wall's
                     // owner, and on my own wall every commenter -- the face and the name one target
-                    Board.commenter(wall, id, k)?.let { w -> minimumHeight = dp(44); pressable { openWriter(act, w) } }
+                    Board.commenter(tw, id, k)?.let { w -> minimumHeight = dp(44); pressable { openWriter(act, w) } }
                 }, lp())
                 val words = k.optString("text")
                 // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTBoard.linked, MontanaBoard.swift:1491-1493, atom 20c5cef6f490):
@@ -2076,22 +2099,25 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         hint = c.getString(R.string.wall_write_comment); setTextColor(android.graphics.Color.WHITE); setHintTextColor(MT.gray)
         background = c.rounded(android.graphics.Color.rgb(38, 38, 38), 18); setPadding(dp(12), dp(10), dp(12), dp(10)); maxLines = 5
     }
-    val foot: View = if (Board.canWrite(wall)) c.hstack {
+    val thread0 = Board.post(wall, id)?.let { Board.thread(wall, it) }
+    val foot: View = if (thread0 != null && Board.canWrite(thread0.first)) c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), dp(8), dp(12), dp(8))
         addView(field, lp(0, WRAP, 1f)); gap(8)
         addView(c.icon(R.drawable.ic_arrow_circle_up, android.graphics.Color.WHITE, 30).apply {
             contentDescription = c.getString(R.string.wall_send)
             pressable {
-                val p = Board.post(wall, id) ?: return@pressable
+                // the comment goes to the thread's wall -- a repost's to its original's owner (iOS d71617c6)
+                val (tw, p) = Board.post(wall, id)?.let { Board.thread(wall, it) } ?: return@pressable
                 // the words are read here, on the main thread: read inside the thread they came after the line below had emptied the
                 // field, and the comment went nowhere
                 val words = field.text.toString()
-                Thread { Board.comment(wall, p, words) }.start()
+                Thread { Board.comment(tw, p, words) }.start()
                 field.setText("")
             }
         }, lp(dp(44), dp(44)))
-    } else c.text(c.getString(R.string.wall_only_writers), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }
+    } else if (thread0 != null) c.text(c.getString(R.string.wall_only_writers), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }
+    else View(c)
     val bar = FrameLayout(c).apply {
         addView(c.icon(R.drawable.ic_close, android.graphics.Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
             FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(8) })
@@ -2107,8 +2133,9 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         setBackgroundColor(android.graphics.Color.BLACK)
         addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { Board.listen(again); draw(); v.requestApplyInsets() }
-            override fun onViewDetachedFromWindow(v: View) { Board.unlisten(again) }
+            // a repost's thread may stand on my own wall: my wall's words move it too
+            override fun onViewAttachedToWindow(v: View) { Board.listen(again); MyWall.listen(again); draw(); v.requestApplyInsets() }
+            override fun onViewDetachedFromWindow(v: View) { Board.unlisten(again); MyWall.unlisten(again) }
         })
         // the keys' cover lifts the column's foot frame by frame; the page's own padding carries the system's bars alone
         val keys = KeyRide(this, place = { k -> column.setPadding(0, 0, 0, k) }, letGo = {
