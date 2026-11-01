@@ -319,6 +319,8 @@ object Twin {
         note(chat, UUID.randomUUID().toString().uppercase(), ASK + js.toString(), own = true)
         Log.d("Montana", "twin_ask chat=" + chat.take(10) + " rows=" + fresh.size)
     }
+    /** How many rows stand asked (iOS mt.twin.asked count): a row unasked changes the archive's face, so the gap is measured again. */
+    fun askedCount(): Int = synchronized(lock) { strings(ASKED).size }
     /** A row whose file did not come whole is asked again the next time the gap is measured. */
     private fun unask(chat: String, s: Long, h: String) = synchronized(lock) { keepStrings(ASKED, strings(ASKED).filter { it != "$chat/$s/$h" }) }
 

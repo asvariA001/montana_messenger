@@ -1359,6 +1359,8 @@ object Book {
         return DeviceVault.set(SECRETS, o.toString().toByteArray())
     }
     fun refs(): List<String> = synchronized(lock) { sec().keys.toList() }
+    /** Every conversation the feed holds, an emptied one too (iOS ChatStore messages.keys): what the archive's face is read beside. */
+    fun held(): List<String> = synchronized(lock) { ensure(); chats.keys.toList() }
 
     // ── THE HEALS OF THE PIPES, SEALED BESIDE THE BOOK (iOS MTPipeBook healLoad/healStore/rebase/healCarry/healSent/healRead/open,
     // issue #75 slice C2b-2, 76f5eeb7): each pipe's side of its heals (Wire.HealSide: its offer with the decapsulation key, the answer

@@ -21,6 +21,7 @@ object Archive {
     private const val NAMES = "mt.history.nameheads"     // folder → the name sealed last (iOS nameHeadsKey 925)
     private const val DEVICE = "mt.history.device"       // this install's sixteen bytes (iOS writerTag16, local)
     private const val PUSHED = "mt.history.pushed"       // folder → the next block number the twin has not been handed (iOS cursorKey 612)
+    private const val FACE_KEY = "mt.archive.face"       // the archive's face at its last whole reading (iOS archiveFaceKey; Prefs leave with the person)
     private val q = Executors.newSingleThreadExecutor { r -> Thread(r, "archive").apply { isDaemon = true } }
     @Volatile private var keys: Keys? = null
 
@@ -279,6 +280,11 @@ object Archive {
         val chatsDir = File(root() ?: return, "Chats")
         if (only == null) twins(k, chatsDir)
         val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
+        // THE SAME ARCHIVE IS NOT READ TWICE (iOS MontanaArchive.face, ae663723, link 14244): a cold start whose archive, feed, pipe book
+        // and asked rows stand as at the last whole reading would find the same gaps and build nothing, so it reads no log; any change
+        // (a block written, a chat born or emptied, a pipe, a row unasked) changes the face, and the archive is read
+        val face = if (only == null) face(chatsDir, folders) else null
+        if (face != null && face == Prefs.str(FACE_KEY, "")) { Log.d("Montana", "archive_same chats=" + Book.held().size); return }
         val book = HashMap<String, String>()
         for (r in Book.refs()) book[label(k, r)] = r
         book[label(k, Book.SAVED)] = Book.SAVED   // the room without an address has a folder and no secret (iOS: the book holds it)
@@ -367,6 +373,22 @@ object Archive {
         }
         if (0 < gapRows) Log.d("Montana", "archive_gap total chats=" + gapChats + " rows=" + gapRows)
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
+        if (face != null) Prefs.setStr(FACE_KEY, face)
+    }
+
+    /**
+     * THE ARCHIVE'S FACE (iOS MontanaArchive.face, ae663723 + 5e69054f): each log's folder, size and last write, with the feed's chats,
+     * the pipe count, the asked rows and the day the road back floors by, in one hash — a stat per folder, never a byte of a log. It is
+     * asked only once the keys stand (restore returns without them), so a reading that could open nothing is never remembered as read.
+     */
+    private fun face(chatsDir: File, folders: List<String>): String {
+        val parts = arrayListOf("feed=" + Book.held().sorted().joinToString(","), "pipes=" + Book.refs().size,
+            "asked=" + Twin.askedCount(), "day=" + FloorGuard.recoveryDay())
+        for (f in folders.sorted()) {
+            val log = File(File(chatsDir, f), "conversation.mtlog")
+            parts.add(f + ":" + (if (log.isFile) log.length() else -1) + ":" + log.lastModified())
+        }
+        return Wire.hex(java.security.MessageDigest.getInstance("SHA-256").digest(parts.joinToString("\n").toByteArray()))
     }
 
     // ── HISTORY ACROSS A PERSON'S OWN DEVICES (iOS 595-769) ──
