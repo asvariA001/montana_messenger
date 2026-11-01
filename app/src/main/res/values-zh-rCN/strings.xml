@@ -851,4 +851,5 @@
     <string name="call_rec_none">此通话没有录音，因为未收到音频。</string>
     <string name="call_rec_mark">录制</string>
     <string name="call_rec_stop">停止录制</string>
+    <string name="call_rec_on">正在录制</string>
 </resources>
