@@ -16,6 +16,7 @@ import java.security.MessageDigest
 object HistoryFile {
     private const val OLD = "chat:"   // the vault's own name of a conversation, before this shape
     private val held = HashMap<String, String>()   // a part's name: the digest of its plain bytes, as this process wrote or read them
+    var moved = 0; private set   // conversations moved out of the vault by this process
 
     private fun dir() = File(Book.ctx.noBackupFilesDir, "MontanaHistory/chats")
     /** The folder the disk's measure counts as history (CopyPlan). */
@@ -35,7 +36,7 @@ object HistoryFile {
             return plain
         }
         val old = DeviceVault.get(OLD + ref) ?: return null
-        if (lay(n, old)) DeviceVault.delete(OLD + ref)
+        if (lay(n, old)) { DeviceVault.delete(OLD + ref); moved++ }
         return old
     }
 

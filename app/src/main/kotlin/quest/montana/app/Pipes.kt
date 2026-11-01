@@ -1313,6 +1313,7 @@ object Book {
             val ref = idx.getString(i)
             HistoryFile.get(ref)?.let { raw -> runCatching { Chat.of(JSONObject(String(raw, Charsets.UTF_8))) }.getOrNull() }?.let { chats[ref] = it }
         }
+        Log.d("Montana", "book_read chats=" + chats.size + " of=" + idx.length() + " moved=" + HistoryFile.moved)
     }
     private fun saveIndex() { DeviceVault.set(INDEX, JSONArray(chats.keys.toList()).toString().toByteArray()) }
     // one conversation, one sealed file: a letter writes its own conversation, never the whole book (iOS MTHistoryFile, P-6)
