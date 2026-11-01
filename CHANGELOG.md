@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2336) - 2026-11-01
+
+Source commit `d039af024dca`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2336.md).
+
+- Faster and cooler start: when nothing in your chat archive has changed since the last launch, the app no longer reads and decrypts the whole archive again at every start -- it checks the size and time of each chat's log and moves on.
+
+**Security and anonymity**
+
+- One new value on this device: mt.archive.face, the SHA-256 of each chat folder's log size and last-write time with the feed's chat names, the pipe count, the asked-row count and the recovery day, kept in the app's own defaults, scoped to the seated seed (SeedScope) and erased with it. It holds no message, key or address in clear and never leaves the device. It is computed only when the archive's keys are present, so an archive that could not be opened is never remembered as read. No new address, server, key leaving the device or network road is added.
+
 ## 1.0 (2335) - 2026-11-01
 
 Source commit `e46ce11cc870`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2335.md).
