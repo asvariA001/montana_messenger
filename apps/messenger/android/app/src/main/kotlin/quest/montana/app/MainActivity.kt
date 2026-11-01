@@ -482,6 +482,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
+        if (hasSeed && termsAccepted) CallTape.recover()   // a call's tape the app's death cut leaves for its chat, «incomplete» (iOS MontanaApp 349)
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
         Update.onLeast = { keepUpdateRequired(again = false) }; keepUpdateRequired()   // a build below the network's least sees the update banner
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)

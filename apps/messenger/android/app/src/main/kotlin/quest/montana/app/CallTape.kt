@@ -9,6 +9,7 @@ import android.media.MediaMuxer
 import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
+import org.json.JSONObject
 import org.webrtc.ExternalAudioProcessingFactory
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -33,7 +34,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * connects is recorded by itself from level 7 (the person's switch and one consent) or by the call screen's mark on any level, unless
  * the correspondent's switch holds; the chat is told once; the caller sends the recording to the chat, or the one who answered when
  * the caller does not record -- one copy, never none. A video call's pictures are filmed beside the voices (CallFilm) and leave
- * with them as one .mp4. DEVIATION: a tape cut by the app's death is not brought back (iOS recover).
+ * with them as one .mp4. A tape cut by the app's death is brought back at the next return and sent signed «incomplete» (iOS
+ * recover); DEVIATION: its manifest is plain JSON in the app's own files (iOS seals it in MontanaLocalVault).
  */
 object CallTape {
     const val KEY = "callRecordingEnabled"   // NOT-UI: iOS MTCallRecordingPolicy.key, on by default
@@ -126,6 +128,8 @@ object CallTape {
             Post.send(call.ref, mid, words)
         }
         live = call
+        // the tape's manifest lies on disk first: a tape the app's death cuts is found by it at the next return (iOS MTCallTapeStore)
+        note(call.id) { it.put("chat", call.ref).put("started", System.currentTimeMillis()).put("sends", call.sendsToChat).put("stopped", false) }
         tape = Tape(File(dir(), call.id)).also { CallFilm.roll(it.base, it.origin) }   // a video call's pictures roll with its voices
         log("start sends=" + call.sendsToChat)
     }
@@ -141,29 +145,82 @@ object CallTape {
         val t = tape ?: return
         live = null; tape = null
         val reel = CallFilm.stop()
-        val out = File(dir(), call.id + ".m4a")
-        t.close {
-            val secs = runCatching { export(t, out) }.onFailure { log("export fail " + it.javaClass.simpleName + " " + it.message) }.getOrNull() ?: 0.0
+        exporting.add(call.id)
+        t.close { deliverTape(call.id, call.ref, deliver && call.sendsToChat, t, reel, partial = false) }
+    }
+
+    /**
+     * A CLOSED TAPE LEAVES (iOS export 602-664): mixed into an .m4a off the call's threads, the film joined beside it; the phone
+     * that sends lays it in the chat as a voice or a video signed «Call recording» («— incomplete» for a tape the app's death cut),
+     * and a tape that heard no voice says so in the chat on this phone alone. A recording this phone does not send stays on it.
+     * An export that fails keeps the tape and its manifest: the next return tries again (iOS: «Montana will try again»).
+     */
+    private fun deliverTape(id: String, ref: String, sends: Boolean, t: Tape, reel: CallFilm.Reel?, partial: Boolean) {
+        try {
+            val out = File(dir(), "$id.m4a")
+            val secs = runCatching { export(t, out) }.onFailure { log("export fail " + it.javaClass.simpleName + " " + it.message) }.getOrNull()
+            if (secs == null) { reel?.let { CallFilm.keep(it) }; note(id) { it.put("stopped", true).put("partial", partial) }; return }
             t.delete()
             // a call whose pictures were filmed leaves as one .mp4, the voices beside the film (iOS «call_<id>.mp4», kind vid)
-            val mp4 = File(dir(), call.id + ".mp4")
+            val mp4 = File(dir(), "$id.mp4")
             val film = reel?.let { if (secs > 0.0) CallFilm.join(it, out, mp4) else CallFilm.drop(it) } == true
             val c = Book.ctx
             when {
-                !deliver || !call.sendsToChat -> { if (film) out.delete(); log("kept on this phone s=" + secs.toInt() + if (film) " film" else "") }
+                !sends -> { if (film) out.delete(); log("kept on this phone s=" + secs.toInt() + if (film) " film" else "") }
                 secs <= 0.0 -> {
                     out.delete(); mp4.delete()
                     val mid = Marks.mintMid()
-                    Book.edit(call.ref) { it.msgs.add(Msg(mid, c.getString(R.string.call_rec_none), true, System.currentTimeMillis(), state = 1)) }
+                    Book.edit(ref) { it.msgs.add(Msg(mid, c.getString(R.string.call_rec_none), true, System.currentTimeMillis(), state = 1)) }
                 }
                 else -> {
                     val p = if (film) Media.Picked(mp4.readBytes(), "vid", "mp4", null, secs) else Media.Picked(out.readBytes(), "aud", "m4a", null, secs)
-                    Media.send(c, call.ref, p, c.getString(R.string.call_rec_row))
+                    Media.send(c, ref, p, c.getString(if (partial) R.string.call_rec_row_partial else R.string.call_rec_row))
                     out.delete(); mp4.delete()
-                    log("queued s=" + secs.toInt())
+                    log("queued s=" + secs.toInt() + if (partial) " partial" else "")
                 }
             }
-        }
+            manifest(id).delete()
+        } finally { exporting.remove(id) }
+    }
+
+    // ── THE TAPE'S MANIFEST (iOS MTCallTapeManifest, MTCallTapeStore): its chat, whether this phone sends it, the voices' rates ──
+    private val exporting = java.util.Collections.synchronizedSet(HashSet<String>())   // tapes leaving now: never recovered twice (iOS reserved)
+    private val manifests = Any()
+    private fun manifest(id: String) = File(dir(), "$id.recording")
+    private fun note(id: String, edit: (JSONObject) -> Unit) = synchronized(manifests) {
+        runCatching {
+            val f = manifest(id)
+            val j = if (f.exists()) JSONObject(f.readText()) else JSONObject().put("id", id)
+            edit(j)
+            val tmp = File(f.path + ".tmp"); tmp.writeText(j.toString()); tmp.renameTo(f)
+        }.onFailure { log("manifest " + it.javaClass.simpleName) }
+    }
+    @Volatile private var recovering = false
+
+    /**
+     * THE CUT TAPE COMES BACK (iOS MTCallRecording.recover, run at the app's return): every manifest this phone sends that is neither
+     * rolling nor leaving now is closed as it lies -- a tape never stopped is «incomplete» -- and leaves as at a call's end. A tape
+     * this phone does not send, or whose chat is gone, stays.
+     */
+    fun recover() {
+        if (recovering) return
+        recovering = true
+        Thread({
+            try {
+                val found = dir().listFiles { f -> f.name.endsWith(".recording") } ?: emptyArray()
+                for (f in found) {
+                    val id = f.name.removeSuffix(".recording")
+                    if (synchronized(this) { live?.id == id } || id in exporting) continue
+                    val j = runCatching { JSONObject(f.readText()) }.getOrNull() ?: continue
+                    val ref = j.optString("chat")
+                    if (!j.optBoolean("sends") || ref.isEmpty() || Book.chat(ref) == null) continue
+                    exporting.add(id)
+                    val base = File(dir(), id)
+                    log("recover partial=" + !j.optBoolean("stopped"))
+                    deliverTape(id, ref, true, Tape.reopen(base, j), CallFilm.reopen(base), partial = !j.optBoolean("stopped") || j.optBoolean("partial"))
+                }
+            } catch (e: Exception) { log("recover " + e.javaClass.simpleName) } finally { recovering = false }
+        }, "call-record-recover").start()
     }
 
     /** The person's one consent (iOS consent): a yes sets the switch too, and the call that waited begins. */
@@ -209,24 +266,41 @@ object CallTape {
         val work = Executors.newSingleThreadExecutor()
         val slots = AtomicInteger(512)   // iOS: up to 2.56 s of the two 10 ms streams; past it a buffer is shed, never waited for
         val origin = SystemClock.elapsedRealtime()
-        class Side(val file: File) { val out = BufferedOutputStream(FileOutputStream(file), 1 shl 16); var rate = 0; var written = 0L }
+        class Side(val file: File) { var out: BufferedOutputStream? = null; var rate = 0; var written = 0L }
         val sides = HashMap<Boolean, Side>()
+        companion object {
+            /** A tape left on disk, its voices at the rates its manifest kept: read, never written again. */
+            fun reopen(base: File, j: JSONObject) = Tape(base).apply {
+                work.shutdown()
+                for (local in listOf(true, false)) {
+                    val f = File(base.path + if (local) ".local" else ".remote")
+                    val r = j.optInt(if (local) "rateLocal" else "rateRemote")
+                    if (f.exists() && r > 0) sides[local] = Side(f).also { it.rate = r; it.written = f.length() / 2 }
+                }
+            }
+        }
         fun audio(local: Boolean, pcm: ShortArray, rate: Int, at: Long) {
             if (slots.decrementAndGet() < 0) { slots.incrementAndGet(); return }
             work.execute {
                 try {
-                    val s = sides.getOrPut(local) { Side(File(base.path + if (local) ".local" else ".remote")).also { it.rate = rate } }
+                    val s = sides.getOrPut(local) {
+                        Side(File(base.path + if (local) ".local" else ".remote")).also {
+                            it.rate = rate; it.out = BufferedOutputStream(FileOutputStream(it.file), 1 shl 16)
+                            note(base.name) { j -> j.put(if (local) "rateLocal" else "rateRemote", rate) }
+                        }
+                    }
                     if (s.rate != rate) return@execute   // a voice that changes its rate mid-call is not re-timed: its rest is shed
                     val due = (at - origin) * rate / 1000 - pcm.size
-                    if (due > s.written + rate / 10) { repeat((due - s.written).toInt() * 2) { s.out.write(0) }; s.written = due }
+                    val o = s.out ?: return@execute
+                    if (due > s.written + rate / 10) { repeat((due - s.written).toInt() * 2) { o.write(0) }; s.written = due }
                     val b = ByteArray(pcm.size * 2)
                     for (i in pcm.indices) { b[2 * i] = pcm[i].toByte(); b[2 * i + 1] = (pcm[i].toInt() shr 8).toByte() }
-                    s.out.write(b); s.written += pcm.size
+                    o.write(b); s.written += pcm.size
                 } catch (e: Exception) { log("tape " + e.javaClass.simpleName) } finally { slots.incrementAndGet() }
             }
         }
         fun close(then: () -> Unit) = work.execute {
-            sides.values.forEach { runCatching { it.out.close() } }
+            sides.values.forEach { runCatching { it.out?.close() } }
             Thread(then, "call-record-export").start()
             work.shutdown()
         }
@@ -250,6 +324,7 @@ object CallTape {
 
     /** The two voices, half and half, encoded once into AAC in an .m4a; returns its seconds. */
     private fun export(t: Tape, out: File): Double {
+        // a tape cut mid-write may end in half a sample: it is read to its last whole one
         val readers = t.sides.values.filter { it.written > 0 && it.file.length() > 0 }.map { Reader(it.file, it.rate) }
         if (readers.isEmpty()) return 0.0
         val total = t.sides.values.maxOf { it.written * RATE / maxOf(1, it.rate) }

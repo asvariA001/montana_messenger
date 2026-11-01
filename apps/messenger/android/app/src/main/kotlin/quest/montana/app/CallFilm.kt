@@ -7,7 +7,9 @@ import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.SystemClock
+import android.util.Base64
 import android.util.Log
+import org.json.JSONObject
 import org.webrtc.VideoFrame
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
@@ -262,7 +264,7 @@ object CallFilm {
             val until = SystemClock.elapsedRealtime() + 3000
             while (true) {
                 val o = c.dequeueOutputBuffer(info, if (end) 10_000 else 0)
-                if (o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) format = c.outputFormat
+                if (o == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) { format = c.outputFormat; keepFormat(c.outputFormat) }
                 else if (o >= 0) {
                     if (info.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG == 0 && info.size > 0) {
                         val b = c.getOutputBuffer(o)!!; b.position(info.offset); b.limit(info.offset + info.size)
@@ -274,6 +276,15 @@ object CallFilm {
                 } else if (!end || SystemClock.elapsedRealtime() > until) break
             }
         }
+
+        /** The encoder's shape and its two parameter sets lie beside the film: a film the app's death cut is joined by them. */
+        private fun keepFormat(f: MediaFormat) = runCatching {
+            fun csd(k: String) = f.getByteBuffer(k)?.let { b -> val d = b.duplicate(); ByteArray(d.remaining()).also { d.get(it) } }
+            val j = JSONObject().put("w", f.getInteger(MediaFormat.KEY_WIDTH)).put("h", f.getInteger(MediaFormat.KEY_HEIGHT))
+            csd("csd-0")?.let { j.put("csd0", Base64.encodeToString(it, Base64.NO_WRAP)) }
+            csd("csd-1")?.let { j.put("csd1", Base64.encodeToString(it, Base64.NO_WRAP)) }
+            File(file.path + ".fmt").writeText(j.toString())
+        }.onFailure { log("film format " + it.javaClass.simpleName) }
 
         private fun fail(e: Exception) {
             failed = true
@@ -300,7 +311,26 @@ object CallFilm {
     }
 
     /** A film without voices is not kept (iOS: no voice, no recording): closed and gone. */
-    fun drop(r: Reel): Boolean { r.end(); r.file.delete(); return false }
+    fun drop(r: Reel): Boolean { r.end(); gone(r); return false }
+    /** A film whose voices could not be exported yet is closed and stays for the next return (CallTape.recover). */
+    fun keep(r: Reel) { r.end() }
+    private fun gone(r: Reel) { r.file.delete(); File(r.file.path + ".fmt").delete() }
+
+    /** A film the app's death cut, read back by its kept format; its last sample may be torn, and is left out at the join. */
+    fun reopen(base: File): Reel? {
+        val file = File(base.path + ".video")
+        if (!file.exists()) return null
+        val j = runCatching { JSONObject(File(file.path + ".fmt").readText()) }.getOrNull()
+        val csd0 = j?.optString("csd0").orEmpty()
+        if (j == null || csd0.isEmpty()) { file.delete(); File(file.path + ".fmt").delete(); return null }
+        return Reel(file, 0L).also { r ->
+            r.format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, j.getInt("w"), j.getInt("h")).apply {
+                setByteBuffer("csd-0", ByteBuffer.wrap(Base64.decode(csd0, Base64.NO_WRAP)))
+                j.optString("csd1").takeIf { it.isNotEmpty() }?.let { setByteBuffer("csd-1", ByteBuffer.wrap(Base64.decode(it, Base64.NO_WRAP))) }
+            }
+            r.frames = 1
+        }
+    }
 
     /**
      * THE PICTURE IS NOT ENCODED TWICE (iOS copyPicture; 16.10.2026, No.70, the fleet's heat): the film's samples are copied as
@@ -326,7 +356,8 @@ object CallFilm {
                 val info = MediaCodec.BufferInfo()
                 var vPts = -1L; var vFlags = 0; var vBytes: ByteArray? = null
                 fun nextVideo() {
-                    vBytes = try { vPts = inp.readLong(); vFlags = inp.readInt(); ByteArray(inp.readInt()).also { inp.readFully(it) } } catch (e: EOFException) { null }
+                    // a film the app's death cut ends in a torn sample: it, and anything past a size no frame has, is left out
+                    vBytes = try { vPts = inp.readLong(); vFlags = inp.readInt(); val n = inp.readInt(); if (n !in 1..(4 shl 20)) null else ByteArray(n).also { inp.readFully(it) } } catch (e: EOFException) { null }
                 }
                 nextVideo()
                 var audioLeft = true
@@ -359,7 +390,7 @@ object CallFilm {
             log("film join fail " + e.javaClass.simpleName + " " + e.message)
             out.delete()
             return false
-        } finally { r.file.delete() }
+        } finally { gone(r) }
     }
 
     private fun log(s: String) { Log.d("Montana", "call record: " + s) }
