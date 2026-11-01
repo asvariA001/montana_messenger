@@ -4,7 +4,7 @@ Every build of Montana for iPhone, iPad and Mac, newest first. The version is th
 
 ## 1.0 (2338) - 2026-11-01
 
-Source commit `7cbd54df27c5`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2338.md).
+Source commit `16a351ace227`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2338.md).
 
 - Cooler phone: a quick pass through the feed on the way to another tab no longer wakes the phones of everyone in it, and a message arriving while the app is open no longer makes it read the whole mailbox again.
 - Faster start and less heat: the chat history is no longer rewritten in full (several megabytes) at every launch, an incoming name no longer rewrites the names list on the main thread, and the clean-up of old stored files runs once a minute instead of once per write.
