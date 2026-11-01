@@ -154,7 +154,28 @@ object CallLine {
      * then waits for it as long as a ring rings -- its run comes back within it. */
     @Volatile var peerRebuilds = false
         private set
+    private val peerRec = LinkedHashMap<String, Pair<Boolean?, Int?>>()   // the call's name -> the correspondent's switch and level
+
+    /** The connected call's recording is weighed (iOS refreshRecording): at the connect, at the correspondent's caps, at a consent. */
+    fun refreshRecording() {
+        val l = synchronized(gate) { line } ?: return
+        if (l.connectedAt == 0L) return
+        val (rec, lv) = synchronized(peerRec) { peerRec[Calls.epochOf(l.seed)] } ?: Pair(null, null)
+        CallTape.refresh(l.seed, l.ref, l.caller, rec, lv)
+    }
+    /** The seed of the call that stands connected, for the call screen's record mark (iOS handRecordingUUID once talkSince stands). */
+    val talkingSeed: String? get() = synchronized(gate) { line?.takeIf { it.connectedAt != 0L }?.seed }
     fun learnCaps(ref: String, epoch: String, caps: JSONObject?) {
+        // THE CORRESPONDENT'S RECORDING SWITCH AND LEVEL (iOS learnPeerCaps 1623, peerRecordSwitch 1232): kept by the call's name,
+        // so the offer heard before the ring is born is not lost; the connected call is weighed again
+        if (caps != null && (caps.has("rec") || caps.has("lv"))) {
+            synchronized(peerRec) {
+                val was = peerRec[epoch]
+                peerRec[epoch] = Pair(if (caps.has("rec")) caps.optBoolean("rec") else was?.first, if (caps.has("lv")) caps.optInt("lv") else was?.second)
+                while (peerRec.size > 4) peerRec.remove(peerRec.keys.first())
+            }
+            refreshRecording()
+        }
         if (caps?.optBoolean("rejoin") != true || peerRebuilds) return
         if (mine(ref, epoch) == null && Calls.peer() != ref) return
         peerRebuilds = true
@@ -390,6 +411,7 @@ object CallLine {
     // iOS myCaps, as this build is: SFrame off, no answer read off the wake road, no rejoin
     fun caps(): JSONObject = JSONObject().put("tier", "android-native").put("ver", 1).put("opus_max", 40000).put("hw_aec", true)
         .put("sframe", false).put("av", false).put("rejoin", true)   // this build rebuilds a call in place and goes back into it (iOS caps.rejoin)
+        .put("rec", CallTape.automatic).apply { LevelAccess.level?.let { put("lv", it) } }   // my recording switch and level (iOS 1614)
 
     private fun word(l: Line, ctrl: String) =
         JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", NodeClock.now()).put("e", Calls.epochOf(l.seed))
@@ -488,6 +510,7 @@ object CallLine {
                     l.sum.battStart = power().level   // iOS 4420: every call's battery at its connect, a voice call's too
                     CallService.sync()
                     autoSpeaker(l)
+                    refreshRecording()
                 }
                 // THE MEASUREMENT STARTS HERE AND ONLY HERE (iOS 5048-5055): a reconnect never starts a second loop
                 if (!l.measuring) { l.measuring = true; measure(l, ++l.measureGen) }
@@ -752,6 +775,7 @@ object CallLine {
         video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
         front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false; peerShape = null
         peerRebuilds = false
+        synchronized(peerRec) { peerRec.clear() }
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)

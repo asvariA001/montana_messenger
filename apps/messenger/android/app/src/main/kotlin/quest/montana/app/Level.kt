@@ -197,7 +197,7 @@ private fun View.stillDeep() {
 /**
  * ACCESS BY LEVEL, THE PAGE (iOS MTLevelAccessPage, MontanaSettings.swift:2934-3018; the author's words 16.10.2026 18:2x MSK): the
  * person's Global Level on top, and under each level the functions it opens. DEVIATION: the fabric of time stands as a dash (not read
- * on Android), and «Record calls» of level 7 is not shown -- Android records no call by itself, a switch for it would say a false word.
+ * on Android).
  */
 fun levelAccessPage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
@@ -221,7 +221,12 @@ fun levelAccessPage(act: MainActivity, onBack: () -> Unit): View {
         val keep = c.switchLine(R.drawable.ic_shield, SysColor.green, c.getString(R.string.lv_keep), open && Prefs.bool(LevelAccess.KEEP_KEY, true),
             c.getString(R.string.lv_keep_caption)) { on -> if (open) Prefs.setBool(LevelAccess.KEEP_KEY, on) }
         if (!open) keep.stillAll()
-        section(c.getString(R.string.lv_level, seven), if (open) null else c.getString(R.string.lv_opens, seven, level), keep)
+        // «Record calls» (iOS 3023-3026): on by itself from level 7, after the person's one consent (CallTape.changed)
+        val recOpen = LevelAccess.opens(LevelAccess.Feature.AUTO_RECORD)
+        val rec = c.switchLine(R.drawable.ic_record_circle, SysColor.red, c.getString(R.string.call_rec_switch), recOpen && CallTape.enabled,
+            c.getString(R.string.call_rec_caption)) { on -> if (recOpen) { Prefs.setBool(CallTape.KEY, on); CallTape.changed(on, act) } }
+        if (!recOpen) rec.stillAll()
+        section(c.getString(R.string.lv_level, seven), if (open) null else c.getString(R.string.lv_opens, seven, level), keep, rec)
         // LEVEL 8 (iOS 2989-3006; the author's word 17.10.2026 18:1x MSK): the page of one's node
         val node = c.vstack(Gravity.NO_GRAVITY) {
             addView(c.settingsRow(R.drawable.ic_set_server, SysColor.gray, c.getString(R.string.your_node)) { act.push { NodePage(act, it).view } }, lp())
