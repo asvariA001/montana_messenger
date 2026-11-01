@@ -2011,7 +2011,19 @@ private fun fileRow(act: MainActivity, wall: String, p: JSONObject, i: Int, m: J
 fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () -> Unit, focus: String? = null): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), 0, dp(12), dp(16)) }
-    val scroll = ScrollView(c)
+    // THE COMMENTS' KEYS FOLD UNDER THE FINGER, AS IN THE CHATS (iOS 560214ea, .scrollDismissesKeyboard(.interactively),
+    // MontanaBoardViews.swift:2440; the author's word 02.10 19:17): a drag down over the thread past the field's top takes the keys
+    // down with the finger (KeyRide, the chats' own rider), and the field rides them down
+    var ride: KeyRide? = null
+    var footTop: () -> Int = { Int.MAX_VALUE }
+    val scroll = object : ScrollView(c) {
+        private var downY = 0f
+        override fun dispatchTouchEvent(e: android.view.MotionEvent): Boolean {
+            if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN) downY = e.y
+            ride?.touch(e, downY < e.y, footTop())
+            return super.dispatchTouchEvent(e)
+        }
+    }
     // A COMMENT'S OWN LINK SCROLLS TO IT, ONCE (iOS MTBoardComments's ScrollViewReader.onAppear, MontanaBoardViews.swift:1591, 2155
     // build): montana://wall/comment opens this same page already drawn to its one comment.
     var scrolled = focus == null
@@ -2086,18 +2098,30 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         addView(c.text(c.getString(R.string.wall_comments), 17f, android.graphics.Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
     }
     val again: () -> Unit = { draw() }
+    val column = c.vstack(Gravity.NO_GRAVITY) {
+        addView(bar, lp(MATCH, dp(52)))
+        addView(scroll.apply { addView(body) }, lp(MATCH, 0, 1f))
+        addView(foot, lp())
+    }
     return FrameLayout(c).apply {
         setBackgroundColor(android.graphics.Color.BLACK)
-        addView(c.vstack(Gravity.NO_GRAVITY) {
-            addView(bar, lp(MATCH, dp(52)))
-            addView(scroll.apply { addView(body) }, lp(MATCH, 0, 1f))
-            addView(foot, lp())
-        }, FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(column, FrameLayout.LayoutParams(MATCH, MATCH))
         addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-            override fun onViewAttachedToWindow(v: View) { Board.listen(again); draw() }
+            override fun onViewAttachedToWindow(v: View) { Board.listen(again); draw(); v.requestApplyInsets() }
             override fun onViewDetachedFromWindow(v: View) { Board.unlisten(again) }
         })
-        standAboveKeys()
+        // the keys' cover lifts the column's foot frame by frame; the page's own padding carries the system's bars alone
+        val keys = KeyRide(this, place = { k -> column.setPadding(0, 0, 0, k) }, letGo = {
+            c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0); field.clearFocus()
+        })
+        ride = keys
+        footTop = { IntArray(2).also { foot.getLocationOnScreen(it) }[1] }
+        setOnApplyWindowInsetsListener { v, insets ->
+            val b = insets.getInsets(android.view.WindowInsets.Type.systemBars())
+            v.setPadding(b.left, b.top, b.right, b.bottom)
+            keys.insets(insets)
+            insets
+        }
     }
 }
 
