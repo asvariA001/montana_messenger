@@ -61,7 +61,8 @@ object MyWall {
     private val mine = mutableListOf<JSONObject>()
     private val cap = HashSet<String>()                    // correspondents whose build speaks the wall — told by their own words
     private val sent = HashMap<String, String>()           // the version each was last carried, written by the receipt alone
-    private val inFlight = HashMap<String, Triple<String, Long, String>>()   // the page handed to the queue: version, moment, letter
+    // the page handed to the queue: version, moment, letter -- kept on the disk (iOS 73c9fdfa): a memory of the run died with every launch
+    private val inFlight = HashMap<String, Triple<String, Long, String>>()
     private val answeredAt = HashMap<String, Long>()
     private val pushing = HashSet<String>()
     @Volatile private var versionKept = "0"
@@ -80,6 +81,7 @@ object MyWall {
         o?.optJSONArray("mine")?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let { mine.add(it) } }
         o?.optJSONArray("cap")?.let { a -> for (i in 0 until a.length()) cap.add(a.optString(i)) }
         o?.optJSONObject("sent")?.let { s -> s.keys().forEach { k -> sent[k] = s.optString(k) } }
+        o?.optJSONObject("way")?.let { s -> s.keys().forEach { k -> s.optJSONArray(k)?.let { a -> inFlight[k] = Triple(a.optString(0), a.optLong(1), a.optString(2)) } } }
         // a post on its way outlives the run; one a run died under is due again (iOS saveGoing 455, roadBack 1922)
         runCatching { DeviceVault.unseal(goingFile().readBytes())?.let { JSONArray(String(it, Charsets.UTF_8)) } }.getOrNull()?.let { a ->
             for (i in 0 until a.length()) a.optJSONObject(i)?.let { g -> going[g.optString("id")] = g.put("failed", true) }
@@ -89,7 +91,8 @@ object MyWall {
         versionKept = postsTag()
     }
     private fun write() {
-        val o = JSONObject().put("mine", JSONArray(mine)).put("cap", JSONArray(cap.toList())).put("sent", JSONObject(sent as Map<*, *>))
+        val way = JSONObject(); for ((k, f) in inFlight) way.put(k, JSONArray().put(f.first).put(f.second).put(f.third))
+        val o = JSONObject().put("mine", JSONArray(mine)).put("cap", JSONArray(cap.toList())).put("sent", JSONObject(sent as Map<*, *>)).put("way", way)
         val sealedBytes = DeviceVault.seal(o.toString().toByteArray(Charsets.UTF_8)) ?: return
         val part = File(file().path + ".part")
         runCatching { part.writeBytes(sealedBytes); part.renameTo(file()) }
@@ -208,8 +211,13 @@ object MyWall {
             })
         }
     }
-    /** The same page already stands in the queue for them, handed less than half an hour ago. */
-    private fun onItsWay(conv: String, v: String): Boolean = inFlight[conv]?.let { it.first == v && System.currentTimeMillis() - it.second < 1_800_000L } == true
+    /**
+     * THE SAME PAGE IS ON ITS WAY TO THEM (iOS onItsWay, 73c9fdfa, 16.10.2026 No.72): the record outlives the run, as the queue does on
+     * the iPhone -- a memory of half an hour died with every launch, and T1 carried its page of near a megabyte to twenty-eight people at
+     * each (311 pages in five hours) while a person's photos waited. A page no receipt answered in its hour is carried again (the state's
+     * hour in the queue).
+     */
+    private fun onItsWay(conv: String, v: String): Boolean = inFlight[conv]?.let { it.first == v && System.currentTimeMillis() - it.second < 3_600_000L } == true
 
     /**
      * THE ONE PAGE THIS OWNER SENDS (iOS sendPage 683-690): only one who may see may write; the page is «sent» at its receipt; a
@@ -221,12 +229,13 @@ object MyWall {
         if (sees) synchronized(lock) { ensure(); ordered().take(PAGE_SIZE).forEach { ps.put(seen(it, conv, conceal = true)) } }
         val word = JSONObject().put("t", "page").put("w", sees && WallRule.admits(conv, WallRule.Act.WRITE)).put("ps", ps).put("v", v)
         val mid = Board.sendWord(conv, word) ?: return
-        synchronized(lock) { inFlight[conv] = Triple(v, System.currentTimeMillis(), mid); answeredAt[conv] = System.currentTimeMillis() }
+        synchronized(lock) { ensure(); inFlight[conv] = Triple(v, System.currentTimeMillis(), mid); answeredAt[conv] = System.currentTimeMillis(); write() }
         Log.d("Montana", "wall_page posts=" + ps.length())
     }
     /** The receipt of a page letter: the version it carried is the one that visitor now holds (iOS delivered 692-701). */
     fun delivered(ref: String, mid: String) {
         synchronized(lock) {
+            ensure()   // a receipt may come before anything else of the wall was read in this run
             val f = inFlight[ref] ?: return
             if (f.third != mid) return
             sent[ref] = f.first

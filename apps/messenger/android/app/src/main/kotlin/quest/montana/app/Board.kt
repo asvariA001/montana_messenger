@@ -148,9 +148,13 @@ object Board {
 
     /** A word of a wall (iOS MTBoard.handle): receipted as a letter, and never a row. */
     fun handle(ref: String, sid: String, text: String) {
-        Post.receiptFor(ref, sid)
+        val w0 = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull()
+        // A PAGE OF A WALL IS RECEIPTED ONCE IT STANDS ON THE DISK (iOS 73c9fdfa, 16.10.2026 No.72): the receipt is the owner's one
+        // proof that this screen holds the version -- the promise leaves after the page is written, every other word at once
+        val page = w0?.optString("t") == "page" && !PeerSafety.isBlocked(ref)
+        if (!page) Post.receiptFor(ref, sid)
         if (PeerSafety.isBlocked(ref)) return
-        val w = runCatching { JSONObject(text.removePrefix(MARK)) }.getOrNull() ?: return
+        val w = w0 ?: return
         val t = w.optString("t")
         Log.d("Montana", "wall_rx t=" + t + " from=" + ref.take(10))
         MyWall.learnCap(ref)   // a word of the wall is the proof its build speaks it (iOS apply 812)
@@ -167,6 +171,7 @@ object Board {
                 val pg = JSONObject().put("w", w.optBoolean("w", false)).put("ps", ps).put("at", now)
                 if (w.has("v")) pg.put("v", w.optString("v"))
                 synchronized(lock) { pages[ref] = pg; save() }
+                Post.receiptFor(ref, sid)
                 Log.d("Montana", "wall_page posts=" + ps.length() + " from=" + ref.take(10))
                 changed()
             }
