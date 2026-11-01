@@ -1311,11 +1311,12 @@ object Book {
         val idx = DeviceVault.get(INDEX)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
         for (i in 0 until idx.length()) {
             val ref = idx.getString(i)
-            DeviceVault.get("chat:$ref")?.let { raw -> runCatching { Chat.of(JSONObject(String(raw, Charsets.UTF_8))) }.getOrNull() }?.let { chats[ref] = it }
+            HistoryFile.get(ref)?.let { raw -> runCatching { Chat.of(JSONObject(String(raw, Charsets.UTF_8))) }.getOrNull() }?.let { chats[ref] = it }
         }
     }
     private fun saveIndex() { DeviceVault.set(INDEX, JSONArray(chats.keys.toList()).toString().toByteArray()) }
-    private fun save(c: Chat) { DeviceVault.set("chat:${c.ref}", c.json().toString().toByteArray()) }
+    // one conversation, one sealed file: a letter writes its own conversation, never the whole book (iOS MTHistoryFile, P-6)
+    private fun save(c: Chat) { HistoryFile.put(c.ref, c.json().toString().toByteArray()) }
 
     private var secretsDay = 0L        // the UTC day the book in memory stands floored for (iOS cacheDay)
     private var secretsHeld = false    // the clock guard withheld the first floor at the last walk: the next read asks again (iOS cacheHeld)
@@ -1714,7 +1715,7 @@ object Book {
     fun forget(ref: String) {
         val dead = listOf(ref) + SamePair.folded(ref)
         synchronized(lock) {
-            ensure(); chats.remove(ref); DeviceVault.delete("chat:$ref"); saveIndex()
+            ensure(); chats.remove(ref); HistoryFile.drop(ref); saveIndex()
             markErased(dead, true)
             val m = sec(); dead.forEach { m.remove(it); Meeting.forget(it) }
             val o = JSONObject(); m.forEach { (k, v) -> o.put(k, Base64.encodeToString(v, Base64.NO_WRAP)) }
@@ -1730,7 +1731,7 @@ object Book {
 
     /** A row the book holds by mistake leaves the list alone: no pipe, no archive folder, no face goes with it. */
     fun discard(ref: String) {
-        synchronized(lock) { ensure(); if (chats.remove(ref) == null) return; DeviceVault.delete("chat:$ref"); saveIndex() }
+        synchronized(lock) { ensure(); if (chats.remove(ref) == null) return; HistoryFile.drop(ref); saveIndex() }
         changed()
     }
 
@@ -1759,7 +1760,7 @@ object Book {
                 if (o.note.isEmpty()) o.note = n.note
                 o.perm = o.perm || n.perm
             }
-            save(o); DeviceVault.delete("chat:$newer"); saveIndex()
+            save(o); HistoryFile.drop(newer); saveIndex()
         }
         val nf = face(newer); val of = face(older)
         if (nf.exists()) { if (!of.exists()) nf.renameTo(of) else nf.delete() }
@@ -1870,7 +1871,7 @@ object Book {
     /** The person leaves: every correspondence leaves with them. */
     fun wipe() {
         synchronized(lock) {
-            ensure(); chats.keys.forEach { DeviceVault.delete("chat:$it") }; chats.clear()
+            ensure(); chats.keys.forEach { HistoryFile.drop(it) }; chats.clear(); HistoryFile.dropAll()
             DeviceVault.delete(INDEX); DeviceVault.delete(SECRETS); secrets = null
             DeviceVault.delete(HEALS); heals = null   // the pipes' heals are the seat's, as the pipes (iOS SeedScope.seatKeys «pipeHeal»)
             secretsDay = 0L; secretsHeld = false; refusedAt = 0L

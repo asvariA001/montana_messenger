@@ -196,7 +196,7 @@ class DiskUse {
             for (f in listOf(File(c.filesDir, "faces"), MontanaPaths.places(c)["avatars"], SelfFace.file(c))) walk(f) { _, b -> use.faces += b }
             // the pieces in flight, the book of the node and the diary lie under the archive's root but are not its history
             for (f in listOf("Blobs", "HomeBook", "Diagnostics")) walk(File(MontanaPaths.archive(c), f)) { _, b -> use.other += b }
-            for (f in listOf(MontanaPaths.archive(c), File(c.filesDir, "TimeChain"), File(c.filesDir, "saved_messages.json"))) walk(f) { _, b -> use.history += b }
+            for (f in listOf(MontanaPaths.archive(c), File(c.filesDir, "TimeChain"), File(c.filesDir, "saved_messages.json"), HistoryFile.folder())) walk(f) { _, b -> use.history += b }
             for (f in listOf(c.dataDir, c.externalCacheDir, c.getExternalFilesDir(null))) walk(f) { _, b -> use.other += b }
             return use
         }
