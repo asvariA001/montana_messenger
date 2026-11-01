@@ -558,6 +558,7 @@
     <string name="wall_comments">Comments</string>
     <string name="wall_write_comment">Write a comment</string>
     <string name="wall_no_comments">No comments yet</string>
+    <string name="wall_under_original">The comments are under the original post</string>   <!-- iOS MTBoardComments, d71617c6 -->
     <string name="wall_link_not_held">This post is not on this phone yet. Open the writer\'s page, then tap the link again.</string>
     <string name="wall_only_writers">Only people who may write on this wall can comment</string>
     <string name="wall_like">Like</string>

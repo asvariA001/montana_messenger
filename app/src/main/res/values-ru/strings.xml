@@ -553,6 +553,7 @@
     <string name="wall_comments">Комментарии</string>
     <string name="wall_write_comment">Написать комментарий</string>
     <string name="wall_no_comments">Пока нет комментариев</string>
+    <string name="wall_under_original">Комментарии — под оригинальным постом</string>   <!-- iOS MTBoardComments, d71617c6 -->
     <string name="wall_link_not_held">Этого поста ещё нет на этом телефоне. Откройте страницу автора и нажмите ссылку снова.</string>
     <string name="wall_only_writers">Комментировать могут те, кому можно писать на этой стене</string>
     <string name="wall_like">Нравится</string>

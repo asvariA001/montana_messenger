@@ -498,6 +498,11 @@ object MyWall {
     fun speakers(): List<String> = synchronized(lock) { ensure(); cap.toList() }
     /** WHOSE POST ON MY WALL (iOS writer(of:on:), MontanaBoard.swift:2142-2149 at 2155): "" -- mine, a reference -- its writer's; null --
      * no post of that name, or a repost whose writer this phone was not told. */
+    /** The wall a repost of mine was taken from, by its reference (the seen post carries only its public name). */
+    fun srcOf(id: String): String? = synchronized(lock) {
+        ensure()
+        mine.firstOrNull { it.optString("id") == id && it.has("from") }?.optString("src")?.takeIf { it.isNotEmpty() }
+    }
     fun writerOf(id: String): String? = synchronized(lock) {
         ensure()
         mine.firstOrNull { it.optString("id") == id }?.let { p -> if (p.has("from")) p.optString("srcBy", "-").takeIf { it != "-" } else p.optString("author") }
