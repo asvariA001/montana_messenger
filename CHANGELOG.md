@@ -2,6 +2,16 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2342) - 2026-11-01
+
+Source commit `0e1d9b73dbee`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2342.md).
+
+- The phone stays cooler and the app opens lighter: at launch it no longer re-sends wall pages to visitors who never came for the last one (they get the page when they reappear), no longer lays out the music list until you open the music page, remembers which parts of the coin book it has already opened so a launch fetches only the new ones, and no longer keeps redialling addresses that only its own tunnel answered.
+
+**Security and anonymity**
+
+- No new stored value, address, server, key leaving the device or network road. One new local file (coin-vault-pieces) keeps only the names of coin-book pieces already fetched, under the same protection as the book, and leaves with the account; wall pages, music and dials are the same roads, started later or less often.
+
 ## 1.0 (2341) - 2026-11-01
 
 Source commit `82054e1d5dc8`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2341.md).
