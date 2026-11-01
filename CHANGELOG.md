@@ -2,9 +2,22 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2326) - 2026-11-01
+
+Source commit `a50f2a3aa4e3`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2326.md).
+
+- The chats open faster: a conversation shows its newest twelve messages at once and lays the rest a moment later, and the video-note camera starts only when you record, not when you open a chat.
+- Less heat: the music library is walked only when you open it, not at every launch; the history is written chat by chat, only the chat that changed, and only what was written is read back.
+- Messages that arrive while the app is closed wait as one sealed file each, so the app reads only the new ones when it opens.
+
+**Security and anonymity**
+
+- Letters kept by the notification extension move from one keychain item to one file per letter in the app group's folder, each sealed with AES-GCM under a key born once in this device's keychain (this device only) and bound to the file's name; the old item is moved once and emptied. The history is stored as one sealed part per chat. Main-thread and disk budgets are written only to the device's own logs. No new address, server, key leaving the device or network road is added.
+- Issue #136: the wallet now calls the core's join door (mtc_machine_join) from its background thread when the phone holds no head, walking from two anchor proposals the build would carry; this build carries no anchor, so no phone walks yet. No new address, server, key kind or network road is added.
+
 ## 1.0 (2325) - 2026-10-30
 
-Source commit `eea45ab8b3b4`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2325.md).
+Source commit `d13e6baf45f2`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2325.md).
 
 - The Time Balance rises again every second while you are in the network: the app is open or the Montana VPN is live. The available balance moves only when the core confirms the seconds at the close of a window.
 - The core inside the app now carries the door through which a phone that holds nothing joins the running chain from two consecutive final proposals and checks every certificate itself. The app does not open this door yet.
