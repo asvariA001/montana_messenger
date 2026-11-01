@@ -933,6 +933,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     class FeedRow(val key: String, val sig: List<Any?>, val letter: Boolean) { var view: View? = null }
     val feed = ArrayList<FeedRow>()
     var laid = false
+    // THE FIRST SCREEN FIRST (iOS MTFeedListView firstScreenRows, P-4, 66475c68): the opening builds only the newest rows a screen
+    // holds; the rest follow once the first frame stands, above the reader, who stays where the first pass put them
+    val firstScreenRows = 12
+    var restPending = false
     // the chat a row reads at a tap (the next round note, the voice's sender): one object every pass refreshes, so a kept row never
     // reads the letters of the pass that built it
     val feedChat = Chat(ref, "")
@@ -1235,6 +1239,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
             }
         }
+        if (!laid && jump == null && !searching && firstScreenRows < want.size) {
+            val cut = want.size - firstScreenRows
+            want.subList(0, cut).clear(); makers.subList(0, cut).clear()
+            restPending = true
+        }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
             val began = System.nanoTime()
             val old = HashMap<String, FeedRow>(feed.size * 2)
@@ -1290,6 +1299,21 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             android.util.Log.d("Montana", "feed_pass rows=" + want.size + " built=" + built + " born=" + born + " gone=" + gone + " ms=" + (System.nanoTime() - began) / 1_000_000)
         }
         laid = true
+        if (restPending) {
+            restPending = false
+            // after the first frame (its animation phase, then the queue): the older rows come in above, and the scroll moves by
+            // what they added, so the rows on the screen stay where they stood (iOS feed-rest: no birth, the reader held)
+            scroll.postOnAnimation { scroll.post {
+                val before = column.height
+                column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                    override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or2: Int, ob: Int) {
+                        v.removeOnLayoutChangeListener(this)
+                        scroll.scrollTo(0, scroll.scrollY + (b - t) - before)
+                    }
+                })
+                redraw()
+            } }
+        }
         drawEmpty(column.childCount == 0, asked.isNotEmpty())
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
         if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
