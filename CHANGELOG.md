@@ -4,7 +4,7 @@ Every build of Montana for iPhone, iPad and Mac, newest first. The version is th
 
 ## 1.0 (2346) - 2026-11-02
 
-Source commit `d3860f3e249b`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2346.md).
+Source commit `483757cb185d`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2346.md).
 
 - When you create an identity, a tap on a background now applies it to the page at once: no preview and no extra confirmation. The same goes for a photo from your library. The checkmark then goes on to create the identity. Choosing the background later in your profile still shows the preview.
 
