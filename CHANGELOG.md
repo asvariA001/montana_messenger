@@ -4,7 +4,7 @@ Every build of Montana for iPhone, iPad and Mac, newest first. The version is th
 
 ## 1.0 (2349) - 2026-11-02
 
-Source commit `6e9f03a4389e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2349.md).
+Source commit `36cb86f661f1`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2349.md).
 
 - Leaving the registration midway no longer leaves an identity behind: until the profile's checkmark the making is unfinished, and the next launch forgets it.
 - The registration has no step of choosing the page's ground any more: a new identity is born on the indigo, and Appearance changes it later.
