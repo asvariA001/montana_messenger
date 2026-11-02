@@ -2,9 +2,9 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
-## 1.0 (2343) - 2026-11-02
+## 1.0 (2344) - 2026-11-02
 
-Source commit `26e48460ad57`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2343.md).
+Source commit `65cc113a5eeb`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2344.md).
 
 - The app no longer freezes and closes when it goes to the background. During a call, photos, videos, GIFs and Wall of Thoughts posts now send while the call is connected; they wait only while the call is ringing or connecting. Coins that did not leave because the key's node was busy for the minute are now sent again automatically for up to a minute, and if they still cannot go you are told why and nothing leaves your balance. On the Wall of Thoughts you can like, keep and repost a post even without a chat with its writer, a long press on the like shows who liked it, a long press on the eye of your own posts shows who saw them, and a tap on the writer's name opens their page. A repost now stands under your name, with the original's wall noted below. The side panel's background now reaches the bottom of the screen.
 
