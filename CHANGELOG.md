@@ -2,9 +2,20 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2351) - 2026-11-02
+
+Source commit `63de00ad1b6b`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2351.md).
+
+- A long message that arrives while the app is open appears with its words at once; it no longer hangs as «New message» with a spinning wheel until you open the chat again.
+
+**Security and anonymity**
+
+- A long letter's reference that comes over the live channel is opened by the same road as a pushed one (the sealed cargo fetched by its own key inside the end-to-end envelope) before any row is written; a reference whose cargo is not yet reachable waits in the app's own letter box, never as a row.
+- No new server, network road or key leaving the device.
+
 ## 1.0 (2350) - 2026-11-02
 
-Source commit `c093818f09f0`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2350.md).
+Source commit `cfa3a6742919`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2350.md).
 
 - The feed's motion is one for everyone: the springiness and animation duration an older build let you set no longer apply, and they leave the phone at launch.
 - Signing in and creating an identity stand on one indigo background from the first page to the last; it no longer changes along the way.
