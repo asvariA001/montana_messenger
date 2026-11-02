@@ -411,10 +411,10 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
         val j = tabs.indexOf(tab) + step
         if (j in tabs.indices) choose(tabs[j])
     }
-    fun emptyPane(): View = c.vstack(Gravity.CENTER_HORIZONTAL) {
+    fun emptyPane(words: String = c.getString(tab.empty)): View = c.vstack(Gravity.CENTER_HORIZONTAL) {
         setPadding(0, dp(36), 0, dp(36))
         addView(c.icon(tab.icon, MT.gray), lp(dp(42), dp(42)))
-        addView(c.text(c.getString(tab.empty), 15f, MT.gray, center = true), lp().apply { topMargin = dp(10) })
+        addView(c.text(words, 15f, MT.gray, center = true), lp().apply { topMargin = dp(10) })
     }
     drawPane = {
         pane.removeAllViews()
@@ -431,7 +431,11 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
             // THE WALL'S OWN ROWS (iOS MTBoardRows, MontanaPeerInfoScreen.swift:646): a person's page shows their wall --
             // the same cells the feed draws (Board.postCell), with no "on X's wall" line of its own (onItsWall).
             val wallPosts = Board.posts(ref)
-            if (wallPosts.isEmpty() && onItsWay.isEmpty()) pane.addView(emptyPane(), lp())
+            // A PIPE NOBODY HAS ANSWERED YET SAYS SO (iOS MTBoardRows.empty, 55fca77b): until their phone answers on this road
+            // nothing of theirs can come by it, and the page says whose phone it waits for instead of «No posts yet».
+            if (wallPosts.isEmpty() && onItsWay.isEmpty() && !Board.hasPage(ref) && Meeting.first(ref) != null)
+                pane.addView(emptyPane(c.getString(R.string.wall_waits_phone, Board.nameOf(c, ref))), lp())
+            else if (wallPosts.isEmpty() && onItsWay.isEmpty()) pane.addView(emptyPane(), lp())
             else wallPosts.forEach { item -> pane.addView(postCell(act, item, onItsWall = true), lp().apply { topMargin = c.dp(10) }) }
         } else if (msgs.isEmpty()) pane.addView(emptyPane(), lp())
         else paneRows(act, tab, msgs.reversed(), pane, law)   // newest on top
