@@ -2,6 +2,17 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2348) - 2026-11-02
+
+Source commit `842496231721`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2348.md).
+
+- Time Coins now says one thing about coins: one coin is one second. The Minting section with its other sources (rights from the wall, coins from chats, the Pantheon, the VPN wall, reactions, burned, received and sent) is gone, and the badge over the coin shows the level alone.
+- The TimeChain page names the chains of earlier builds as one line, Earlier builds.
+
+**Security and anonymity**
+
+- Only screens and their texts change: no new stored value, server, key leaving the device or network road. The coins' chain and its fold are untouched.
+
 ## 1.0 (2347) - 2026-11-02
 
 Source commit `386c007160f1`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2347.md).
