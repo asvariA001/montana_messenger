@@ -707,6 +707,8 @@ class MediaProvider : ContentProvider() {
         // 3100-3104 at 2155: the post's own file): it lies in the wall's store or in the look's folder, never among the chats' media --
         // «Open» and the share of a post's file found nothing here
         if (name.startsWith("wall_")) return listOf(MyWall.storeDir(c), Board.lookIn(c)).map { File(it, name) }.firstOrNull { it.exists() }
+        // A COMMENT CHAIN SHARED (iOS MTBoard.chainFile): POST.md in the one TimeChain folder
+        if (name.endsWith(".md")) return File(File(c.filesDir, "TimeChain"), name).takeIf { it.exists() }
         return File(Media.dir(c), name).takeIf { it.exists() }
     }
     override fun openFile(uri: Uri, mode: String): ParcelFileDescriptor? {
