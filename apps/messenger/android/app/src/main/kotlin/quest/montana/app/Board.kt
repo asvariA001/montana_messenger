@@ -63,6 +63,7 @@ object Board {
     private fun store() = File(File(Book.ctx.filesDir, "board").apply { mkdirs() }, "pages.json")
     /** The person forgotten: the walls this phone held and the files brought for a look leave with them (Book.wipe). */
     fun wipe() = synchronized(lock) {
+        drain()   // no wall write on its way outlives the wipe (iOS SeedScope, P-4)
         MyWall.wipe()
         pages.clear(); firstSeen.clear(); askedAt.clear(); answeredAt.clear(); kept.clear(); keeping.clear(); countedDownload.clear(); goneSaid.clear(); fetching.clear(); reposting.clear(); loaded = false
         File(Book.ctx.filesDir, "board").deleteRecursively(); lookDir().deleteRecursively()
@@ -70,6 +71,7 @@ object Board {
     private fun ensure() {
         if (loaded) return
         loaded = true
+        drain()   // a read waits for the wall's writes on their way (iOS MTBoard.load, P-4)
         val o = runCatching { JSONObject(store().readText()) }.getOrNull() ?: return
         o.optJSONObject("pages")?.let { p -> p.keys().forEach { k -> p.optJSONObject(k)?.let { pages[k] = it } } }
         o.optJSONObject("first")?.let { f -> f.keys().forEach { k -> firstSeen[k] = f.optLong(k) } }
@@ -79,9 +81,16 @@ object Board {
         val p = JSONObject(); for ((k, v) in pages) p.put(k, v)
         val f = JSONObject(); firstSeen.entries.sortedByDescending { it.value }.take(FIRST_KEPT).forEach { f.put(it.key, it.value) }
         val k = JSONObject(); for ((id, v) in kept) k.put(id, v)
-        val part = File(store().path + ".part")
-        runCatching { part.writeText(JSONObject().put("pages", p).put("first", f).put("kept", k).toString()); part.renameTo(store()) }
+        val text = JSONObject().put("pages", p).put("first", f).put("kept", k).toString()
+        writes.execute { val part = File(store().path + ".part"); runCatching { part.writeText(text); part.renameTo(store()) } }
     }
+    /**
+     * THE WALL IS WRITTEN OFF THE CALLER'S THREAD (iOS 4461b1fe, MTBoard.writes, OZ1 P-4 at 2342): the page that came in is laid in
+     * memory and spelled under the lock; one serial thread lays the file, in the order the saves were taken. The store changes
+     * hands in order: a wipe and a read wait first for the writes on their way (drain).
+     */
+    private val writes = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "montana.board.writes") }
+    private fun drain() { runCatching { writes.submit {}.get() } }
 
     /** iOS Announced.wireTag: the first four bytes of SHA-256 as a decimal number; nothing is «0». */
     fun wireTag(d: ByteArray?): String {
@@ -108,13 +117,24 @@ object Board {
         send(ref, JSONObject().put("t", "ask"))
     }
     private fun people() = Book.refs().filter { !Groups.isKey(it) && !PeerSafety.isBlocked(it) && SamePair.merged(it) == null }
-    /** THE LOOK ASKS (iOS lookFeed, the author's word 25.09): every wall not held, or held from more than ten minutes ago. */
+    /**
+     * THE LOOK ASKS (iOS lookFeed, the author's word 25.09): every wall not held, or held from more than ten minutes ago.
+     * THE LOOK LASTS WHILE THE FEED IS LOOKED AT (iOS 49766f66 at 2342, «the network is noisy»): a pass through the feed on the way
+     * to another tab sent its asks for seconds after, each a letter in the box and a push that woke the owner's phone. An ask still
+     * waiting its turn when the feed is left is not sent; a wall asked and not answered is not asked again within the look's ten minutes.
+     */
+    @Volatile private var feedLook = 0
     fun lookFeed() {
         WallGlobal.read()   // the posts of everyone, from the nodes' table (iOS lookFeed 616)
+        val look = ++feedLook
         val now = System.currentTimeMillis()
-        val due = synchronized(lock) { ensure(); people().filter { r -> now - (pages[r]?.optLong("at") ?: 0L) >= LOOK_STALE } }
-        due.forEachIndexed { i, r -> MainThread.later(300L * i, Runnable { Thread { ask(r) }.start() }) }
+        val due = synchronized(lock) {
+            ensure()
+            people().filter { r -> now - (pages[r]?.optLong("at") ?: 0L) >= LOOK_STALE && now - (askedAt[r] ?: 0L) >= LOOK_STALE }
+        }
+        due.forEachIndexed { i, r -> MainThread.later(300L * i, Runnable { if (feedLook == look) Thread { ask(r) }.start() }) }
     }
+    fun leaveFeed() { feedLook++ }
     /**
      * EVERY WALL NEVER SEEN IS ASKED AT ONCE (iOS sweep, MontanaBoard.swift:591-602 at 2155; ContentView.swift:474): at every return of
      * the app, every correspondent whose build speaks the wall and whose page never came from its owner -- a page of one post of mine
@@ -2236,11 +2256,12 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         empty.visibility = if (column.childCount == 0 && going.isEmpty()) View.VISIBLE else View.GONE
     }
     override fun onAttachedToWindow() { super.onAttachedToWindow(); Board.listen(again); MyWall.listen(moved); draw() }
-    override fun onDetachedFromWindow() { Board.unlisten(again); MyWall.unlisten(moved); super.onDetachedFromWindow() }
+    override fun onDetachedFromWindow() { Board.leaveFeed(); Board.unlisten(again); MyWall.unlisten(moved); super.onDetachedFromWindow() }
     override fun onVisibilityChanged(v: View, visibility: Int) {
         super.onVisibilityChanged(v, visibility)
         // laid again only when the board moved while it stood unseen, or a minute on, for the posts' «when»
         if (visibility == View.VISIBLE && isAttachedToWindow) { Board.lookFeed(); if (stale || 60_000L < System.currentTimeMillis() - drawnAt) draw() }
+        else Board.leaveFeed()   // the feed left: its asks still waiting their turn are not sent (iOS leaveFeed)
     }
     private companion object { const val FIRST = 12; const val NEXT = 12 }
 }

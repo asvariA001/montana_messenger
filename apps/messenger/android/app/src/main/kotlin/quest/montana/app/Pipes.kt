@@ -1915,6 +1915,14 @@ object Post {
     private val outLock = Any()
     private val fetchLock = Any()
     private var fetchAgain = false   // a hint that came while a pickup ran: one more round when it ends
+    /**
+     * THE WHOLE BOX ONCE A MINUTE, THE FRESH DAYS BETWEEN (iOS 84807afd, MontanaWakePush.lastWholeBoxAt at 2342, OZ1): the open app
+     * picks up every eight seconds, and every pickup asked all four days of the box. A letter just knocked wears its sender's day
+     * (freshDays); the other days hold only a letter that already waited, and the whole read takes it within a minute. The first
+     * pickup of a life is whole. Guarded by fetchLock.
+     */
+    private var lastWholeAt = 0L
+    private const val WHOLE_EVERY = 60_000L
     private var fetching = false
     private const val CARRY_MS = 30L * 86_400_000L   // iOS MontanaDeliveryEngine.carryDays: at least thirty days (the author's word 07.10)
 
@@ -2397,6 +2405,14 @@ object Post {
 
     // ── receiving ──
     /** ONE PICKUP AT A TIME (iOS fetchBox): the labels of every live invitation and every pipe, across the box's term. */
+    /**
+     * THE NEXT PICKUP IS WHOLE (iOS fetchBoxWhole / fetchBoxNow): the node's «box» swears a letter lies, whatever day its sender's
+     * clock gave it, and a pipe just hatched was in no whole read -- the tombstone of a conversation erased at both ends may lie
+     * under a day the fresh read does not ask.
+     */
+    fun fetchWhole() { synchronized(fetchLock) { lastWholeAt = 0L }; fetch() }
+    private fun oweWhole() { synchronized(fetchLock) { lastWholeAt = 0L; fetchAgain = true } }
+
     fun fetch() {
         MainThread.post { Presence.watchApp(Book.ctx) }
         // A «YOU HAVE A LETTER» IS NEVER THROWN AWAY, ONLY DEFERRED (iOS build 1910): a hint that lands while a pickup runs asked a
@@ -2424,6 +2440,14 @@ object Post {
      * here from the week-long box of August -- seven of each ten asked a day no box keeps.
      */
     private fun boxDays(w0: Long) = (w0 - 2)..(w0 + 1)
+    /**
+     * THE DAYS A LETTER JUST KNOCKED CAN WEAR (iOS MTNodeWire.freshDays at 2342): its sender's day at the knock -- the day of an hour
+     * ago through the day of an hour ahead, one day and two only around midnight UTC, never outside boxDays.
+     */
+    private fun freshDays(t: Long = System.currentTimeMillis()): LongRange {
+        val box = boxDays(t / 86_400_000)
+        return maxOf(maxOf(0L, t - 3_600_000) / 86_400_000, box.first)..minOf((t + 3_600_000) / 86_400_000, box.last)
+    }
 
     // THE BOX'S OWN REST (iOS boxRest, noteTooOften 230-247): the node counts /fetch on a budget of its own, so its «too often» rests
     // the box read alone -- a minute, two, four… up to half an hour by the machine's own refusals; a 200 forgets it.
@@ -2472,28 +2496,38 @@ object Post {
         val invOf = HashMap<String, String>()
         val chatOf = HashMap<String, String>()
         val w0 = Wire.day()
+        // WHOLE OR FRESH is decided here, where the read surely goes (iOS fetchBox 2689): a pickup turned back below owes the whole one
+        val readAt = System.currentTimeMillis()
+        val (whole, wholeBefore) = synchronized(fetchLock) {
+            val before = lastWholeAt
+            (readAt - before >= WHOLE_EVERY).also { if (it) lastWholeAt = readAt } to before
+        }
+        fun unread() { if (whole) synchronized(fetchLock) { if (lastWholeAt == readAt) lastWholeAt = wholeBefore } }
+        val span = if (whole) boxDays(w0) else freshDays(readAt)
         for (inv in MontanaCard.outstandingInvites()) {
             val s = Wire.rdvLetterSecret(inv)
-            for (w in boxDays(w0)) { val cw = Wire.rdvConvW(inv, w); secretOf[cw] = s; invOf[cw] = MontanaCard.b64url(inv) }
+            for (w in span) { val cw = Wire.rdvConvW(inv, w); secretOf[cw] = s; invOf[cw] = MontanaCard.b64url(inv) }
         }
         for (ref in Book.refs()) {
             val s = Book.secret(ref) ?: continue
             val h = Book.healing(ref)   // a heal in flight: the box is read under the healed walk's label too (iOS convWs, 76f5eeb7)
-            for (w in boxDays(w0)) for (cw in Wire.convWs(s, w, h)) { secretOf[cw] = s; chatOf[cw] = ref }
+            for (w in span) for (cw in Wire.convWs(s, w, h)) { secretOf[cw] = s; chatOf[cw] = ref }
         }
         // THE SEED'S OWN PIPE NAMES EACH DEVICE APART (iOS BoxEar, MontanaWakePush.swift:2641-2649): the store yields no letter to the sid
         // that laid it, so this device asks under its own name there -- its own letters stay for the others
         val twinSid = HashMap<String, String>()
         Twin.secret()?.let { s ->
-            for (w in (w0 - 2)..(w0 + 1)) { val cw = Wire.convW(s, w); Twin.sid(cw)?.let { sid -> secretOf[cw] = s; twinSid[cw] = sid } }
+            for (w in span) { val cw = Wire.convW(s, w); Twin.sid(cw)?.let { sid -> secretOf[cw] = s; twinSid[cw] = sid } }
         }
         val subs = secretOf.keys.toList()
-        if (subs.isEmpty()) return
+        if (subs.isEmpty()) { unread(); return }   // nothing was read: the whole read this would have been is still owed
+        Log.d("Montana", "box_fetch subs=${subs.size} read=${if (whole) "whole" else "fresh"}")
         // ONE PERSON, MANY DEVICES (iOS 49bb3a95 OZ1, the author's word 24.10: the Mac took the photos, T1 got none): a letter is
         // marked taken by THIS device under its own name for the label (iOS deviceSid = twinSid, one per label, so the node links
         // no two labels), and stays in the box for the person's other devices until the box's term
-        val me = Twin.deviceRef() ?: return
+        val me = Twin.deviceRef() ?: return unread()
         val dev = { cw: String -> twinSid[cw] ?: Wire.subId(cw, me) }
+        var answered = false
         val taken = mutableListOf<JSONArray>()
         for (chunk in subs.chunked(128)) {
             val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { twinSid[it] ?: Wire.subId(it, twin) }))
@@ -2509,7 +2543,7 @@ object Post {
                 val (code, text) = Wire.post(door, "/fetch", page, 6000)
                 if (code == 429) boxTooOften(door)
                 if (code != 200 || text == null) continue
-                boxAnswered(door)
+                boxAnswered(door); answered = true
                 val ls = runCatching { JSONObject(text).optJSONArray("letters") }.getOrNull() ?: continue
                 for (i in 0 until ls.length()) ls.getJSONObject(i).let { if (seen.add(it.optString("m"))) rows.add(it) }
             }
@@ -2527,6 +2561,7 @@ object Post {
                 if (ok && m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw))))
             }
         }
+        if (!answered) unread()   // no machine answered: the read counts for nothing, its whole read with it (iOS abandoned read)
         if (taken.isNotEmpty()) {
             // «taken», not «mids»: the node stops yielding these to this device and stops their ring; «mids» stays the funeral
             // (the node refuses more than 256 at once: the marks go by the page)
@@ -2634,6 +2669,7 @@ object Post {
         place(ref, mid, text, name, null, null)
         announce(ref)
         if (fresh) CodeMet.met()   // the page of the code that brought them closes (iOS onMet)
+        if (fresh) oweWhole()   // the pipe is new to every read: all its days are asked (iOS hatch → fetchBoxWhole)
         return true
     }
 
