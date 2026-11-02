@@ -2,9 +2,23 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2349) - 2026-11-02
+
+Source commit `6e9f03a4389e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2349.md).
+
+- Leaving the registration midway no longer leaves an identity behind: until the profile's checkmark the making is unfinished, and the next launch forgets it.
+- The registration has no step of choosing the page's ground any more: a new identity is born on the indigo, and Appearance changes it later.
+- GIFs play without stopping; a tap stops one and a tap plays it on. Appearance gains Reduce GIF animation, which brings back three plays and then only on a tap.
+- In Appearance the app icons scroll and take the tap, the feed's motion section is gone, and Voice message style stands higher.
+- Your node is no longer in the Settings list: it opens from Access by level, level 8.
+
+**Security and anonymity**
+
+- Two new stored values, both on this phone: gifReduceMotion (a display preference, carried in the person's copy as other looks), and mt.birth.unfinished (the SHA-256 print of the words being made, never the words, kept only from Create to the profile's checkmark and never in a copy). No new server, network road or key leaving the device.
+
 ## 1.0 (2348) - 2026-11-02
 
-Source commit `699acc4dde60`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2348.md).
+Source commit `842496231721`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2348.md).
 
 - Time Coins now says one thing about coins: one coin is one second. The Minting section with its other sources (rights from the wall, coins from chats, the Pantheon, the VPN wall, reactions, burned, received and sent) is gone, and the badge over the coin shows the level alone.
 - The TimeChain page names the chains of earlier builds as one line, Earlier builds.
