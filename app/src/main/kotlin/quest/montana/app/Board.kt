@@ -183,6 +183,9 @@ object Board {
             "page" -> {
                 val src = w.optJSONArray("ps") ?: JSONArray()
                 val fresh = (0 until minOf(src.length(), PAGE_SIZE)).mapNotNull { k -> src.optJSONObject(k)?.let { held(clean(it), now) } }
+                if (isEcho(fresh, MyWall.posts().map { it.optString("id") }.toSet())) {
+                    Log.d("Montana", "wall_echo a page of my own posts came back from=" + ref.take(10) + " — refused"); Post.receiptFor(ref, sid); return
+                }
                 // MY WORDS STAY ON MY SCREEN UNTIL THE OWNER'S PAGE CARRIES THEM (iOS keepMine, MontanaBoard.swift:984-999,
                 // the author's word 25.09): a page fetched before the owner's own build echoes my latest act does not
                 // take my own words off my own screen -- the owner's next page carries them for good.
@@ -298,12 +301,25 @@ object Board {
     }
 
     class Item(val wall: String, val post: JSONObject)
+    /**
+     * MY OWN WALL NEVER STANDS AS ANOTHER'S (iOS MTBoard.isEcho, 0324143d, the author's word 07.10): a page that holds nothing but
+     * the posts of my own wall is my wall come back to me -- an echo through a pipe whose both ends are this phone -- never the wall
+     * of the person it came from; it is refused at its arrival and let go at the first feed after the load.
+     */
+    private fun isEcho(ps: List<JSONObject>, mine: Set<String>) = ps.isNotEmpty() && ps.all { it.optString("id") in mine }
+    private var echoSwept = false
     /** THE FEED (iOS feed, the author's word 06.10 15:0x): every post of every wall held, each once, strictly by time, the newest on top. */
     fun feed(): List<Item> {
         val held = Book.refs().toSet()
         val own = MyWall.posts().map { Item("", it) }   // my own wall stands in the feed as every other (iOS feed 732)
         val all = own + synchronized(lock) {
             ensure()
+            if (!echoSwept) {
+                echoSwept = true
+                val mine = own.map { it.post.optString("id") }.toSet()
+                val gone = pages.filterValues { pg -> pg.optJSONArray("ps").let { ps -> ps != null && isEcho((0 until ps.length()).mapNotNull { ps.optJSONObject(it) }, mine) } }.keys.toList()
+                if (gone.isNotEmpty()) { gone.forEach { pages.remove(it) }; save(); Log.d("Montana", "wall_echo let go at the load n=" + gone.size) }
+            }
             pages.entries.filter { it.key in held && !PeerSafety.isBlocked(it.key) }.flatMap { e ->
                 val ps = e.value.optJSONArray("ps") ?: JSONArray()
                 (0 until ps.length()).mapNotNull { ps.optJSONObject(it)?.let { p -> Item(e.key, p) } }
@@ -706,6 +722,8 @@ object Board {
         val ps = pages[wall]?.optJSONArray("ps") ?: return null
         (0 until ps.length()).mapNotNull { ps.optJSONObject(it) }.firstOrNull { it.optString("id") == id }
     }
+    /** The owner has sent this phone a page of their wall, empty or not (iOS MTBoard.hasPage). */
+    fun hasPage(wall: String) = synchronized(lock) { ensure(); pages.containsKey(wall) }
     fun canWrite(wall: String) = wall.isEmpty() || synchronized(lock) { ensure(); pages[wall]?.optBoolean("w") == true }
 
     /** WHICH WALL HOLDS A POST, FOR A WALL'S LINK (iOS MTBoard.place(of:), MontanaBoard.swift:1431-1435): "" for a post of mine,

@@ -129,7 +129,8 @@ fun draftPost(wall: String, at: Double, text: String): org.json.JSONObject {
         .put("at", at).put("text", text).put("media", org.json.JSONArray()).put("pinned", false)
         .put("keepers", org.json.JSONArray().put("")).put("likes", org.json.JSONArray()).put("downloads", org.json.JSONArray())
         .put("reposts", org.json.JSONArray()).put("comments", org.json.JSONArray())
-        .apply { if (wall.isNotEmpty()) Board.myFace()?.let { put("face", it) } }
+        // on my own wall the post is the owner's (own): it wears my face as my published posts do
+        .put("own", wall.isEmpty()).apply { if (wall.isNotEmpty()) Board.myFace()?.let { put("face", it) } }
 }
 
 /**

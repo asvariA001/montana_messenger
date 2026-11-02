@@ -349,8 +349,12 @@ fun wallpaperPreview(act: MainActivity, ref: String, choice: ChatWall.Choice, pi
                 } else ChatWall.set(ref, choice)
                 onDone(true)
             }, lp(MATCH, dp(56)))
+            // THE PAGE AS IT WILL STAND (iOS MTPagePreviewDress, cdb6d01d, the author's word 26.09): my own head over the whole
+            // picture -- face, name, bio and link as my page draws them -- the wall's write button and one post saying what it is;
+            // the dress answers no finger, the finger is the picture's
+            if (ref == ChatWall.PAGE) addView(pageDress(act), lp())
             // the bubbles are the picture's dress; the finger is the picture's
-            addView(c.vstack(Gravity.NO_GRAVITY) {
+            else addView(c.vstack(Gravity.NO_GRAVITY) {
                 setPadding(dp(12), dp(8), dp(12), 0)
                 addView(c.bubble(c.getString(R.string.wall_hello), mine = false), lp())
                 gap(7)
@@ -361,6 +365,23 @@ fun wallpaperPreview(act: MainActivity, ref: String, choice: ChatWall.Choice, pi
             }, lp())
         }, FrameLayout.LayoutParams(MATCH, WRAP))
     }
+}
+
+/** My page over its ground, for the preview (iOS MTPagePreviewDress, MontanaSettings.swift:1019 at 2342): no touch reaches it. */
+private fun pageDress(act: MainActivity): View {
+    val c: Context = act
+    val body = object : LinearLayout(c) { override fun dispatchTouchEvent(e: MotionEvent) = false }
+        .apply { orientation = LinearLayout.VERTICAL }
+    val face = FaceHead(act, body)
+    face.draw(SelfFace.load(act), Prefs.userName, false, MyAbout.bio(), PeerAbout.links(MyAbout.link()), "")
+    body.addView(face.view, lp())
+    body.addView(c.vstack(Gravity.NO_GRAVITY) {
+        setPadding(dp(12), dp(12), dp(12), 0)
+        addView(writeFace(act), lp())
+        val sample = draftPost("", System.currentTimeMillis() / 1000.0, c.getString(R.string.wall_preview_post)).put("id", "preview")
+        addView(postCell(act, Board.Item("", sample), onItsWall = true, sending = true), lp().apply { topMargin = dp(12) })
+    }, lp())
+    return body
 }
 
 /**
