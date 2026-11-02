@@ -300,7 +300,7 @@ object Signal {
         val secret = Book.secret(ref) ?: return
         for (k in 0 until envs.length()) {
             val e = envs.optString(k)
-            if (e == "box") { Thread { Post.fetch() }.start(); continue }
+            if (e == "box") { Thread { Post.fetchWhole() }.start(); continue }   // the node swears a letter lies: every day is asked (iOS fetchBoxNow)
             val sealed = runCatching { Base64.decode(e, Base64.DEFAULT) }.getOrNull() ?: continue
             val w0 = Wire.minute()
             val plain = Wire.openWalked(sealed, secret, w0, Book.healing(ref))?.plain ?: continue   // every walk the pipe gives (iOS bodyKeys)
