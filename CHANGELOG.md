@@ -2,9 +2,25 @@
 
 Every build of Montana for iPhone, iPad and Mac, newest first. The version is the one Settings shows: 1.0 (build). Each entry is written here by the build road before the build is made, from the release notes the build carries; a build whose entry is not on this page is not built. Each build's full notes are in [`doc/release-notes/messenger/ios`](doc/release-notes/messenger/ios).
 
+## 1.0 (2350) - 2026-11-02
+
+Source commit `c093818f09f0`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2350.md).
+
+- The feed's motion is one for everyone: the springiness and animation duration an older build let you set no longer apply, and they leave the phone at launch.
+- Signing in and creating an identity stand on one indigo background from the first page to the last; it no longer changes along the way.
+- Montana's messages about new builds reach every phone again: a phone whose App Store check stayed silent now reads its channel from the receipt Apple wrote.
+- The balance shows coins by default; the choice of its main sum starts anew.
+- No wallet or VPN icons under the words Pantheon on Fire, and no 0-60 s line under it.
+
+**Security and anonymity**
+
+- Three stored display values leave the phone at launch by their prints (chatSpringBounce, chatSpringDuration and the balance's main sum, 5da1d072bfa76c8b) and no copy carries them any more.
+- When StoreKit's AppTransaction does not answer, the release channel is read only from the name of the app's own receipt file (sandboxReceipt = beta, receipt = store, anything else = no channel); nothing is sent, and a store build never points at a TestFlight link.
+- No new server, network road or key leaving the device.
+
 ## 1.0 (2349) - 2026-11-02
 
-Source commit `36cb86f661f1`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2349.md).
+Source commit `6e9f03a4389e`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2349.md).
 
 - Leaving the registration midway no longer leaves an identity behind: until the profile's checkmark the making is unfinished, and the next launch forgets it.
 - The registration has no step of choosing the page's ground any more: a new identity is born on the indigo, and Appearance changes it later.
