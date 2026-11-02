@@ -4,7 +4,7 @@ Every build of Montana for iPhone, iPad and Mac, newest first. The version is th
 
 ## 1.0 (2351) - 2026-11-02
 
-Source commit `63de00ad1b6b`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2351.md).
+Source commit `1d30f37f242f`. [Release notes](doc/release-notes/messenger/ios/release-notes-1.0-2351.md).
 
 - A long message that arrives while the app is open appears with its words at once; it no longer hangs as «New message» with a spinning wheel until you open the chat again.
 
