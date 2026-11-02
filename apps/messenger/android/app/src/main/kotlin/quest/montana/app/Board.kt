@@ -926,6 +926,64 @@ object Board {
         val line = n.toString() + " · " + moment(at, java.util.TimeZone.getDefault(), "dd.MM.yyyy HH:mm:ss")
         return if (h.isEmpty()) line else line + " · gematria " + gematria(h)
     }
+    /** A comment's moment on this phone's clock, its seal, the seal before it and its prime sum (iOS sealLine, MontanaBoard.swift:1404 at 2342). */
+    fun sealLine(c: JSONObject): String {
+        val h = c.optString("h")
+        return moment(c.optDouble("at"), java.util.TimeZone.getDefault(), "dd.MM.yyyy HH:mm:ss") + " · " + h.take(16) + " · " +
+            c.optString("pv").take(16) + " · gematria " + gematria(h)
+    }
+    fun local(at: Double) = moment(at, java.util.TimeZone.getDefault(), "dd.MM.yyyy HH:mm:ss")
+
+    // ── THE COMMENT CHAIN AS A RECORD (iOS MTBoard.chainBody/chainDigest/chainRecords/chainFile, 7e4ccd72; MontanaBoard.swift:1473-1530
+    // at 2342): the post is link 0, every comment the next link, each line its body with its keys in order and the SHA-256 of that body ──
+    private fun quoted(s: String): String = buildString {
+        append('"')
+        for (ch in s) when {
+            ch == '"' -> append("\\\"")
+            ch == '\\' -> append("\\\\")
+            ch == '\n' -> append("\\n")
+            ch == '\r' -> append("\\r")
+            ch == '\t' -> append("\\t")
+            ch < ' ' -> append(String.format(java.util.Locale.US, "\\u%04x", ch.code))
+            else -> append(ch)
+        }
+        append('"')
+    }
+    /** One link's body, its keys sorted and the slashes kept (iOS JSONSerialization [.sortedKeys, .withoutEscapingSlashes]). */
+    private fun chainBody(n: Int, time: String, master: String, prev: String, thread: List<String>, text: String, hash: String? = null): String =
+        "{" + (if (hash != null) "\"hash\":" + quoted(hash) + "," else "") + "\"kind\":\"word\",\"master\":" + quoted(master) + ",\"n\":" + n +
+            ",\"prev\":" + quoted(prev) + ",\"text\":" + quoted(text) + ",\"thread\":[" + thread.joinToString(",") { quoted(it) } + "],\"time\":" + quoted(time) + "}"
+    private fun digest(line: String) = Wire.hex(Wire.sha(line.toByteArray(Charsets.UTF_8)))
+    fun chainRecords(p: JSONObject): List<String> {
+        val out = ArrayList<String>()
+        val head = chainBody(0, stamp(p.optDouble("at")), p.optString("byName"), ZERO_HASH, emptyList(), p.optString("text"))
+        val headHash = digest(head)
+        out.add(chainBody(0, stamp(p.optDouble("at")), p.optString("byName"), ZERO_HASH, emptyList(), p.optString("text"), headHash))
+        var prev = headHash
+        val cs = p.optJSONArray("comments") ?: JSONArray()
+        (0 until cs.length()).mapNotNull { cs.optJSONObject(it) }.sortedBy { it.optDouble("at") }.forEachIndexed { i, c ->
+            val words = if (c.optBoolean("hid")) "" else c.optString("text")
+            val time = stamp(c.optDouble("at"))
+            val h = digest(chainBody(i + 1, time, c.optString("by"), prev, listOf(headHash), words))
+            out.add(chainBody(i + 1, time, c.optString("by"), prev, listOf(headHash), words, h))
+            prev = h
+        }
+        return out
+    }
+    /** THE COMMENTER KEEPS THE CHAIN, OPEN, IN THE ONE TIMECHAIN FOLDER (iOS chainFile, the author's word 02.10 15:09): POST.md -- the
+     *  records as json lines, then the post's link and every comment's. Null when the post has no name to file it by. */
+    fun chainFile(p: JSONObject): File? {
+        val id = p.optString("id")
+        val safe = id.filter { it.isLetterOrDigit() }.take(64)
+        if (safe.isEmpty()) return null
+        val lines = mutableListOf("# Comment chain", "", "```json")
+        lines.addAll(chainRecords(p))
+        lines.add("```"); lines.add("")
+        lines.add("montana://wall/post/" + id)
+        val cs = p.optJSONArray("comments") ?: JSONArray()
+        for (k in 0 until cs.length()) cs.optJSONObject(k)?.let { lines.add("montana://wall/comment/" + id + "/" + it.optString("id")) }
+        return runCatching { File(File(Book.ctx.filesDir, "TimeChain").apply { mkdirs() }, "$safe.md").apply { writeText(lines.joinToString("\n")) } }.getOrNull()
+    }
     private val PRIMES = intArrayOf(2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109)
     /** iOS gematria (MontanaBoard 1266-1290): the seal read as one number, divided by 29 again and again, the prime of every remainder summed. */
     fun gematria(hex: String): Int {
@@ -1528,6 +1586,62 @@ private fun sharePost(act: MainActivity, wall: String, p: JSONObject) {
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
         .putExtra(android.content.Intent.EXTRA_TEXT, Board.linkPost(p, wall)).putExtra(android.content.Intent.EXTRA_TITLE, title)
     runCatching { act.startActivity(android.content.Intent.createChooser(send, null)) }
+}
+
+/**
+ * THE COMMENT CHAIN'S PAGE (iOS MTBoardChainPage, MontanaBoardViews.swift:2267-2330 at 2342; 7e4ccd72): the interval the chain covers,
+ * then every comment's seal -- its moment, its seal, the seal before it, its gematria -- a touch on one opens it among the comments.
+ * The share hands the post's link with the chain's file (MTPostLinkItem + chainFile). The wallet's windows of participation are not
+ * drawn: this build carries no core windows (the coins stand closed, GooglePlay.COINS).
+ */
+fun wallChainPage(act: MainActivity, wall: String, id: String, onClose: () -> Unit): View {
+    val c: Context = act
+    val p = Board.post(wall, id)
+    val body = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), dp(8), dp(16), dp(24)) }
+    body.addView(c.text(c.getString(R.string.coin_timechain).uppercase(), 13f, MT.gray).apply { setPadding(0, dp(8), 0, dp(8)) }, lp())
+    val cs = p?.optJSONArray("comments")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } ?: emptyList()
+    if (cs.isEmpty()) body.addView(c.text(c.getString(R.string.wall_no_comments), 15f, MT.gray), lp())
+    else {
+        // USER-DATA: the interval this comment chain covers
+        body.addView(c.text(Board.local(cs.first().optDouble("at")) + " · " + Board.local(cs.last().optDouble("at")), 15f).apply {
+            setTextIsSelectable(true); setPadding(0, 0, 0, dp(8))
+        }, lp())
+        for (k in cs) {
+            // USER-DATA: one seal of the comment chain
+            val line = if (k.optString("h").isEmpty()) Board.local(k.optDouble("at")) else Board.sealLine(k)
+            body.addView(c.text(line, 12f).apply {
+                gravity = Gravity.CENTER_VERTICAL; minHeight = dp(44)
+                pressable { act.push { close -> wallCommentsPage(act, wall, id, close, focus = k.optString("id")) } }
+            }, lp())
+        }
+    }
+    val bar = FrameLayout(c).apply {
+        addView(c.icon(R.drawable.ic_close, android.graphics.Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
+            FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(8) })
+        addView(c.text(c.getString(R.string.coin_timechain), 17f, android.graphics.Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        // THE CHAIN GOES WITH ITS POST'S LINK (iOS, the author's word 02.10 19:26): the file keeps the records, the link ahead of it opens the post
+        if (p != null) addView(c.icon(R.drawable.ic_share, android.graphics.Color.WHITE).apply {
+            setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.share)
+            pressable {
+                Thread {
+                    val f = Board.chainFile(p)
+                    act.runOnUiThread {
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType(if (f != null) "text/markdown" else "text/plain")
+                            .putExtra(android.content.Intent.EXTRA_TEXT, Board.linkPost(p, wall))
+                        if (f != null) send.putExtra(android.content.Intent.EXTRA_STREAM, Media.uri(c, f)).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        runCatching { act.startActivity(android.content.Intent.createChooser(send, null)) }
+                    }
+                }.start()
+            }
+        }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = c.dp(8) })
+    }
+    return FrameLayout(c).apply {
+        setBackgroundColor(android.graphics.Color.BLACK)
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(bar, lp(MATCH, dp(52)))
+            addView(ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(body) }, lp(MATCH, 0, 1f))
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
 }
 
 /**
@@ -2160,6 +2274,18 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         addView(c.icon(R.drawable.ic_close, android.graphics.Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
             FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(8) })
         addView(c.text(c.getString(R.string.wall_comments), 17f, android.graphics.Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        // THE CHAIN AND THE POST'S LINK (iOS MTBoardComments toolbar, MontanaBoardViews.swift:2470-2480 at 2342): the clock opens the
+        // comment chain's page, the share sends the post's link
+        if (thread0 != null) addView(c.hstack {
+            addView(c.icon(R.drawable.ic_clock_arrow, android.graphics.Color.WHITE).apply {
+                setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.coin_timechain)
+                pressable { act.push { close -> wallChainPage(act, thread0.first, thread0.second.optString("id"), close) } }
+            }, lp(dp(44), dp(44)))
+            addView(c.icon(R.drawable.ic_share, android.graphics.Color.WHITE).apply {
+                setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.share)
+                pressable { sharePost(act, thread0.first, thread0.second) }
+            }, lp(dp(44), dp(44)))
+        }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = c.dp(8) })
     }
     val again: () -> Unit = { draw() }
     val column = c.vstack(Gravity.NO_GRAVITY) {
