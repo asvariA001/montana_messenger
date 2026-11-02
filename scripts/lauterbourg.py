@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import subprocess
+import ssl
 import urllib.request
 
 import toolchain
@@ -97,7 +98,9 @@ def remote(host, script, args):
 
 def fetch(url):
     req = urllib.request.Request(url, headers={"User-Agent": "montana-publish", "Cache-Control": "no-cache"})
-    return urllib.request.urlopen(req, timeout=120).read()
+    # a python of its own (Homebrew 3.14) knows no roots until told: the system's own bundle where it lies
+    roots = "/etc/ssl/cert.pem" if os.path.exists("/etc/ssl/cert.pem") else None
+    return urllib.request.urlopen(req, timeout=120, context=ssl.create_default_context(cafile=roots)).read()
 
 
 # THE LEVEL OF THE CORE AND THE LEAST BUILD (iOS 4befb14a, asc-publish.py CORE_LEVEL): latest.json names the core's level and, as the
