@@ -1543,6 +1543,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         // A POST OF THE TABLE ANSWERS THROUGH ITS WRITER'S @NAME (iOS counters, 8b1932d3 (5) at 2351; the author's word 14475): its
         // marks stand as on any post, and the first one taken opens the road (reached); the mark is drawn on the table's row at once
         val id = p.optString("id")
+        val wall = it.wall
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             fun mark(glyph: Int, n: Int, tint: Int, words: Int, onHold: (() -> Unit)? = null, onTap: (() -> Unit)?) = addView(c.hstack {
@@ -1563,7 +1564,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 } else Board.like(it.wall, p)
             }
             // a repost counts its original's thread (iOS d71617c6, board.thread(of:on:)?.post.commentCount ?? 0)
-            mark(R.drawable.ic_set_textbubble, Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0, MT.gray, R.string.wall_comments, if (whole) null else openComments)
+            mark(R.drawable.ic_set_textbubble, Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0, MT.gray, R.string.wall_comments, onTap = if (whole) null else openComments)
             // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
             mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
                 val on = !p.optBoolean("kept")
@@ -1595,7 +1596,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                     addView(c.text(p.optInt("views").toString(), 13f, MT.gray, bold = true))
                     // WHO SAW IT, on a hold (iOS 8b1932d3 (5), the author's word 14475) -- on my own posts alone: a reader is named to the
                     // post's owner and to nobody else (Board.countsViews, the critic of 14486)
-                    if (Board.countsViews(it.wall)) setOnLongClickListener { act.push { close -> wallPeoplePage(act, it.wall, id, likes = false, onClose = close) }; true }
+                    if (Board.countsViews(wall)) setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
                 }, lp(WRAP, WRAP))
             }
         }, lp())
