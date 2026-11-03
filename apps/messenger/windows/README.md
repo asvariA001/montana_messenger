@@ -175,6 +175,8 @@ $env:CARGO_TARGET_DIR = "$repo\apps\messenger\windows\target"
 git fetch origin dinetpda/core-windows-portability
 git cherry-pick --no-commit 291869b
 $env:OPENSSL_SRC_PERL = "C:\Strawberry\perl\bin\perl.exe"   # wherever perl.exe is
+# The canonical wordlist is embedded and hashed from raw bytes; a CRLF checkout aborts identity creation.
+powershell -NoProfile -ExecutionPolicy Bypass -File apps\messenger\windows\app\tools\check-wordlist.ps1
 Push-Location core\Code; cargo build --release -p mt-bindings; Pop-Location
 
 # 2. the protocol core's boundary, montana_core.dll, built in a target folder of its own and laid in target\release
