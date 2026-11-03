@@ -1803,6 +1803,22 @@ object Book {
         Log.d("Montana", "face_echo dropped=" + echoes.size + " own faces worn by correspondents")
     }
 
+    /**
+     * A FACE TWO CORRESPONDENTS SHARE PROVES NEITHER (iOS ChatStore.dropSharedFaces, 4a24b66c at 2091; T1 03.10: a restore laid one
+     * portrait on most of the book): such faces leave the book, and each owner is asked for their own (healFacesFromCards asks the
+     * faceless). A group's picture is the group's; a pipe folded into its older twin is the same person and proves nothing either way.
+     */
+    fun dropSharedFaces() {
+        val held = refs().filter { r -> !Groups.isKey(r) && SamePair.merged(r) == null }.map { it to face(it) }.filter { (_, f) -> f.isFile && 0 < f.length() }
+        val shared = held.groupBy { it.second.length() }.values.filter { 1 < it.size }.flatMap { same ->
+            same.groupBy { (_, f) -> runCatching { android.util.Base64.encodeToString(Wire.sha(f.readBytes()), android.util.Base64.NO_WRAP) }.getOrNull() }
+                .filter { (k, v) -> k != null && 1 < v.size }.values.flatten().map { it.first }
+        }
+        if (shared.isEmpty()) return
+        shared.forEach { face(it).delete(); edit(it) {} }
+        Log.d("Montana", "face_shared dropped=" + shared.size + " kept=" + (held.size - shared.size))
+    }
+
     /** My hand's name on every row here, null where it set none (iOS MTNameBook.manual — a copy carries it as «manualNames»). */
     fun pins(): Map<String, String?> = synchronized(lock) {
         ensure(); chats.values.filter { !it.ref.startsWith("arc:") }.associate { it.ref to it.pin?.ifBlank { null } }
@@ -1842,16 +1858,31 @@ object Book {
      * faceless is read at once from their card's face by their last daily link (PeerLinks.any), rather than wait for
      * their phone to wake and announce it again -- once a life per pipe, not on every redraw.
      */
+    private const val FACE_HEAL_KEY = "faceHealCards"   // NOT-UI: correspondent -- the card link last read for a face (iOS faceHealKey)
     fun healFacesFromCards() {
         dropOwnFaceEchoes()   // iOS loadFromDisk: dropOwnFaceEchoes, then healFacesFromCards
+        dropSharedFaces()     // iOS load: dropSharedFaces (4a24b66c), before the faceless are asked
         var asked = 0
-        for (ref in refs()) {
+        // ONCE A CARD, NOT ONCE A LIFE (iOS healFacesFromCards, faceHealCards, 18.10.2026 at 2238): a life ends at every reclaim, and
+        // every launch read the same cards again -- two of them answering with one picture two correspondents share, which leaves the
+        // book at the next read (dropSharedFaces). A card's face is read once per card link; the owner's next card, or the face their
+        // own letter brings, heals it.
+        val refs = refs()
+        val read = synchronized(faceHealed) {
+            val o = runCatching { JSONObject(Prefs.str(FACE_HEAL_KEY, "{}")) }.getOrDefault(JSONObject())
+            val held = refs.toSet()
+            o.keys().asSequence().toList().filter { it !in held }.forEach { o.remove(it) }
+            o
+        }
+        for (ref in refs) {
             if (Groups.isKey(ref) || face(ref).exists() || myFace(ref).exists()) continue
             val link = PeerLinks.any(ref) ?: continue
-            if (!synchronized(faceHealed) { faceHealed.add(ref) }) continue   // every return asks from its own thread: once a life, by one of them
+            if (!synchronized(faceHealed) { read.optString(ref) != link && faceHealed.add(ref) }) continue   // every return asks from its own thread: once a card, by one of them
+            synchronized(faceHealed) { read.put(ref, link) }
             asked++
             Meeting.healFace(ref, link)
         }
+        synchronized(faceHealed) { Prefs.setStr(FACE_HEAL_KEY, read.toString()) }
         if (0 < asked) Log.d("Montana", "face_heal from_cards=" + asked)   // iOS MontanaChatStore 1926
     }
 

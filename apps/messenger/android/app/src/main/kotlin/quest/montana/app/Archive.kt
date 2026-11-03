@@ -371,6 +371,9 @@ object Archive {
             }
             chats++; added += built.size
         }
+        // A FACE THE ARCHIVE HOLDS FOR MORE THAN ONE CORRESPONDENT NAMES NONE OF THEM (iOS restore, 4a24b66c): a copy an older build
+        // sealed stays out of the book, and its true owner is asked for it
+        if (0 < faces) Book.dropSharedFaces()
         if (0 < gapRows) Log.d("Montana", "archive_gap total chats=" + gapChats + " rows=" + gapRows)
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
         if (face != null) Prefs.setStr(FACE_KEY, face)

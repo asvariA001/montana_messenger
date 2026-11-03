@@ -416,29 +416,34 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
         addView(c.icon(tab.icon, MT.gray), lp(dp(42), dp(42)))
         addView(c.text(words, 15f, MT.gray, center = true), lp().apply { topMargin = dp(10) })
     }
+    // a post that did not change keeps its own cell where it stands: a mark does not shake the wall (PostCells)
+    val wallCells = PostCells(act)
     drawPane = {
-        pane.removeAllViews()
         val msgs = select(tab, Book.chat(ref)?.msgs ?: emptyList(), group && !channel)   // a channel's films have their own pane
         if (tab == Tab.WALL) {
+            val rows = mutableListOf<View>()
+            fun row(v: View, top: Int = 10) { if (v.layoutParams == null) v.layoutParams = lp().apply { topMargin = c.dp(top) }; rows += v }
             // THE WRITE BUTTON WHILE THE OWNER LETS ME WRITE (iOS MTBoardRows, MontanaBoardViews.swift:156-161 at 2155): it opens the
             // one new post's page over their wall (MTBoardComposer.present(on: owner)), and the post goes to them
-            if (Board.canWrite(ref)) pane.addView(writeFace(act, ref), lp().apply { topMargin = c.dp(12) })
+            if (Board.canWrite(ref)) row(writeFace(act, ref), 12)
             // MY DRAFT ON THEIR WALL stands over the posts on their way (iOS MTBoardRows 165-169)
-            draftCell(act, ref)?.let { pane.addView(it, lp().apply { topMargin = c.dp(10) }) }
+            draftCell(act, ref)?.let { row(it) }
             // A POST ON ITS WAY TO THEIR WALL stands at once as it will be published, under the bar of its files (iOS MTBoardRows 167-172)
             val onItsWay = MyWall.sending(ref)
-            onItsWay.forEach { o -> pane.addView(goingCell(act, o), lp().apply { topMargin = c.dp(10) }) }
+            onItsWay.forEach { o -> row(goingCell(act, o)) }
             // THE WALL'S OWN ROWS (iOS MTBoardRows, MontanaPeerInfoScreen.swift:646): a person's page shows their wall --
             // the same cells the feed draws (Board.postCell), with no "on X's wall" line of its own (onItsWall).
             val wallPosts = Board.posts(ref)
             // A PIPE NOBODY HAS ANSWERED YET SAYS SO (iOS MTBoardRows.empty, 55fca77b): until their phone answers on this road
             // nothing of theirs can come by it, and the page says whose phone it waits for instead of «No posts yet».
             if (wallPosts.isEmpty() && onItsWay.isEmpty() && !Board.hasPage(ref) && Meeting.first(ref) != null)
-                pane.addView(emptyPane(c.getString(R.string.wall_waits_phone, Board.nameOf(c, ref))), lp())
-            else if (wallPosts.isEmpty() && onItsWay.isEmpty()) pane.addView(emptyPane(), lp())
-            else wallPosts.forEach { item -> pane.addView(postCell(act, item, onItsWall = true), lp().apply { topMargin = c.dp(10) }) }
-        } else if (msgs.isEmpty()) pane.addView(emptyPane(), lp())
-        else paneRows(act, tab, msgs.reversed(), pane, law)   // newest on top
+                row(emptyPane(c.getString(R.string.wall_waits_phone, Board.nameOf(c, ref))), 0)
+            else if (wallPosts.isEmpty() && onItsWay.isEmpty()) row(emptyPane(), 0)
+            else wallPosts.forEach { item -> row(wallCells.cell(item, onItsWall = true)) }
+            pane.relay(rows)
+            wallCells.keepOnly(rows)
+        } else if (msgs.isEmpty()) { pane.removeAllViews(); pane.addView(emptyPane(), lp()) }
+        else { pane.removeAllViews(); paneRows(act, tab, msgs.reversed(), pane, law) }   // newest on top
     }
 
     // the one player's turn redraws the music's glyphs, and only its turn: the clock's ticks change nothing here
