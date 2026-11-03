@@ -102,6 +102,28 @@ class SeedKeys(val mnemonic: String, val pubkey: ByteArray, val seckey: ByteArra
  * SINGLE SOURCE OF TRUTH of the active identity (iOS MontanaSeed): the words, in one
  * representation, in the device vault. Everything else is derived from them on use.
  */
+/**
+ * A BIRTH IS WHOLE OR IT IS NOT (iOS MontanaBirth, cfc6ec68 at 2351; the author's word 02.11.2026: «in the middle of the registration
+ * I left, and it created the identity all the same -- check it and fix it, do not allow it»). The seed lands at «Create», before the
+ * words are saved and the name is given: until the profile's checkmark the person is a making, not a person. The mark holds the print
+ * of the words being made, never the words; a launch that finds it beside the same words forgets the making before any screen.
+ */
+object MontanaBirth {
+    private const val K = "mt.birth.unfinished"   // NOT-UI: this phone's own, never a copy's
+    private fun seal(words: String): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(words.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+    fun begun(words: String) = Prefs.setStr(K, seal(words))
+    fun finished() = Prefs.remove(K)
+    fun forgetUnfinished(wipe: () -> Unit) {
+        val mark = Prefs.str(K, "").takeIf { it.isNotEmpty() } ?: return
+        val held = MontanaSeed.mnemonic ?: return
+        Prefs.remove(K)
+        if (seal(held) != mark) return
+        Log.i("Montana", "birth_unfinished forgotten -- a making left before its profile")
+        wipe()
+    }
+}
+
 object MontanaSeed {
     private const val MN = "mt_active_mnemonic"
     private const val TWIN = "mt.twin.ref"

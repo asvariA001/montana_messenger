@@ -131,11 +131,8 @@
     <string name="q_min">Min</string>
     <string name="q_medium">Medium</string>
     <string name="q_max">Max</string>
-    <string name="feed_motion">Feed motion</string>
-    <string name="springiness">Springiness</string>
-    <string name="anim_duration">Animation duration</string>
-    <string name="reset_motion">Reset motion</string>
-    <string name="feed_motion_footer">Adjusts scrolling, new messages and the return after a reply swipe. Reduce Motion takes priority.</string>
+    <string name="gif_reduce">Reduce GIF animation</string>
+    <string name="gif_reduce_footer">GIFs play without stopping; a tap stops one. With this on, a GIF plays three times and then only on a tap.</string>
     <string name="message_style">Message style</string>
     <string name="style_montana">Montana (default)</string>
     <string name="style_classic">Classic</string>
