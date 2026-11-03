@@ -3605,9 +3605,17 @@ private fun gifCeilingDp(c: Context): Int {
  * stands. A first showing plays its three cycles once in the file's life (the mark survives a relaunch, 3000 files, iOS ranCap);
  * after that only a tap plays them, from where it stands; a tap on a playing one stops it there. Three cycles end where they
  * began: a natural end rests on the first frame (iOS 23.09, «they stop crookedly»).
+ *
+ * GIFS DO NOT STOP BY DEFAULT (iOS cfc6ec68, MTGifPlay.forever/reduceKey at 2351, the author's word 02.11.2026: «gifs do not stop by
+ * default; in Appearance a checkmark "reduce gif animation"»): without the checkmark every gif plays on, a tap stops it and a tap
+ * plays it on again; with it the three cycles above are the rule. FOREVER is the time a frame never spends.
  */
 internal object GifPlay {
     const val CYCLES = 3
+    const val FOREVER = Long.MAX_VALUE
+    const val REDUCE = "gifReduceMotion"
+    val reduced: Boolean get() = Prefs.bool(REDUCE, false)
+    private val live = LinkedHashSet<Runnable>()   // the gifs on the screen, woken when the checkmark turns
     private const val KEY = "gifFirstRun"
     private const val CAP = 3000
     private var ran: MutableList<String>? = null
@@ -3626,6 +3634,7 @@ internal object GifPlay {
     /** What is left to play; a file never shown before is handed its first three cycles (and marked: iOS shown(_:at:)). */
     @Synchronized fun left(key: String, duration: Long): Long {
         left[key]?.let { return it }
+        if (!reduced) { left[key] = FOREVER; return FOREVER }
         if (load().contains(key)) { left[key] = 0; return 0 }
         val n = CYCLES * maxOf(1L, duration)
         left[key] = n
@@ -3635,7 +3644,8 @@ internal object GifPlay {
     @Synchronized fun standingAt(key: String): Long = standing[key] ?: 0L
     /** Time went by while it played: it stands further on and has less to play; zero rests it on its first frame. */
     @Synchronized fun played(key: String, dt: Long, duration: Long): Long {
-        val l = maxOf(0L, (left[key] ?: 0L) - dt)
+        val was = left[key] ?: 0L
+        val l = if (was == FOREVER) was else maxOf(0L, was - dt)
         left[key] = l
         standing[key] = if (l == 0L) 0L else ((standing[key] ?: 0L) + dt) % maxOf(1L, duration)
         return l
@@ -3643,9 +3653,16 @@ internal object GifPlay {
     /** The finger: a playing file stops where it stands; a standing one plays three cycles from there. True -- it plays now. */
     @Synchronized fun toggle(key: String, duration: Long): Boolean {
         val playing = (left[key] ?: 0L) > 0L
-        left[key] = if (playing) 0L else CYCLES * maxOf(1L, duration)
+        left[key] = if (playing) 0L else if (reduced) CYCLES * maxOf(1L, duration) else FOREVER
         mark(key)
         return !playing
+    }
+    @Synchronized fun watch(r: Runnable, on: Boolean) { if (on) live.add(r) else live.remove(r) }
+    /** The checkmark turned (iOS reduceChanged): every count is dropped and every gif on the screen asks the book again -- off,
+     *  they play on; on, the ones whose first cycles were spent rest. */
+    fun reduceChanged() {
+        val woken = synchronized(this) { left.clear(); live.toList() }
+        woken.forEach { it.run() }
     }
     /** The file's picture was replaced by its full one (iOS MTGifPlay.renew): it plays its own three cycles again. */
     @Synchronized fun renew(file: String) {
@@ -3711,8 +3728,9 @@ private class GifView(c: Context, private val f: java.io.File) : View(c) {
         if (!GifPlay.toggle(key, duration)) { ticking = false; last = 0L; invalidate() } else wake()
     }
 
-    override fun onAttachedToWindow() { super.onAttachedToWindow(); wake() }
-    override fun onDetachedFromWindow() { ticking = false; last = 0L; removeCallbacks(tick); super.onDetachedFromWindow() }
+    private val asked = Runnable { post { ticking = false; last = 0L; removeCallbacks(tick); wake() } }
+    override fun onAttachedToWindow() { super.onAttachedToWindow(); GifPlay.watch(asked, true); wake() }
+    override fun onDetachedFromWindow() { GifPlay.watch(asked, false); ticking = false; last = 0L; removeCallbacks(tick); super.onDetachedFromWindow() }
 
     override fun onDraw(canvas: android.graphics.Canvas) {
         val w = movie?.width() ?: still?.width ?: return
@@ -3887,9 +3905,10 @@ private fun speed(p: android.media.MediaPlayer) { runCatching { p.playbackParams
  */
 private object LetterMotion {
     const val RISE = 0.9f
-    private fun read(key: String, lo: Double, hi: Double, def: Double): Double = Prefs.dbl(key, def).let { if (it.isFinite()) it.coerceIn(lo, hi) else def }
-    val duration: Double get() = read("chatSpringDuration", 0.25, 0.8, 0.55)
-    val bounce: Double get() = read("chatSpringBounce", 0.0, 0.4, 0.18)
+    // ONE SPRING FOR EVERYONE (iOS b9e68f7f, MTLetterMotion at 2351): the feed's motion is no setting; the values a person set
+    // before are forgotten at launch (Retired).
+    const val duration = 0.55
+    const val bounce = 0.18
     val fade: Double get() = minOf(0.28, duration / 2)
     val on: Boolean get() = android.animation.ValueAnimator.areAnimatorsEnabled()
     /** What is left of the way `t` seconds in, on iOS spring(duration:bounce:): the natural frequency 2π/duration, the damping ratio

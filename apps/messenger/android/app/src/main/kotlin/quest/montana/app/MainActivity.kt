@@ -72,6 +72,8 @@ class MainActivity : Activity() {
         })
         setContentView(surface)
         registerBack()
+        // a making left before its profile is no person (iOS cfc6ec68): its seed and whatever it began leave before any screen
+        MontanaBirth.forgetUnfinished { MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); Book.wipe() }
         hasSeed = MontanaSeed.hasSeed
         termsAccepted = Prefs.termsAccepted
         render()
@@ -258,6 +260,7 @@ class MainActivity : Activity() {
         }
         show(page)
         MontanaBackupID.retire(this)   // the words no longer ride the Google Account; a record a build before wrote leaves it (iOS e69c9b6d)
+        Prefs.remove("chatSpringBounce", "chatSpringDuration")   // one spring for everyone: the values a person set before leave (iOS b9e68f7f, MTRetired)
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).
         if (hasSeed && termsAccepted) HomeNodeWatch.tickSoon(this)

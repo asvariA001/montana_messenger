@@ -586,9 +586,10 @@ object Media {
         // waited for on a growing pause (0.7 s doubling, six tries); a silent road gets three quick tries; neither is «gone»
         var silentTries = 0; var busyTries = 0
         while (silentTries < 3 && busyTries < 6) {
-            // an answer can finish exactly as a call begins: every retry stands behind the call (iOS bringChunk, MontanaCall.isBusy)
+            // an answer can finish exactly as a call begins: every retry stands behind the call's birth (iOS bringChunk,
+            // MontanaCall.isConnecting at 2351) -- a call that stands shares the doors
             var held = false
-            while (Calls.busy()) {
+            while (Calls.connecting()) {
                 if (!held) { held = true; Log.d("Montana", "blob_dl held=call id=" + bid.take(8)) }
                 Thread.sleep(1000)
             }

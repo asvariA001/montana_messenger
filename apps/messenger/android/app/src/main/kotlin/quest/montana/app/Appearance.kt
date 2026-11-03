@@ -20,10 +20,12 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
+import android.widget.Switch
 import android.widget.TextView
 
 // ─────────────────────────── the bubble's style (iOS BT, MTBubbleStyle) ───────────────────────────
@@ -156,8 +158,8 @@ object AppIcon {
 
 /**
  * THE PAGE «APPEARANCE»: the preview is the chat — the very bubbles, on the very ground, with the person's own settings;
- * then the app's icon, the video notes' quality, the feed's motion, the message style with its own colours and the voice
- * message style (VoiceOrb.kt). Not here yet, each for its own reason: the application icons (Android has no app library yet),
+ * then the app's icon, the voice message style (VoiceOrb.kt), the video notes' quality, the gifs' checkmark and the message style
+ * with its own colours. Not here yet, each for its own reason: the application icons (Android has no app library yet),
  * the keyboard (the keys are the input method's own window — Android gives an app no word over their look).
  */
 class AppearancePage(private val act: MainActivity, private val onClose: () -> Unit) {
@@ -173,31 +175,7 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
             // THE APP'S ICON: the liquid glass or the gold on black, chosen by their pictures.
             addView(header(c, R.string.app_icon))
             addView(c.plate { addView(iconChooser(), lp()) }, lp())
-            // The note's picture quality: three steps.
-            addView(header(c, R.string.note_quality))
-            addView(c.plate {
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                addView(segmented(c, listOf(R.string.q_min to "low", R.string.q_medium to "medium", R.string.q_max to "high"),
-                    Prefs.str("noteQuality", "medium")) { Prefs.setStr("noteQuality", it) }, lp())
-            }, lp())
-            addView(footer(c, R.string.note_quality_footer))   // every choice says what it does (iOS d39e5776)
-            addView(header(c, R.string.feed_motion))
-            val motion = c.vstack(Gravity.NO_GRAVITY)
-            fun fillMotion() {
-                motion.removeAllViews()
-                motion.addView(slider(c, R.string.springiness, "chatSpringBounce", 0.18, 0.0, 0.4, big = true), lp())
-                motion.addView(slider(c, R.string.anim_duration, "chatSpringDuration", 0.55, 0.25, 0.8, big = true), lp())
-            }
-            fillMotion()
-            addView(c.plate {
-                addView(motion, lp())
-                divider()
-                addView(actionRow(c, R.string.reset_motion) { Prefs.remove("chatSpringBounce", "chatSpringDuration"); fillMotion() }, lp())
-            }, lp())
-            addView(footer(c, R.string.feed_motion_footer))
-            addView(header(c, R.string.message_style))
-            addView(c.plate { addView(styleRows, lp()) }, lp())
-            addView(footer(c, R.string.message_style_footer))
+            // VOICE STYLE STANDS HIGH, right under the app's icon (iOS cfc6ec68, link 14680 (6) at 2351).
             // THE VOICE ORB'S OWN PAGE (iOS «Voice message style», MontanaSettings.swift:1097-1105 at 2155): the peer's orb, still,
             // and the words; the row leads to the colours of both sides and the motion of the ball.
             addView(header(c, R.string.vo_style))
@@ -211,6 +189,37 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
                     pressable { lateinit var close: () -> Unit; close = act.overlay(VoiceOrbStylePage(act) { close() }.view) }
                 }, lp())
             }, lp())
+            // The note's picture quality: three steps.
+            addView(header(c, R.string.note_quality))
+            addView(c.plate {
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                addView(segmented(c, listOf(R.string.q_min to "low", R.string.q_medium to "medium", R.string.q_max to "high"),
+                    Prefs.str("noteQuality", "medium")) { Prefs.setStr("noteQuality", it) }, lp())
+            }, lp())
+            addView(footer(c, R.string.note_quality_footer))   // every choice says what it does (iOS d39e5776)
+            // GIFS PLAY ON (iOS cfc6ec68, link 14680 (3) at 2351): the checkmark brings back three cycles and the tap. The feed's
+            // motion is no setting any more (iOS b9e68f7f): one spring for everyone, LetterMotion.
+            addView(View(c), lp(MATCH, c.dp(20)))   // no words over it, as iOS: the switch names itself
+            addView(c.plate {
+                addView(c.hstack {
+                    setPadding(dp(16), dp(8), dp(14), dp(8))
+                    minimumHeight = dp(48)
+                    val sw = Switch(c).apply {
+                        isChecked = GifPlay.reduced
+                        thumbTintList = ColorStateList.valueOf(Color.WHITE)
+                        trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(MT.green, Color.rgb(57, 57, 61)))
+                        setOnCheckedChangeListener { _, v -> Prefs.setBool(GifPlay.REDUCE, v); GifPlay.reduceChanged() }
+                        contentDescription = c.getString(R.string.gif_reduce)
+                    }
+                    addView(c.text(c.getString(R.string.gif_reduce), 16f), lp(0, WRAP, 1f))
+                    addView(sw)
+                    setOnClickListener { sw.toggle() }
+                }, lp())
+            }, lp())
+            addView(footer(c, R.string.gif_reduce_footer))
+            addView(header(c, R.string.message_style))
+            addView(c.plate { addView(styleRows, lp()) }, lp())
+            addView(footer(c, R.string.message_style_footer))
             addView(custom, lp())
         }
         fillStyles()
@@ -237,6 +246,8 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
     private fun iconChooser(): View {
         val c: Context = act
         val row = c.hstack { setPadding(dp(12), dp(6), dp(12), dp(6)) }
+        // THE ICONS SCROLL (iOS cfc6ec68, link 14680 (4) at 2351): a row wider than the plate goes on sideways, never past the finger.
+        val scroll = HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; addView(row) }
         fun fill() {
             row.removeAllViews()
             val gold = AppIcon.gold(c)
@@ -258,7 +269,7 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
             }
         }
         fill()
-        return row
+        return scroll
     }
 
     private fun fillStyles() {

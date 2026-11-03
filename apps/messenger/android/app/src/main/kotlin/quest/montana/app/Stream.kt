@@ -189,8 +189,9 @@ object Lane {
     }
 
     private fun pump() {
-        // the call has the doors first: nothing new is asked while it stands, and the lane wakes itself after (iOS pump, MontanaCall.isBusy)
-        if (Calls.busy()) {
+        // the call's birth has the doors first: nothing new is asked while it dials, rings or connects, and the lane wakes itself
+        // after (iOS pump, MontanaCall.isConnecting at 2351); A CALL THAT STANDS SHARES THE DOORS, one piece at a time (isBusy narrows it)
+        if (Calls.connecting()) {
             if (asks.isNotEmpty() && !callWake) {
                 callWake = true
                 Log.d("Montana", "cargo_lane held=call queued=" + asks.size + " flying=" + flying.size)
@@ -198,7 +199,7 @@ object Lane {
             }
             return
         }
-        while (flying.size < WIDTH) {
+        while (flying.size < (if (Calls.busy()) 1 else WIDTH)) {
             val next = asks.entries.filter { it.key !in flying }
                 .minWithOrNull(compareByDescending<Map.Entry<String, Ask>> { it.value.need }.thenBy { it.value.seq }) ?: return
             val bid = next.key
