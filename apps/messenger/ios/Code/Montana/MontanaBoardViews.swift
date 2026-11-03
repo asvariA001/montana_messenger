@@ -1703,8 +1703,15 @@ struct MTBoardByline: View {
                     Text(verbatim: name).font(.subheadline.weight(.semibold)).foregroundColor(.primary).lineLimit(1)
                 }
                 if let at {
-                    Text(Date(timeIntervalSince1970: at), format: .dateTime.day().month().hour().minute())
-                        .font(.caption).foregroundColor(.secondary)
+                    // TWO DAYS BACK AND OLDER THE DAY STANDS BY ITS DIGITS (the author's word 03.11.2026: «the day before yesterday must
+                    // be written as 11.10.26»): today and yesterday as before, the day, the month and the time; older, dd.MM.yy.
+                    if Self.daysBack(at) < 2 {
+                        Text(Date(timeIntervalSince1970: at), format: .dateTime.day().month().hour().minute())
+                            .font(.caption).foregroundColor(.secondary)
+                    } else {
+                        // USER-DATA: a date, digits only
+                        Text(verbatim: Self.digits(at)).font(.caption).foregroundColor(.secondary)
+                    }
                 }
             }
             Spacer(minLength: 0)
@@ -1712,6 +1719,19 @@ struct MTBoardByline: View {
         .frame(minHeight: 44)
         .contentShape(Rectangle())
     }
+    /// How many calendar days back the moment stands: 0 today, 1 yesterday.
+    static func daysBack(_ at: Double, now: Date = Date()) -> Int {
+        let cal = Calendar.current
+        return cal.dateComponents([.day], from: cal.startOfDay(for: Date(timeIntervalSince1970: at)), to: cal.startOfDay(for: now)).day ?? 0
+    }
+    private static let digitsFormat: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.dateFormat = "dd.MM.yy"
+        return f
+    }()
+    /// The day by its digits, dd.MM.yy (11.10.26).
+    static func digits(_ at: Double) -> String { digitsFormat.string(from: Date(timeIntervalSince1970: at)) }
 }
 
 /// The writer's face: mine, the face this phone holds for a correspondent, or — for a writer it was never told of —
