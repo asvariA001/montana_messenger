@@ -1,0 +1,3 @@
+# The canonical Montana wordlist is hashed and parsed from raw embedded bytes.
+# A CRLF checkout changes those bytes and aborts identity creation.
+"core/Montana wordlist.txt" text eol=lf
