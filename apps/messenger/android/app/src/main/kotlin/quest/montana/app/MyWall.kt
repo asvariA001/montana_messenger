@@ -316,8 +316,14 @@ object MyWall {
             .put("liked", has(arr(p, "likes"), by)).put("kept", has(arr(p, "keepers"), by)).put("reposted", has(arr(p, "reposts"), by))
             .put("mine", author == by).put("views", arr(p, "views").length())
         p.optString("from").takeIf { it.isNotEmpty() }?.let { x.put("from", it) }
-        if (!(author.isEmpty() && !p.has("from"))) p.optString("face").takeIf { it.isNotEmpty() }?.let { x.put("face", it) }
-        if (author.isEmpty() && (!p.has("from") || p.optString("srcBy", "-") == "")) x.put("own", true)
+        // A REPOST OF MINE IS MINE (iOS 8b1932d3 (6) at 2351, the author's word 14476: «a repost is made in the name of the one who
+        // reposted, and below it the note whose post it is»): the visitor is told its writer is the page's owner and wears the face
+        // the visitor holds for them; the line under it names the wall it came from (from)
+        if (author.isNotEmpty()) p.optString("face").takeIf { it.isNotEmpty() }?.let { x.put("face", it) }
+        if (author.isEmpty()) x.put("own", true)
+        // WHO LIKED IT, by the names they gave themselves (iOS MTBoardSeen.ln, said(p.likes), 8b1932d3 (5)): fifty at most, the newest
+        // last, on a page to a pipe-holder alone -- the table names nobody (publicPosts); who saw stays with me (Board.people)
+        arr(p, "likes").takeIf { it.length() > 0 }?.let { x.put("ln", said(it)) }
         p.optString("lp").takeIf { it.isNotEmpty() }?.let { x.put("lp", it) }
         if (p.has("n")) x.put("n", p.optInt("n"))
         return x
@@ -468,6 +474,7 @@ object MyWall {
     fun publicPosts(limit: Int, budget: Int): Map<String, Pair<String, JSONObject>> {
         val name = Prefs.userName.trim().take(64)
         val face = Board.myFace()
+        val atName = Names.heldName?.let { Names.normalize(it) }
         val own = synchronized(lock) {
             ensure()
             mine.filter { it.optString("author").isEmpty() && !it.has("from") }.sortedByDescending { it.optDouble("at") }.take(limit)
@@ -478,8 +485,12 @@ object MyWall {
             val x = Board.clean(p)
             if (name.isNotEmpty()) x.put("byName", name)
             if (face != null) x.put("face", face) else x.remove("face")
-            for (k in listOf("mine", "pinned", "liked", "kept", "reposted")) x.remove(k)
+            for (k in listOf("mine", "pinned", "liked", "kept", "reposted", "ln")) x.remove(k)   // the table names nobody who liked
             x.put("own", true).put("comments", JSONArray()).put("commentCount", 0)
+            // THE @NAME I HOLD RIDES WITH MY POST (iOS publicDrafts, 8b1932d3 (5), the author's word 14475): the name is public already --
+            // anyone searches it and opens a chat by it -- so a reader of the table with no pipe to me reaches me by the same door. A
+            // lapsed name is not laid (heldName).
+            atName?.let { x.put("nm", it) } ?: x.remove("nm")
             val ms = x.optJSONArray("media") ?: JSONArray()
             var i = ms.length() - 1
             while (0 <= i && budget < x.toString().toByteArray().size) { ms.optJSONObject(i)?.remove("thumb"); i-- }
@@ -496,16 +507,36 @@ object MyWall {
             .sortedByDescending { it.optDouble("at") }.take(limit).map { it.optString("id") to JSONArray(it.getJSONArray("media").toString()) }
     }
     fun speakers(): List<String> = synchronized(lock) { ensure(); cap.toList() }
-    /** WHOSE POST ON MY WALL (iOS writer(of:on:), MontanaBoard.swift:2142-2149 at 2155): "" -- mine, a reference -- its writer's; null --
-     * no post of that name, or a repost whose writer this phone was not told. */
     /** The wall a repost of mine was taken from, by its reference (the seen post carries only its public name). */
     fun srcOf(id: String): String? = synchronized(lock) {
         ensure()
         mine.firstOrNull { it.optString("id") == id && it.has("from") }?.optString("src")?.takeIf { it.isNotEmpty() }
     }
+    /** WHOSE POST ON MY WALL (iOS writer(of:on:), MontanaBoard.swift:2331-2345 at 2351): "" -- mine, a reference -- its writer's; null --
+     * no post of that name. A REPOST ON MY WALL IS MINE (8b1932d3 (6), the author's word 14476): its byline is me, the line under it
+     * names the wall it came from. */
     fun writerOf(id: String): String? = synchronized(lock) {
         ensure()
-        mine.firstOrNull { it.optString("id") == id }?.let { p -> if (p.has("from")) p.optString("srcBy", "-").takeIf { it != "-" } else p.optString("author") }
+        mine.firstOrNull { it.optString("id") == id }?.optString("author")
+    }
+    /** The writer of a post of mine that stands as itself, not as a repost (iOS originalWriter's first look, 2303). */
+    fun originalWriterOf(id: String): String? = synchronized(lock) {
+        ensure()
+        mine.firstOrNull { it.optString("id") == id && !it.has("from") }?.optString("author")
+    }
+    /** WHO PUT THE MARK, BY THE NAME THEY GAVE THEMSELVES (iOS MTBoard.said, 8b1932d3 (5) at 2351): my own name for "" and, for a
+     *  correspondent, the name they declared or their @name -- never the name this phone keeps for them. Fifty at most, the newest last. */
+    private fun said(refs: JSONArray): JSONArray {
+        val all = (0 until refs.length()).map { refs.optString(it) }
+        return JSONArray(all.takeLast(Board.NAMES_SHOWN).map { r -> if (r.isEmpty()) Prefs.userName.trim().take(64) else Board.publicName(r) })
+    }
+    /** THE PEOPLE UNDER A POST'S LIKE OR ITS EYE ON MY WALL (iOS MTBoard.people, 8b1932d3 (5)): the post's own references, the newest
+     *  first -- "" is me; null -- no such post here. Who saw is mine alone to know: no page carries it. */
+    fun people(id: String, likes: Boolean): List<String>? = synchronized(lock) {
+        ensure()
+        val p = mine.firstOrNull { it.optString("id") == id } ?: return null
+        val a = arr(p, if (likes) "likes" else "views")
+        (0 until a.length()).map { a.optString(it) }.reversed()
     }
     /** WHO WROTE A COMMENT ON MY WALL (iOS commenter, MontanaBoard.swift:2199-2202 at 2155): "" -- I did, a reference -- its writer's. */
     fun commenterOf(postId: String, cid: String): String? = synchronized(lock) {
