@@ -10,6 +10,7 @@ import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import org.json.JSONArray
 import org.json.JSONObject
@@ -1364,6 +1365,55 @@ private class WallLinkClip(c: Context, private val url: String, private val show
     private companion object { const val HEAL_CAP = 8 }
 }
 
+/**
+ * A MARK DOES NOT SHAKE THE WALL (the author's word 03.11.2026: «when I put [a like] on the wall the wall starts jumping ... the wall
+ * as if shudders»; iOS draws its rows lazily by their ids, and a row whose post did not change is not drawn again): every word of a
+ * wall -- a like, a view, a keep, a page come -- laid every post anew, and each new cell stood a moment without its picture and its
+ * fold, so the posts above the eye changed height and the feed jumped. The cells are kept by their wall and their post: a post that
+ * did not change keeps its very cell where it stands; a changed one is drawn anew at the height its old cell held, for its first frames.
+ */
+class PostCells(private val act: MainActivity) {
+    private val held = HashMap<String, Pair<String, View>>()
+    private fun mark(it: Board.Item): String {
+        val p = it.post
+        val id = p.optString("id")
+        val r = Board.repostGoing(it.wall, id)
+        return p.toString() + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0) + "|" +
+            (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id)
+    }
+    /** The cell of a post, its own if nothing of it moved. */
+    fun cell(it: Board.Item, onItsWall: Boolean = false): View {
+        val k = it.wall + "#" + it.post.optString("id") + "#" + onItsWall
+        val m = mark(it)
+        val was = held[k]
+        if (was != null && was.first == m) return was.second
+        val v = postCell(act, it, onItsWall = onItsWall)
+        val h = was?.second?.height ?: 0
+        if (0 < h) { v.minimumHeight = h; v.postDelayed({ v.minimumHeight = 0 }, 300) }
+        held[k] = m to v
+        return v
+    }
+    /** The cells no list draws any more let go. */
+    fun keepOnly(items: Collection<View>) {
+        val live = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<View, Boolean>()).apply { addAll(items) }
+        held.entries.removeAll { it.value.second !in live }
+    }
+}
+
+/**
+ * THE ROWS STAND WHERE THEY STOOD (PostCells): the column takes the views in their order, and a view it already holds stays attached --
+ * a video's surface, a picture, a fold untouched; only the rows that left go and only the new ones come.
+ */
+fun LinearLayout.relay(rows: List<View>) {
+    val want = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<View, Boolean>()).apply { addAll(rows) }
+    for (i in childCount - 1 downTo 0) if (getChildAt(i) !in want) removeViewAt(i)
+    for ((i, v) in rows.withIndex()) {
+        if (i < childCount && getChildAt(i) === v) continue
+        (v.parent as? android.view.ViewGroup)?.removeView(v)
+        addView(v, i)
+    }
+}
+
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
 fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
@@ -2515,15 +2565,20 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     private fun draw() {
         items = Board.feed()
         stale = false; drawnAt = System.currentTimeMillis()
-        // as many as stood laid are laid again, so a feed read deep down keeps its place when the board moves
-        val keep = laid
-        column.removeAllViews(); laid = 0
-        lay(maxOf(FIRST, keep))
+        // as many as stood laid are laid again, so a feed read deep down keeps its place when the board moves; a post that did not
+        // change keeps its own cell where it stands (PostCells)
+        val n = minOf(items.size, maxOf(FIRST, laid))
+        val rows = (0 until n).map { i -> row(items[i]) }
+        column.relay(rows); laid = n
+        cells.keepOnly(rows)
+        if (laid < items.size) scroll.post { reach() }
         drawGoing()
     }
+    private val cells = PostCells(act)
+    private fun row(it: Board.Item): View = cells.cell(it).also { v -> if (v.layoutParams == null) v.layoutParams = lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) } }
     private fun lay(n: Int) {
         val to = minOf(items.size, laid + n)
-        for (i in laid until to) column.addView(postCell(act, items[i]), lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) })
+        for (i in laid until to) column.addView(row(items[i]))
         laid = to
         if (laid < items.size) scroll.post { reach() }   // a short feed that does not fill the reach yet is laid on, a frame at a time
     }

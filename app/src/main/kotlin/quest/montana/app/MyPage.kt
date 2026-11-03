@@ -27,17 +27,21 @@ fun myPage(act: MainActivity, onClose: () -> Unit): View {
     body.addView(face.view, lp())
     // MY OWN WALL UNDER THE HEAD (iOS MTBoardPane(owner: nil)): the row that writes a post, then my posts, the pinned first
     val wall = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(12), dp(16), dp(12), 0) }
+    // a post that did not change keeps its own cell where it stands: a mark does not shake the wall (PostCells)
+    val cells = PostCells(act)
     fun drawWall() {
-        wall.removeAllViews()
-        wall.addView(writeFace(act), lp())
+        val rows = mutableListOf<View>()
+        rows += writeFace(act).apply { layoutParams = lp() }
         // MY DRAFT STANDS ON MY WALL (iOS MTBoardRows 165-169), over the posts on their way
-        draftCell(act)?.let { wall.addView(it, lp().apply { topMargin = c.dp(10) }) }
+        draftCell(act)?.let { rows += it.apply { layoutParams = lp().apply { topMargin = c.dp(10) } } }
         // A POST ON ITS WAY stands at once as it will be published, under the bar of its files (iOS MTBoardRows 167-172)
         val going = MyWall.sending()
-        going.forEach { o -> wall.addView(goingCell(act, o), lp().apply { topMargin = c.dp(10) }) }
+        going.forEach { o -> rows += goingCell(act, o).apply { layoutParams = lp().apply { topMargin = c.dp(10) } } }
         val ps = MyWall.posts()
-        if (ps.isEmpty() && going.isEmpty()) wall.addView(c.text(c.getString(R.string.pi_wall_empty), 15f, MT.gray, center = true).apply { setPadding(0, dp(28), 0, dp(28)) }, lp())
-        else ps.forEach { p -> wall.addView(postCell(act, Board.Item("", p), onItsWall = true), lp().apply { topMargin = c.dp(10) }) }
+        if (ps.isEmpty() && going.isEmpty()) rows += c.text(c.getString(R.string.pi_wall_empty), 15f, MT.gray, center = true).apply { setPadding(0, dp(28), 0, dp(28)); layoutParams = lp() }
+        else ps.forEach { p -> rows += cells.cell(Board.Item("", p), onItsWall = true).also { v -> if (v.layoutParams == null) v.layoutParams = lp().apply { topMargin = c.dp(10) } } }
+        wall.relay(rows)
+        cells.keepOnly(rows)
     }
     drawWall()
     body.addView(wall, lp())
