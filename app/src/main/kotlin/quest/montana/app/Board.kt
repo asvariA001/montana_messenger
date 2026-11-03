@@ -36,7 +36,9 @@ object Board {
     private const val THUMB_LIMIT = 60_000
     private const val FACE_LIMIT = 16_000
     const val NAMES_SHOWN = 50                  // iOS MTBoard.namesShown: the names under a like, fifty at most
-    private const val FEED_SIZE = 300
+    // THE FEED SHOWS THE WHOLE TABLE, NOT ITS NEWEST PAGE (iOS MTBoard.feedSize = MTBoardGlobal.tableWhole, 19.10.2026): the posts are
+    // laid as they come into reach (FeedPane), so the count holds nothing back
+    private const val FEED_SIZE = WallGlobal.TABLE_WHOLE
     private const val FIRST_KEPT = 2000
     private const val LOOK_STALE = 600_000L
     private const val LOOK_BUDGET = 1_000_000_000L   // iOS MTBoardLook.budget: a gigabyte (MontanaBoard.swift:2414 at 2155)
