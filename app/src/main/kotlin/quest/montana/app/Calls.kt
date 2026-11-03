@@ -280,6 +280,10 @@ object Calls {
 
     /** A call stands in any state — ringing, dialling, talking (iOS stateSnapshot other than «idle»): its words knock every door. */
     fun busy(): Boolean = synchronized(gate) { ring != null }
+    /** THE CARGO YIELDS TO A CALL BEING BORN, NOT TO A CALL THAT STANDS (iOS MontanaCall.isConnecting, 8b1932d3 at 2351; the author's
+     *  words 02.11.2026: in a call the media, gifs and the wall's post did not leave): the roads are the call's while it dials, rings
+     *  or connects; a standing call carries its sound on its own line, and one piece at a time beside it costs it nothing. */
+    fun connecting(): Boolean = busy() && CallLine.connectedAt == 0L
     /** The correspondent of the call in hand, in any state (iOS MontanaCall.peerSnapshot): while it stands the radio is theirs. */
     fun peer(): String? = synchronized(gate) { ring?.ref }
 

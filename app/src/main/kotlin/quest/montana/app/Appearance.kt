@@ -199,7 +199,7 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
             addView(footer(c, R.string.note_quality_footer))   // every choice says what it does (iOS d39e5776)
             // GIFS PLAY ON (iOS cfc6ec68, link 14680 (3) at 2351): the checkmark brings back three cycles and the tap. The feed's
             // motion is no setting any more (iOS b9e68f7f): one spring for everyone, LetterMotion.
-            addView(header(c, R.string.gif_reduce))
+            addView(View(c), lp(MATCH, c.dp(20)))   // no words over it, as iOS: the switch names itself
             addView(c.plate {
                 addView(c.hstack {
                     setPadding(dp(16), dp(8), dp(14), dp(8))
