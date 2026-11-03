@@ -1379,7 +1379,7 @@ class PostCells(private val act: MainActivity) {
         val id = p.optString("id")
         val r = Board.repostGoing(it.wall, id)
         return p.toString() + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0) + "|" +
-            (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id)
+            (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id) + "|" + postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock
     }
     /** The cell of a post, its own if nothing of it moved. */
     fun cell(it: Board.Item, onItsWall: Boolean = false): View {
@@ -1412,6 +1412,19 @@ fun LinearLayout.relay(rows: List<View>) {
         (v.parent as? android.view.ViewGroup)?.removeView(v)
         addView(v, i)
     }
+}
+
+/**
+ * WHEN A POST WAS WRITTEN (the author's word 03.11.2026: «the day before yesterday must be written as 11.10.26, not "the day before
+ * yesterday"; yesterday is fine»): today and yesterday as the platform says them -- minutes, hours, «yesterday» --, two days back and
+ * older the day by its digits, dd.MM.yy.
+ */
+fun postWhen(at: Long, now: Long = System.currentTimeMillis()): CharSequence {
+    val day = java.util.Calendar.getInstance()
+    fun start(t: Long): Long { day.timeInMillis = t; day.set(java.util.Calendar.HOUR_OF_DAY, 0); day.set(java.util.Calendar.MINUTE, 0); day.set(java.util.Calendar.SECOND, 0); day.set(java.util.Calendar.MILLISECOND, 0); return day.timeInMillis }
+    val back = Math.round((start(now) - start(at)) / 86_400_000.0)
+    if (back < 2) return android.text.format.DateUtils.getRelativeTimeSpanString(at, now, 60_000L)
+    return java.text.SimpleDateFormat("dd.MM.yy", java.util.Locale.ROOT).format(java.util.Date(at))
 }
 
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
@@ -1466,7 +1479,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 addView(c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())
                     val at = (p.optDouble("at") * 1000).toLong()
-                    addView(c.text(android.text.format.DateUtils.getRelativeTimeSpanString(at, System.currentTimeMillis(), 60_000L), 12f, MT.gray), lp())
+                    addView(c.text(postWhen(at), 12f, MT.gray), lp())
                 }, lp(0, WRAP, 1f))
                 if (opens && w != null) pressable { openWriter(act, w) }
                 // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
