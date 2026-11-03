@@ -32,6 +32,7 @@ object Meeting {
     private const val FIRSTS = "pipeFirst"     // ref → {ct, inv, cf}: the introduction still unanswered, cf its key confirmation
     private const val SCANS = "rdvScanned"     // invitation → ref (iOS scanBook)
     private const val CARDS = "cardMetByRoot"  // card root → ref (iOS cardBook)
+    private const val NAMES = "peerUsernames"  // ref → the @name it was met by (iOS MTNameBook.names, setName at the meeting by name)
     private val gate = Any()
 
     private fun jmap(name: String): JSONObject = DeviceVault.get(name)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
@@ -100,9 +101,19 @@ object Meeting {
             val m = jmap(name); val dead = m.keys().asSequence().filter { m.optString(it) == ref }.toList()
             if (dead.isNotEmpty()) { dead.forEach { m.remove(it) }; jsave(name, m) }
         }
+        jmap(NAMES).let { m -> if (m.has(ref)) { m.remove(ref); jsave(NAMES, m) } }
         firstDone(ref)
     }
-    fun wipe() { listOf(FIRSTS, SCANS, CARDS).forEach(DeviceVault::delete) }
+    fun wipe() { listOf(FIRSTS, SCANS, CARDS, NAMES).forEach(DeviceVault::delete) }
+    /** The conversations this phone holds a person's @name under (iOS MTNameBook.convs(named:), 8b1932d3 at 2351): one look at the
+     *  book, never a walk of the pipes -- the name as the layer normalizes it, the pipe still standing. */
+    fun convs(named: String): List<String> = synchronized(gate) {
+        val m = jmap(NAMES)
+        m.keys().asSequence().filter { m.optString(it) == named && Book.secret(it) != null }.toList()
+    }
+    /** The @name a conversation was met by (iOS MTNameBook.name(conv)), or null. */
+    fun nameOf(ref: String): String? = synchronized(gate) { jmap(NAMES).optString(ref).takeIf { it.isNotEmpty() } }
+    private fun nameMet(ref: String, n: String) = synchronized(gate) { jsave(NAMES, jmap(NAMES).put(ref, n)) }
     /** A root this phone met a person by (iOS MontanaMeeting.cardMet(root:)): a name heard before may stand from memory. */
     fun metAtRoot(root: ByteArray): Boolean = synchronized(gate) { jmap(CARDS).optString(MontanaCard.b64url(root)).isNotEmpty() }
     /** The conversation a root was met by, while its pipe stands (iOS MontanaMeeting.cardMet(root:) and MTPipeBook.holds). */
@@ -116,6 +127,7 @@ object Meeting {
             val m = jmap(name); val moved = m.keys().asSequence().filter { m.optString(it) == newer }.toList()
             if (moved.isNotEmpty()) { moved.forEach { m.put(it, older) }; jsave(name, m) }
         }
+        jmap(NAMES).let { m -> m.optString(newer).takeIf { it.isNotEmpty() }?.let { n -> m.remove(newer); jsave(NAMES, m.put(older, n)) } }
     }
     /** The pipes this phone begot by a scan (the card book's conversations). */
     fun metByScan(): Set<String> = synchronized(gate) { jmap(CARDS).let { m -> m.keys().asSequence().map { m.optString(it) }.filter { it.isNotEmpty() }.toSet() } }
@@ -243,7 +255,7 @@ object Meeting {
      * key, ONE ROOT ONE TUNNEL as for a card, then one encapsulation; the correspondence wears the name, stays in the book as a
      * permanent link does, and its first letters go to the point of the name's root — a name has no invitation's box (iOS outgoingTag).
      */
-    private fun meetName(n: String): Outcome {
+    fun meetName(n: String): Outcome {
         if (n == Names.currentName) { Log.d("Montana", "meet_refused why=own-name"); return Outcome.OwnName }
         val root = when (val a = NamePlane.resolve(n)) {
             is NamePlane.Answer.Found -> a.root
@@ -253,6 +265,7 @@ object Meeting {
         val root64 = MontanaCard.b64url(root)
         synchronized(gate) { jmap(CARDS).optString(root64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
             Log.d("Montana", "meet_rescan name-book")
+            nameMet(known, n)
             return Outcome.Opened(known)
         }
         val o = MtBindings.nativeMlkemEncaps(root) ?: return Outcome.Refused
@@ -265,6 +278,7 @@ object Meeting {
             jsave(CARDS, jmap(CARDS).put(root64, ref))
         }
         Book.open(ref, n, true)   // the name's link keeps the person in the book, as the permanent link it stands in for does
+        nameMet(ref, n)   // iOS MTNameBook.setName(conv:), MontanaFirstContact.swift:1874
         Thread { layPipeFace(secret) }.start()
         SamePair.ask(ref)   // one person, one conversation: the same question, by name
         return Outcome.Opened(ref)

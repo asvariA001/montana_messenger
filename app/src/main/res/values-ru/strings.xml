@@ -560,6 +560,10 @@
     <string name="wall_repost">Репост</string>
     <string name="wall_downloads">Скачивания</string>
     <string name="wall_views">Просмотры</string>
+    <string name="wall_likes">Лайки</string>
+    <string name="wall_nobody_yet">Пока никого</string>
+    <string name="wall_not_sent">Не отправлено</string>
+    <string name="wall_reach_refused">До автора можно дойти только через чат, а открыть его не удалось: он не указал @имя, или имя не ответило.</string>
     <string name="wall_send">Отправить</string>
     <string name="wall_hide_person">Скрыть этого человека</string>
     <string name="wall_save">Сохранить</string>
