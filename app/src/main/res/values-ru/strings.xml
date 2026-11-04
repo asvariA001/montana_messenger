@@ -704,8 +704,6 @@
     <string name="vo_histogram_note">Гистограмма носит цвета текстового пузыря.</string>
     <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
     <string name="cf_all">Все</string>
-    <string name="cf_bots">Боты</string>
-    <string name="cf_bot">бот</string>
     <string name="cf_read_all">Прочитать все</string>
     <string name="cf_mute_all">Выключить звук у всех</string>
     <string name="cf_unmute_all">Включить звук у всех</string>
@@ -731,7 +729,6 @@
     <string name="cf_personal_note">Только сообщения из личных чатов.</string>
     <string name="cf_groups_note">Только сообщения из групп.</string>
     <string name="cf_channels_note">Только сообщения из каналов.</string>
-    <string name="cf_bots_note">Только сообщения от ботов.</string>
     <string name="cf_name">Название папки</string>
     <string name="cf_add_chats">Добавить чаты</string>
     <string name="cf_included">Включённые чаты</string>

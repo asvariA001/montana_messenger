@@ -704,8 +704,6 @@
     <string name="vo_histogram_note">柱状图使用文字气泡的颜色。</string>
     <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
     <string name="cf_all">全部</string>
-    <string name="cf_bots">机器人</string>
-    <string name="cf_bot">机器人</string>
     <string name="cf_read_all">全部标为已读</string>
     <string name="cf_mute_all">全部静音</string>
     <string name="cf_unmute_all">全部取消静音</string>
@@ -731,7 +729,6 @@
     <string name="cf_personal_note">仅来自个人聊天的消息。</string>
     <string name="cf_groups_note">仅来自群组的消息。</string>
     <string name="cf_channels_note">仅来自频道的消息。</string>
-    <string name="cf_bots_note">仅来自机器人的消息。</string>
     <string name="cf_name">文件夹名称</string>
     <string name="cf_add_chats">添加聊天</string>
     <string name="cf_included">包含的聊天</string>

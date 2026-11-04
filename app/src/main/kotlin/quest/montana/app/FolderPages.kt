@@ -24,10 +24,10 @@ import kotlin.math.roundToInt
 /** The way in from a tab's menu (iOS MTChatFolders.Opening): the folders' page opens on the folder named, on its chats, or on the order. */
 data class FolderOpening(val folder: String? = null, val addChats: Boolean = false, val reorder: Boolean = false)
 
-/** Every conversation a folder can name: the list's own, and our bot (iOS MTFolderChatPicker.pool). */
-private fun folderPool(): List<Chat> = listedChats() + Bot.chat
-private fun poolTitle(c: Context, ch: Chat) = if (ch.ref == Bot.REF) Bot.NAME else ch.shown.ifBlank { c.getString(R.string.peer) }   // USER-DATA: a name
-private fun poolFace(c: Context, ch: Chat, side: Int): View = if (ch.ref == Bot.REF) Bot.face(c, side) else c.peerFace(ch.ref, poolTitle(c, ch), side)
+/** Every conversation a folder can name: the list's own (iOS MTFolderChatPicker.pool). */
+private fun folderPool(): List<Chat> = listedChats()
+private fun poolTitle(c: Context, ch: Chat) = ch.shown.ifBlank { c.getString(R.string.peer) }   // USER-DATA: a name
+private fun poolFace(c: Context, ch: Chat, side: Int): View = c.peerFace(ch.ref, poolTitle(c, ch), side)
 
 /** A kind's or a state's glyph on its round plate (iOS kindLine / typeLine: the glyph white on the tint, in a circle). */
 private fun Context.kindGlyph(k: String, side: Int): View {
@@ -88,7 +88,6 @@ fun folderSettingsPage(act: MainActivity, close: () -> Unit, opening: FolderOpen
         Suggestion(ChatFolder("", kinds = listOf(ChatFolders.CONTACTS, ChatFolders.NON_CONTACTS)), R.string.cf_personal, R.string.cf_personal_note),
         Suggestion(ChatFolder("", preset = ChatFolders.GROUPS, kinds = listOf(ChatFolders.GROUPS)), R.string.app_groups, R.string.cf_groups_note),
         Suggestion(ChatFolder("", preset = ChatFolders.CHANNELS, kinds = listOf(ChatFolders.CHANNELS)), R.string.app_channels, R.string.cf_channels_note),
-        Suggestion(ChatFolder("", preset = ChatFolders.BOTS, kinds = listOf(ChatFolders.BOTS)), R.string.cf_bots, R.string.cf_bots_note),
     ).filter { s -> ChatFolders.folders().none { it.holdsAlike(s.folder) } }
 
     /**

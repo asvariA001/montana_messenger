@@ -709,8 +709,6 @@
     <string name="vo_histogram_note">The histogram wears the colours of the text bubble.</string>
     <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
     <string name="cf_all">All</string>
-    <string name="cf_bots">Bots</string>
-    <string name="cf_bot">bot</string>
     <string name="cf_read_all">Read All</string>
     <string name="cf_mute_all">Mute All</string>
     <string name="cf_unmute_all">Unmute All</string>
@@ -736,7 +734,6 @@
     <string name="cf_personal_note">Only messages from personal chats.</string>
     <string name="cf_groups_note">Only messages from groups.</string>
     <string name="cf_channels_note">Only messages from channels.</string>
-    <string name="cf_bots_note">Only messages from bots.</string>
     <string name="cf_name">Folder Name</string>
     <string name="cf_add_chats">Add Chats</string>
     <string name="cf_included">Included Chats</string>
