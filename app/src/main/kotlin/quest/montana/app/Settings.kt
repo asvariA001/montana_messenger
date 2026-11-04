@@ -609,7 +609,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
             keptValue.text = "${w.files} · " + android.text.format.Formatter.formatShortFileSize(c, w.bytes)   // USER-DATA: the node's count and size
         }
         val clearRow = c.settingsRow(R.drawable.ic_delete, SysColor.red, c.getString(R.string.cache_clear), chevron = false) {
-            if (!HomeShelf.bringing || HomeKeep.clearing) return@settingsRow
+            if (HomeKeep.clearing) return@settingsRow
             AlertDialog.Builder(act).setTitle(R.string.cache_clear_q).setMessage(R.string.cache_clear_msg)
                 .setPositiveButton(R.string.cache_clear_go) { _, _ ->
                     HomeKeep.clear(act) { r ->
@@ -622,7 +622,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                     }
                 }
                 .setNegativeButton(R.string.cancel, null).show()
-        }.apply { if (!HomeShelf.bringing) alpha = 0.4f }
+        }
         // AS THE REFERENCE KEEPS ITS CACHE (iOS f5803d8c): a term for what nobody opened, a ceiling for the whole -- what leaves is
         // what the node holds, asked anew. The platform's own menu offers the choices, as iOS's Picker does.
         fun choice(icon: Int, color: Int, word: Int, key: String, options: List<Pair<Int, String>>): View {
@@ -631,13 +631,12 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
             shown()
             lateinit var row: View
             row = c.settingsRow(icon, color, c.getString(word), value = value, chevron = false) {
-                if (!HomeShelf.bringing) return@settingsRow
                 PopupMenu(act, value).apply {
                     options.forEachIndexed { i, (n, w) -> menu.add(0, n, i, w) }
                     setOnMenuItemClickListener { Prefs.setStr(key, it.itemId.toString()); shown(); HomeKeep.trim(act); true }
                     show()
                 }
-            }.apply { if (!HomeShelf.bringing) alpha = 0.4f }
+            }
             return row
         }
         val gb = { g: Int -> android.text.format.Formatter.formatShortFileSize(c, g * 1_073_741_824L) }   // USER-DATA: a size in the platform's own units
@@ -645,8 +644,9 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
             listOf(3 to c.getString(R.string.keep_3_days), 7 to c.getString(R.string.keep_1_week), 30 to c.getString(R.string.keep_1_month), 0 to c.getString(R.string.keep_forever)))
         val limitRow = choice(R.drawable.ic_hub, SysColor.gray, R.string.cache_limit, HomeKeep.LIMIT,
             listOf(5 to gb(5), 16 to gb(16), 32 to gb(32), 0 to c.getString(R.string.cache_no_limit)))
-        section(c.getString(R.string.cache_header), c.getString(if (HomeShelf.bringing) R.string.cache_footer_node else R.string.cache_footer_no_node),
-            keepRow, limitRow, keptRow, clearRow)
+        // no node holds this phone's files, nothing to clear: the section stands only while a node brings them back (iOS 214dc096);
+        // its footer used to send the person to a Settings row that no longer exists
+        if (HomeShelf.bringing) section(c.getString(R.string.cache_header), c.getString(R.string.cache_footer_node), keepRow, limitRow, keptRow, clearRow)
         // WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (iOS «On this phone», e02595a5 and e9187672; the author's word 18.10.2026 10:2x MSK:
         // «I cannot see what weighs so much nor how to clean it»): the sum is the phone's own, each file counted once; the attachments
         // are chosen by kind on their pages, the copies waiting are cleared here

@@ -770,7 +770,6 @@
     <string name="cache_clear">Clear cache</string>
     <string name="cache_header">CACHE</string>
     <string name="cache_footer_node">What your node holds leaves this phone. Each photo, video and file comes back from your node when you open it, here or on a new phone with your 24 words.</string>
-    <string name="cache_footer_no_node">Set up your node in Settings, Your node: what it holds can then be cleared from this phone and comes back when you open it.</string>
     <string name="cache_clear_q">Clear the cache?</string>
     <string name="cache_clear_go">Clear</string>
     <string name="cache_clear_msg">Only what your node holds leaves this phone; what it does not hold stays.</string>

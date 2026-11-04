@@ -765,7 +765,6 @@
     <string name="cache_clear">清除缓存</string>
     <string name="cache_header">缓存</string>
     <string name="cache_footer_node">节点已保存的内容将从本机移除。每张照片、视频和文件在您打开时从节点取回——在本机，或凭您的 24 个词在新手机上。</string>
-    <string name="cache_footer_no_node">请在「设置」中的「您的节点」设置节点：之后可从本机清除节点保存的内容，打开时即取回。</string>
     <string name="cache_clear_q">清除缓存？</string>
     <string name="cache_clear_go">清除</string>
     <string name="cache_clear_msg">只有节点已保存的内容会从本机移除；其余保留。</string>

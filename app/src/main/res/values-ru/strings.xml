@@ -765,7 +765,6 @@
     <string name="cache_clear">Очистить кеш</string>
     <string name="cache_header">КЕШ</string>
     <string name="cache_footer_node">То, что держит ваш узел, уходит с телефона. Каждое фото, видео и файл возвращаются с узла, когда вы их открываете, — здесь или на новом телефоне по вашим 24 словам.</string>
-    <string name="cache_footer_no_node">Настройте свой узел: Настройки, «Ваш узел». Тогда то, что он держит, можно стирать с телефона, и оно вернётся, когда вы его откроете.</string>
     <string name="cache_clear_q">Очистить кеш?</string>
     <string name="cache_clear_go">Очистить</string>
     <string name="cache_clear_msg">С телефона уходит только то, что держит ваш узел; остальное остаётся.</string>

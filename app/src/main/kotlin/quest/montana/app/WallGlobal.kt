@@ -26,7 +26,7 @@ object WallGlobal {
     const val PER_OWNER = 1000
     const val TABLE_WHOLE = 5000
     const val BUDGET = 90 * 1024
-    private const val HAVE_WHOLE = 4096                           // the most names a node's /blob-have answers at once
+    private const val HAVE_WHOLE = 4096                           // the most names one pass asks (in slices, Wire.HAVE_SLICE)
     private const val PAGE = 300                                  // a node answers 300 posts at most
 
     private val lock = Any()
