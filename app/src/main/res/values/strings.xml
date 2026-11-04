@@ -192,7 +192,7 @@
     <string name="no_mail">No mail account on this phone. The address is copied.</string>
     <!-- Privacy, Data and Storage (iOS PrivacyView, DataStorageView) -->
     <string name="online_status">Online status</string>
-    <string name="online_status_sub">Only whether others see you online. Walls and pages come and go regardless.</string>
+    <string name="online_status_sub">Only whether others see you online. Everything else comes and goes regardless.</string>
     <string name="read_receipts">Read receipts</string>
     <string name="live_chat">Live chat</string>
     <string name="sync_contacts">Sync contacts</string>
@@ -686,7 +686,7 @@
     <string name="call_filtered_body">This network passes only permitted destinations. A call cannot go through it until the filter is lifted.</string>
     <string name="picture_cache_header">PICTURE CACHE</string>
     <string name="picture_cache_clear">Clear</string>
-    <string name="picture_cache_footer">Pictures are kept in memory so chats and walls open without waiting. They stay until you clear them here.</string>
+    <string name="picture_cache_footer">Pictures are kept in memory so they open without waiting. They stay until you clear them here.</string>
     <string name="share_preparing">Preparing</string>
     <string name="share_sending">Sending…</string>
     <string name="share_still_on_way">Some items are still on their way — Montana will send them.</string>
@@ -772,7 +772,7 @@
     <string name="show_sender_sub">A notification of a message names who wrote. Off, it reads Montana instead.</string>
     <string name="name_lock_sub">When the phone hides previews on the lock screen, the notification still names who wrote.</string>
     <string name="read_receipts_sub">People see that you have read their messages, and channel owners count your views. Off, nobody is told.</string>
-    <string name="filter_objectionable_sub">Messages, wall posts and comments from others with offensive words stay folded until you tap them.</string>
+    <string name="filter_objectionable_sub">Messages, posts and comments from others with offensive words stay folded until you tap them.</string>
     <string name="note_quality_footer">Max takes the camera\'s sharpest picture at the highest bitrate, Min makes the lightest file. A camera that cannot keep up steps down by itself.</string>
     <string name="message_style_footer">Montana: yours in the system blue, others\' in grey. Classic: yours in your bubble colour, others\' in dark grey. Custom: the colours you set below.</string>
     <string name="node_copies_sub">Once a day, while Montana is open and on Wi-Fi only, a sealed copy of the whole app goes to your node. Off, nothing is sent and nothing is removed from the node.</string>

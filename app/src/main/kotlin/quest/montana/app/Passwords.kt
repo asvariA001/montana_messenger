@@ -176,8 +176,8 @@ object SecretLetter {
         val o = runCatching { JSONObject(String(Base64.decode(code, Base64.DEFAULT), Charsets.UTF_8)) }.getOrNull() ?: return null
         return SecretItem.of(o).apply { id = UUID.randomUUID().toString().uppercase() }
     }
-    /** The list's and the banner's words for it (iOS MTRowLetter.preview): no title, no content. */
-    fun isOne(text: String) = text.startsWith(KEY) && text.contains(LINK)
+    /** Known by its machine line alone, the key glyph first and the link on its last line (iOS MTRowLetter.isSecret): the list's and the banner's words, and the bubble's plate. */
+    fun isOne(text: String) = text.startsWith(KEY) && text.split("\n").last().startsWith(LINK)
 }
 
 // ── the pages ──
@@ -445,10 +445,11 @@ fun secretSavePage(act: MainActivity, item: SecretItem, onBack: () -> Unit): Vie
     return frameOf(c, bar, body)
 }
 
-/** THE SECRET'S BUBBLE (iOS MontanaBubble 711-729): the key and the title; the receiver's tap takes it into their own Passwords. */
-fun Context.secretPlate(act: MainActivity?, item: SecretItem, mine: Boolean): View = hstack {
+/** THE SECRET'S BUBBLE (iOS MontanaBubble 711-729): the key and the title; the receiver's tap takes it into their own Passwords. A letter that does not read draws the key and «Shared password» alone: nothing saves it (iOS 0b063e23). */
+fun Context.secretPlate(act: MainActivity?, item: SecretItem?, mine: Boolean): View = hstack {
     gravity = Gravity.CENTER_VERTICAL
     addView(icon(R.drawable.ic_key, BubbleStyle.text(mine), 26), lp(dp(26), dp(26)).apply { marginEnd = dp(12) })
+    if (item == null) { addView(text(getString(R.string.pw_shared), 16f, BubbleStyle.text(mine), bold = true), lp(WRAP, WRAP)); return@hstack }
     addView(vstack(Gravity.NO_GRAVITY) {
         addView(text(item.title, 16f, BubbleStyle.text(mine), bold = true).apply { maxLines = 2 }, lp(WRAP, WRAP))   // USER-DATA: the shared secret's title
         addView(text(getString(if (mine) R.string.pw_shared_from else R.string.pw_tap_save), 14f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
