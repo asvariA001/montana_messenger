@@ -845,6 +845,17 @@ object Board {
         return writer(o.first, o.second)
     }
     /**
+     * THE @NAME A TABLE POST ANSWERS BY: the one its writer's phone laid (nm), else the one written in their signature. A DEVIATION FROM
+     * iOS BY THE AUTHOR'S WORD 04.11.2026: on that day none of the table's 225 posts carried nm, and a like on a post of someone with no
+     * chat went nowhere, while 192 of them were signed «Alik Montana @alikmontana». The signature proves no more than nm does: the name's
+     * plane resolves it to its real holder, who ignores a word about a post not theirs.
+     */
+    fun atName(p: JSONObject): String? {
+        p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) }?.let { return it }
+        return signedName.find(p.optString("byName"))?.let { Names.normalize(it.groupValues[1]) }
+    }
+    private val signedName = Regex("""(?:^|\s)@([\p{L}\p{N}_.-]{1,32})(?=\s|$)""")
+    /**
      * THE WRITER OF A TABLE POST, REACHED BY THEIR @NAME (iOS MTBoard.reach, 8b1932d3 (5) at 2351; the author's word 14475: «if there is
      * no chat with the contact, the field to put reactions and likes does not appear on the Wall of Thoughts -- fix it»): a post of the
      * table is held by no conversation, so it carries the @name its writer holds (nm), and the name is the road: a pipe this phone holds
@@ -852,15 +863,14 @@ object Board {
      * nothing: the name's plane resolves it to its real holder, who ignores a word about a post not theirs. Null -- no name, or no pipe.
      */
     fun reach(p: JSONObject): String? {
-        val n = p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) } ?: return null
+        val n = atName(p) ?: return null
         return Meeting.convs(n).firstOrNull { !PeerSafety.isBlocked(it) && it !in PeerSafety.barred() }
     }
     /** The same road, opened when none is held (iOS reachOpen): the one meeting door opens a conversation by the name as a search by
      *  name does, the wall is asked by it, and the caller's word goes by it. Off the main thread: the plane of names is asked. */
     fun reachOpen(p: JSONObject): String? {
         reach(p)?.let { return it }
-        val n = p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) }
-            ?: run { Log.d("Montana", "wall_reach REFUSED no name"); return null }
+        val n = atName(p) ?: run { Log.d("Montana", "wall_reach REFUSED no name"); return null }
         val o = Meeting.meetName(n) as? Meeting.Outcome.Opened ?: run { Log.d("Montana", "wall_reach REFUSED name did not open"); return null }
         Log.d("Montana", "wall_reach opened id=" + p.optString("id").take(10) + " conv=" + o.ref.take(10))
         ask(o.ref)
@@ -1553,7 +1563,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
                 // word 14475: «a tap on the user's name must lead to the publisher's profile page»): nobody this phone knows yet, but the
                 // post names them -- the tap opens the road
-                else if (table && w == null && p.optString("nm").isNotEmpty()) pressable { reached(act, p) { r -> openWriter(act, r) } }
+                else if (table && w == null && Board.atName(p) != null) pressable { reached(act, p) { r -> openWriter(act, r) } }
             }, lp(0, WRAP, 1f))
             // THE POST'S OWN MENU (iOS MTBoardCell menuItems, MontanaBoardViews.swift:404-441 at 2155): on every wall, while the post is
             // not on its way (postMenu)
