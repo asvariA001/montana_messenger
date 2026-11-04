@@ -1025,8 +1025,9 @@ object Wire {
         val t0 = System.currentTimeMillis()
         val asked = bids.toSet()
         val answers = arrayOfNulls<Set<String>>(doors.size)
-        doors.mapIndexed { i, door -> Thread { answers[i] = askHave(door, bids, asked) }.apply { start() } }
-            .forEach { it.join(POST_DEADLINE_MS + 1_000L) }
+        val slices = (bids.size + HAVE_SLICE - 1) / HAVE_SLICE
+        doors.mapIndexed { i, door -> Thread { answers[i] = askHaveSliced(door, bids, asked) }.apply { start() } }
+            .forEach { it.join(POST_DEADLINE_MS.toLong() * slices + 1_000L) }
         val have = HashSet<String>(); var silent = 0
         for (a in answers) if (a != null) have.addAll(a) else silent++
         val now = System.currentTimeMillis()
@@ -1038,6 +1039,17 @@ object Wire {
         return if (silent > 0) null else have
     }
     @Volatile private var haveSaidAt = 0L
+    /**
+     * THE MOST NAMES ONE /blob-have QUESTION CARRIES (iOS MTNodeWire.haveSlice, ada594f9): a node reads a body of 64 KiB at most and a
+     * name rides in 67 bytes of JSON, so 900 names always pass; 3191 names met 413 at all four doors. A longer list goes slice by
+     * slice, and one silent slice makes the door's answer «don't know», never «none» (iOS askHaveSliced).
+     */
+    private const val HAVE_SLICE = 900
+    private fun askHaveSliced(door: String, bids: List<String>, asked: Set<String>): Set<String>? {
+        val have = HashSet<String>()
+        for (slice in bids.chunked(HAVE_SLICE)) have += askHave(door, slice, asked) ?: return null
+        return have
+    }
     private fun askHave(door: String, bids: List<String>, asked: Set<String>): Set<String>? {
         val (code, text) = post(door, "/blob-have", JSONObject().put("bids", JSONArray(bids)), POST_DEADLINE_MS)
         if (code != 200 || text == null) return null
@@ -1517,7 +1529,7 @@ object Book {
     fun isLocal(ref: String) = ref == SAVED || ref == MONTANA
     // ── THE MONTANA ROOM (iOS montanaRoomKey, ContentView.swift:3228-3246; the author's word 29.09): the room without an address where
     // Montana itself speaks -- a new build, what changed, the button to update. Nobody writes into it; it stands among the chats by
-    // its moment, «👑 Montana» under the app's glass icon, and an erased room is born again by the next build's word ──
+    // its moment, «👑 Montana» under the app's glass icon, and an erased room comes back at once: it stands for everyone (standMontanaRoom) ──
     const val MONTANA = "Montana"   // the key is English and never translated
     const val MONTANA_TITLE = "\uD83D\uDC51 Montana"   // a name, not a word: the crown before it by right (iOS montanaRoomTitle)
     fun isMontana(ref: String) = ref == MONTANA
@@ -1530,7 +1542,9 @@ object Book {
         if (l10n != null && l10n.length() > 0) o.put("l", l10n)
         val text = Marks.RELEASE + o
         chat(MONTANA)?.msgs?.firstOrNull { Release.of(it.text)?.build == build }?.let { row ->
-            if (l10n != null && l10n.length() > 0 && Release.languages(row.text)?.toString() != l10n.toString()) edit(MONTANA) { c -> c.msgs.find { it.mid == row.mid }?.text = text }
+            // the room's own row stands with no changes: the network's word of the same build fills them in, with or without languages
+            val bare = Release.of(row.text)?.notes.isNullOrEmpty() && notes.length() > 0
+            if (bare || l10n != null && l10n.length() > 0 && Release.languages(row.text)?.toString() != l10n.toString()) edit(MONTANA) { c -> c.msgs.find { it.mid == row.mid }?.text = text }
             return false
         }
         open(MONTANA, MONTANA_TITLE, true)
@@ -1539,6 +1553,16 @@ object Book {
             if (openChat != MONTANA || !Presence.shown) c.unread++
         }
         return true
+    }
+    /**
+     * THE MONTANA ROOM STANDS FOR EVERYONE (iOS ChatStore.standMontanaRoom, ada594f9, the author's word 16402): born only by the
+     * network's word, a person whose site never answered had no room at all. The app's own build is the room's first row, from the app
+     * itself; a room put away comes back (open clears the erasure); the network's word of the same build fills its changes in.
+     */
+    fun standMontanaRoom(build: Long, version: String) {
+        if (build <= 0) return
+        if (chat(MONTANA)?.msgs?.any { build <= (Release.of(it.text)?.build ?: 0L) } == true) return
+        if (appendRelease(build, version, JSONArray(), null, "")) Log.d("Montana", "release the room stands build=" + build)
     }
     /**
      * The local room, born at the first ask. THE LETTERS OF THE OLD PAGE COME WITH IT ONCE: Android kept Saved Messages as words in a

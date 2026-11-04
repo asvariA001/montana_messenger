@@ -63,6 +63,8 @@ object Update {
     }
 
     fun own(c: Context): Long = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode }.getOrDefault(0L)
+    /** The version in hand as the site names it (latest.json «name» up to its first space). */
+    fun ownVersion(c: Context): String = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).versionName.orEmpty().substringBefore(" ") }.getOrDefault("")
 
     /**
      * HOW MANY PEOPLE USE ANDROID (the author's word 04.11.2026: «make the counter»): the site's log counts the marks of a day. The mark is
@@ -112,6 +114,8 @@ object Update {
 
     /** Asked when the app comes to the front and on each box round, at most once an hour: a newer build rings once. */
     fun look(c: Context, force: Boolean = false) {
+        // THE ROOM STANDS BEFORE ANY WORD OF THE NETWORK (iOS ada594f9 MTReleaseState.deliver): the app's own build is its first row
+        Book.standMontanaRoom(own(c), ownVersion(c))
         val now = System.currentTimeMillis()
         // a build that never told the Montana room of itself asks at once (the room's row for the build now running)
         val roomTold = (Prefs.str("mt.release.row", "0").toLongOrNull() ?: 0L) >= own(c)
@@ -389,7 +393,8 @@ object Release {
                 }
             }, LinearLayout.LayoutParams(MATCH, c.dp(44)))
         }
-        col.addView(PathDoor(c, c.getString(R.string.update_now)) {
+        // the door to update stands only before a build newer than the one in hand; the room's own row has none (iOS ada594f9)
+        if (Update.own(c) < i.build && i.url.isNotEmpty()) col.addView(PathDoor(c, c.getString(R.string.update_now)) {
             Log.d("Montana", "release tap build=" + i.build)
             (c as? Activity)?.let { Update.take(it) }
         }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = c.dp(3) })

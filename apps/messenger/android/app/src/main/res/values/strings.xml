@@ -770,7 +770,6 @@
     <string name="cache_clear">Clear cache</string>
     <string name="cache_header">CACHE</string>
     <string name="cache_footer_node">What your node holds leaves this phone. Each photo, video and file comes back from your node when you open it, here or on a new phone with your 24 words.</string>
-    <string name="cache_footer_no_node">Set up your node in Settings, Your node: what it holds can then be cleared from this phone and comes back when you open it.</string>
     <string name="cache_clear_q">Clear the cache?</string>
     <string name="cache_clear_go">Clear</string>
     <string name="cache_clear_msg">Only what your node holds leaves this phone; what it does not hold stays.</string>
@@ -830,17 +829,4 @@
     <string name="voice_text_refused">Allow the microphone in Settings</string>
     <string name="voice_text_unsupported">Speech recognition is not available for this language</string>
     <string name="voice_text_silent">No speech recognized</string>
-    <string name="call_rec_switch">Record calls</string>
-    <string name="call_rec_caption">Calls are recorded by themselves on this phone and sent to the call\'s chat after your first consent. The record button on the call screen works on every call.</string>
-    <string name="call_rec_ask_title">Record calls automatically?</string>
-    <string name="call_rec_ask_body">Audio and video are saved on this phone. For a one-to-one call, the caller sends the recording to the chat, or the one who answered when the caller does not record. Room participants send their own recordings. Participants are notified. You can turn this off in Settings at any time.</string>
-    <string name="call_rec_no">Do not record</string>
-    <string name="call_rec_notice_send">This call is being recorded. The recording will be sent to this chat after the call.</string>
-    <string name="call_rec_notice_local">This phone is recording the call locally. Only the caller sends a recording to the chat.</string>
-    <string name="call_rec_row">Call recording</string>
-    <string name="call_rec_row_partial">Call recording — incomplete</string>
-    <string name="call_rec_none">This call has no recording because no audio was received.</string>
-    <string name="call_rec_mark">Record</string>
-    <string name="call_rec_stop">Stop recording</string>
-    <string name="call_rec_on">Recording</string>
 </resources>

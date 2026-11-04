@@ -153,23 +153,6 @@ object PersonChain {
     @Synchronized fun forget() {
         loaded = false; spans = emptyList(); links = emptyList(); seconds = 0; known = null; last = null; lane = ""
         runCatching { File(dir(), FILE).delete(); File(dir(), LINKS).delete() }
-        Prefs.remove(LevelAccess.LAST_KEY)
-    }
-}
-
-/**
- * THE GLOBAL LEVEL AS THE CALL SAYS IT (iOS MTLevelAccess.level, MTLevels.swift): the level is the Global Level (PersonChain.global);
- * before this life has read it, the last one this phone knew stands. IT OPENS NOTHING (iOS 2358, the author's words 16165 p.5, p.6 and
- * decision 606 (a), 04.11.2026): no function waits for a level, and the page of Access by level is gone.
- */
-object LevelAccess {
-    const val LAST_KEY = "levelAccess.last"   // NOT-UI: the last Global Level this phone knew of this person
-    val level: Int? get() {
-        val p = PersonChain.known
-        val c = CoinBook.said
-        if (p == null || c == null) return Prefs.str(LAST_KEY, "").toIntOrNull()
-        val g = PersonChain.global(p, c)
-        if (Prefs.str(LAST_KEY, "") != g.toString()) Prefs.setStr(LAST_KEY, g.toString())
-        return g
+        Prefs.remove("levelAccess.last")   // NOT-UI: the retired key of the last level a call said
     }
 }
