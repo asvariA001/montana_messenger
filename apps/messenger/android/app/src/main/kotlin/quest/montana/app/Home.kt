@@ -1052,7 +1052,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
         ?: ChatFolders.folder(folderId) ?: ChatFolders.folder(ChatFolders.ALL)!!
     private val tabs = FolderTabs(c, pick = { id -> chooseFolder(id) }, hold = { id, v ->
         ChatFolders.folder(id)?.let { f ->
-            ChatFolders.menu(act, f, v, ChatFolders.rows(f, listedChats() + Bot.chat, archivedChats())) {
+            ChatFolders.menu(act, f, v, ChatFolders.rows(f, listedChats(), archivedChats())) {
                 if (folderId == id) folderId = ChatFolders.ALL
                 redrawRows()
             }
@@ -1167,19 +1167,18 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
                 // of a scan must not raise an empty person here; the pinned stand first (listedChats)
-                // THE FOLDER'S ROWS (iOS folderBook.rows at 2240): All holds every chat, the groups and the channels too, and our bot
-                // after them; another folder its kinds and its chats. The tabs read every folder's rows for their badges.
-                val live = ListWork.build { listedChats() } + Bot.chat
+                // THE FOLDER'S ROWS (iOS folderBook.rows at 2240): All holds every chat, the groups and the channels too;
+                // another folder its kinds and its chats. The tabs read every folder's rows for their badges.
+                val live = ListWork.build { listedChats() }
                 val all = ChatFolders.rows(f, live, gone)
                 drawTabs(live, gone)
                 val saved = ChatFolders.showsSaved(f)
                 corner(f)
                 savedRow?.visibility = if (saved) View.VISIBLE else View.GONE
                 savedHair?.visibility = if (saved) View.VISIBLE else View.GONE
-                if (f.isAll && all.all { it.ref == Bot.REF } && archived == 0) rows.addView(emptyCard, lp())
+                if (f.isAll && all.isEmpty() && archived == 0) rows.addView(emptyCard, lp())
                 else if (all.isEmpty() && !saved) rows.addView(ChatFolders.emptyCard(c), lp())
                 for (ch in all) {
-                    if (ch.ref == Bot.REF) { if (!sel.on) { rows.addView(Bot.row(c), lp()); rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) }) }; continue }
                     rows.addView(listRow(act, ch, inArchive = ChatMarks.isArchived(ch.ref), sel = sel), lp())
                     rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
                 }

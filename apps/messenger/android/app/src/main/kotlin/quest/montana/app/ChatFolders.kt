@@ -2,11 +2,9 @@ package quest.montana.app
 
 import android.app.AlertDialog
 import android.content.Context
-import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -19,11 +17,12 @@ import org.json.JSONObject
 /**
  * THE FOLDERS OVER THE CHATS (iOS MTChatFolders, d335474b + 786313d3 at 2240; the author's words 17.10.2026 18:4x MSK: «badges over
  * the chats, the groups and the channels»; «left of the chats, the groups and the channels a field All, every chat in it, the groups
- * and the channels too -- and a category Bots, our bot in it»; 18.10.2026 10:2x: «call it simply All; this strip of tabs over the
+ * and the channels too»; 18.10.2026 10:2x: «call it simply All; this strip of tabs over the
  * chats' feed as the time panel, by its style and its place»). A folder takes kinds of chats and chats by name, and leaves out states
  * and chats by name; All stands among them and is never taken away. A tab's badge counts the folder's unread conversations and is
  * blue while one of them is not muted. A setting of the person, kept as the iOS «chatFolders»; the folders' page, a folder's page
- * and the chats chosen for it live in FolderPages.kt.
+ * and the chats chosen for it live in FolderPages.kt. No bot and no Bots folder (the author's words 16283, 16284 and decision 617,
+ * 04.11.2026; iOS 650002fb): a kept folder loses a kind this build does not know, and leaves when it then takes nothing.
  */
 data class ChatFolder(
     val id: String,
@@ -47,7 +46,6 @@ data class ChatFolder(
         return when (preset) {
             ChatFolders.GROUPS -> c.getString(R.string.app_groups)
             ChatFolders.CHANNELS -> c.getString(R.string.app_channels)
-            ChatFolders.BOTS -> c.getString(R.string.cf_bots)
             else -> c.getString(R.string.chats)
         }
     }
@@ -76,9 +74,9 @@ data class ChatFolder(
 object ChatFolders {
     const val ALL = "all"
     // the kinds (iOS MTChatFolder.Kind) and the states a folder leaves out (iOS Leave), by the iOS names
-    const val CONTACTS = "contacts"; const val NON_CONTACTS = "nonContacts"; const val GROUPS = "groups"; const val CHANNELS = "channels"; const val BOTS = "bots"
+    const val CONTACTS = "contacts"; const val NON_CONTACTS = "nonContacts"; const val GROUPS = "groups"; const val CHANNELS = "channels"
     const val MUTED = "muted"; const val READ = "read"; const val ARCHIVED = "archived"
-    val KINDS = listOf(CONTACTS, NON_CONTACTS, GROUPS, CHANNELS, BOTS)
+    val KINDS = listOf(CONTACTS, NON_CONTACTS, GROUPS, CHANNELS)
     val LEAVES = listOf(MUTED, READ, ARCHIVED)
     private const val KEY = "chatFolders"
 
@@ -89,19 +87,17 @@ object ChatFolders {
         NON_CONTACTS -> Look(R.string.cf_non_contacts, R.drawable.ic_person, SysColor.teal)
         GROUPS -> Look(R.string.app_groups, R.drawable.ic_app_groups, SysColor.green)
         CHANNELS -> Look(R.string.app_channels, R.drawable.ic_app_channels, SysColor.indigo)
-        BOTS -> Look(R.string.cf_bots, R.drawable.ic_bot, SysColor.purple)
         MUTED -> Look(R.string.cf_muted, R.drawable.ic_bell_off, SysColor.red)
         READ -> Look(R.string.cf_read, R.drawable.ic_mark_read, SysColor.blue)
         else -> Look(R.string.cf_archived, R.drawable.ic_archive, SysColor.gray)
     }
 
-    /** THE FIRST TABS, in the author's order (17.10.2026): All, the chats, the groups, the channels, the bots. */
+    /** THE FIRST TABS, in the author's order (17.10.2026): All, the chats, the groups, the channels. */
     private val firstFolders = listOf(
         ChatFolder(ALL, leaves = emptyList()),
         ChatFolder("chats", preset = CONTACTS, kinds = listOf(CONTACTS, NON_CONTACTS)),
         ChatFolder("groups", preset = GROUPS, kinds = listOf(GROUPS)),
-        ChatFolder("channels", preset = CHANNELS, kinds = listOf(CHANNELS)),
-        ChatFolder("bots", preset = BOTS, kinds = listOf(BOTS)))
+        ChatFolder("channels", preset = CHANNELS, kinds = listOf(CHANNELS)))
 
     private var held: MutableList<ChatFolder>? = null
     private val listeners = mutableListOf<() -> Unit>()
@@ -110,6 +106,7 @@ object ChatFolders {
     fun folders(): List<ChatFolder> = synchronized(this) {
         (held ?: run {
             val kept = runCatching { JSONArray(Prefs.str(KEY, "[]")).let { a -> (0 until a.length()).map { ChatFolder.of(a.getJSONObject(it)) } } }.getOrDefault(emptyList())
+                .map { f -> f.copy(kinds = f.kinds.filter { it in KINDS }) }.filter { it.isAll || it.takesAnything }   // the Bots folder of older builds leaves
             (if (kept.any { it.isAll }) kept else firstFolders).toMutableList().also { held = it }
         }).toList()
     }
@@ -142,7 +139,6 @@ object ChatFolders {
         if (folders().any { (CONTACTS in it.kinds) != (NON_CONTACTS in it.kinds) }) contactPeople().map { it.ref }.toSet() else null
     /** What a conversation is to the folders -- one answer for the tabs, their badges and their rows (iOS kind(of:)). */
     fun kindOf(ref: String, contacts: Set<String>?): String = when {
-        ref == Bot.REF -> BOTS
         Groups.isKey(ref) -> if (Groups.isChannel(ref)) CHANNELS else GROUPS
         contacts?.contains(ref) == true -> CONTACTS
         else -> NON_CONTACTS
@@ -170,16 +166,15 @@ object ChatFolders {
     fun menu(act: MainActivity, f: ChatFolder, held: View, rows: List<Chat>, removed: () -> Unit) {
         val deeds = mutableListOf<Deed>()
         if (!f.isAll) {
-            val mine = rows.filter { it.ref != Bot.REF }
             deeds += Deed(R.string.cf_edit, R.drawable.ic_pencil) { openFolders(act, FolderOpening(folder = f.id)) }
             deeds += Deed(R.string.cf_add_chats, R.drawable.ic_plus) { openFolders(act, FolderOpening(folder = f.id, addChats = true)) }
-            if (mine.any { ChatMarks.hasUnread(it) }) deeds += Deed(R.string.cf_read_all, R.drawable.ic_mark_read) {
-                for (c in mine) if (ChatMarks.hasUnread(c)) ChatMarks.toggleUnread(c)
+            if (rows.any { ChatMarks.hasUnread(it) }) deeds += Deed(R.string.cf_read_all, R.drawable.ic_mark_read) {
+                for (c in rows) if (ChatMarks.hasUnread(c)) ChatMarks.toggleUnread(c)
             }
-            if (mine.isNotEmpty()) {
-                val muted = mine.all { ChatMarks.isMuted(it.ref) }
+            if (rows.isNotEmpty()) {
+                val muted = rows.all { ChatMarks.isMuted(it.ref) }
                 deeds += Deed(if (muted) R.string.cf_unmute_all else R.string.cf_mute_all, if (muted) R.drawable.ic_set_bell else R.drawable.ic_bell_off) {
-                    for (c in mine) if (ChatMarks.isMuted(c.ref) == muted) ChatMarks.toggleMute(c.ref)
+                    for (c in rows) if (ChatMarks.isMuted(c.ref) == muted) ChatMarks.toggleMute(c.ref)
                 }
             }
             deeds += Deed(R.string.cf_remove, R.drawable.ic_delete, red = true) {
@@ -200,37 +195,6 @@ object ChatFolders {
         addView(c.text(c.getString(R.string.cf_empty), 17f, Color.WHITE, bold = true, center = true), lp())
         gap(6)
         addView(c.text(c.getString(R.string.cf_empty_note), 15f, MT.gray, center = true), lp())
-    }
-}
-
-/**
- * OUR BOT (iOS MTBot; the author's word 17.10.2026 18:4x MSK: «a category Bots, and our bot there»): Montana's bot, the door to the
- * wallet and to Montana as its Mini App. A row of the Bots folder and of All; a tap opens the bot where it lives -- it speaks no
- * letter here and keeps no conversation on this phone.
- */
-object Bot {
-    const val REF = "bot:MTBusiness_bot"
-    const val NAME = "MTBusiness_bot"   // the name the bot claimed where it lives
-    private const val LINK = "https://t.me/MTBusiness_bot"
-    val chat get() = Chat(REF, NAME)
-    fun open(c: Context) { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(LINK)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
-    /** The bot's face: Montana's mark on black, round (iOS montanaRoomFace). */
-    fun face(c: Context, side: Int): View = FrameLayout(c).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.BLACK) }
-        clipToOutline = true
-        addView(android.widget.ImageView(c).apply { setImageResource(R.drawable.logo); scaleType = android.widget.ImageView.ScaleType.CENTER_CROP }, FrameLayout.LayoutParams(c.dp(side), c.dp(side)))
-    }
-    /** The bot's row in the chats page's measure (iOS ChatRow with library: 72, the face 48, the gap 16, the side 18). */
-    fun row(c: Context): View = c.hstack {
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(c.dp(18), 0, c.dp(18), 0)
-        minimumHeight = c.dp(72)
-        addView(face(c, 48), lp(c.dp(48), c.dp(48)).apply { marginEnd = c.dp(16) })
-        addView(c.vstack(Gravity.NO_GRAVITY) {
-            addView(c.text(NAME, 17f, Color.WHITE, bold = true).apply { maxLines = 1 }, lp(MATCH, c.dp(22)))
-            addView(c.text(c.getString(R.string.cf_bot), 16f, MT.gray).apply { maxLines = 1 }, lp(MATCH, c.dp(20)).apply { topMargin = c.dp(4) })
-        }, lp(0, WRAP, 1f))
-        pressable { open(c) }
     }
 }
 

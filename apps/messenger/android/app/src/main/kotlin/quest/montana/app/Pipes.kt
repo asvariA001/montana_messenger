@@ -1115,7 +1115,7 @@ object Marks {
     const val DELIVERED = "​⁤"     // «delivered», + the letter's mid
     const val REACTION = "​​RC:"   // {sid, txt, e, op}
     const val DELETE = "​​DL:"     // + "mid:" + the letter's mid
-    const val DELETE_KEPT = "\u200B\u200BDK:"   // + the letter's wire name: the correspondent kept my deletion (iOS deleteKeptMark) -- never a row
+    const val DELETE_KEPT = "\u200B\u200BDK:"   // + the letter's wire name: an older build kept my deletion (iOS deleteKeptMark): buried, never a row
     const val EDIT = "​​ED:"       // {sid, tx}
     const val NAME = "​​NM:"       // + the display name
     const val PIPE_CLOSED = "\u200B\u200BPX:"   // the pipe closed at the other end (iOS pipeClosedMark): never a row
@@ -2881,23 +2881,17 @@ object Post {
             }
             text.startsWith(Marks.DELETE) -> {
                 val d = text.removePrefix(Marks.DELETE).removePrefix("mid:")
-                // THE PERSON KEEPS WHAT OTHERS DELETE (iOS MontanaChatStore.swift:4673-4693, LevelAccess.keepDeleted): the letter stays and
-                // this phone says so itself, quietly -- the sender's phone never believes a deletion that did not happen here. The level
-                // is read before it is asked; a letter not on this phone is not kept, the word «kept» is said only of what it holds.
-                PersonChain.prime(); CoinBook.warm()
+                // A DELETION FOR EVERYONE ALWAYS LANDS (iOS 2358, the author's word 16165 p.5): no level and no choice of this phone keeps a
+                // letter its correspondent took away.
                 val row = Book.chat(ref)?.msgs?.find { it.mid == d }
-                if (row != null && LevelAccess.keepsDeleted) {
-                    Log.i("Montana", "delete_kept mid=" + d.take(12) + " kept by the person's choice -- the sender is told")
-                    Post.send(ref, Marks.mintMid(), Marks.DELETE_KEPT + "mid:" + d, quiet = true)
-                }
                 // a coin letter of mine on its way keeps its row whoever asks (iOS deleteLocally 122-128: every door asks first)
-                else if (row?.let { CoinSend.travels(it) } != true) {
+                if (row?.let { CoinSend.travels(it) } != true) {
                     Book.drop(ref, listOf(d))
                     Notify.withdraw(ref, d)   // its banner leaves with it (iOS b6ab7094 at 2240)
                 }
             }
-            // MY DELETION WAS KEPT THERE (iOS deleteKeptMark, MontanaChatStore.swift:4674 at 2242): the keeper's own word, told as a banner
-            text.startsWith(Marks.DELETE_KEPT) -> { Log.d("Montana", "delete_kept_rx to=" + ref.take(10)); Notify.kept(ref) }
+            // AN OLDER BUILD'S «KEPT» WORD (iOS 2358 deleteKeptMark) is buried unread: no phone keeps what others delete any more
+            text.startsWith(Marks.DELETE_KEPT) -> Log.d("Montana", "delete_kept_rx buried")
             text.startsWith(Marks.EDIT) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.EDIT)); val d = o.getString("sid").removePrefix("mid:"); val tx = o.optString("tx")
                 // only a person's words: within a bubble's length, carrying no service mark of their own (iOS applyEditFromPeer 3380-3387)

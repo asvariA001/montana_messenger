@@ -464,47 +464,6 @@ object Notify {
             if (t in gone || t.substringAfter(':') in gone) nm.cancel(t, s.id)
         }
     }
-    /**
-     * MY DELETION WAS KEPT THERE (iOS presentKept, MontanaNotify.swift:348 at 2242; MTLevelAccess.keepDeleted 16.10.2026 No.72): the
-     * keeper's own word -- the correspondent's name over the fact that the letter I deleted for everyone stays on their phone, and
-     * the rule of the levels that made it. An album is several letters, each kept by its own word: one banner a chat in half a
-     * minute; a newer one stands in its place. It shows in the open chat too -- it is no letter the chat draws.
-     */
-    private val keptToldAt = HashMap<String, Long>()
-    fun kept(ref: String) {
-        val c = Book.ctx
-        val nm = c.getSystemService(NotificationManager::class.java) ?: return
-        if (!Prefs.bool("notifMessages", true)) { android.util.Log.d("Montana", "notify_skip why=disabled kind=kept"); return }
-        val now = System.currentTimeMillis()
-        synchronized(keptToldAt) {
-            if (keptToldAt[ref]?.let { now - it < 30_000 } == true) { android.util.Log.d("Montana", "notify_skip why=kept-already-told"); return }
-            keptToldAt[ref] = now
-        }
-        val sound = Prefs.bool("notifSound", true)
-        val channel = if (sound) CHANNEL else QUIET
-        nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
-            if (!sound) { setSound(null, null); enableVibration(false) }
-        })
-        val title = if (Prefs.bool("notifSender", true)) Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.peer) else "Montana"
-        val body = c.getString(R.string.kept_banner, KEEP_DELETED_LEVEL)
-        val n = Notification.Builder(c, channel)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
-            .setContentTitle(title)   // USER-DATA: the correspondent's name
-            .setContentText(body)
-            .setStyle(Notification.BigTextStyle().bigText(body))
-            .setAutoCancel(true)
-            .setContentIntent(opening(c, ref))
-            .setPublicVersion(Notification.Builder(c, channel)
-                .setSmallIcon(R.drawable.ic_launcher_monochrome)
-                .setContentTitle(if (Prefs.bool("notifLockName", true)) title else "Montana")   // USER-DATA: the correspondent's name
-                .setContentText(body)
-                .build())
-            .build()
-        android.util.Log.d("Montana", "notify kind=kept from=" + ref.take(10))
-        runCatching { nm.notify("kept:" + NoticeAlias.of(ref), 0, n) }
-    }
-    /** The level that opens «Forbid deletion on my phone» (iOS MTLevelAccess.Feature.keepDeleted.level). */
-    const val KEEP_DELETED_LEVEL = 7
 }
 
 // ─────────────────────────── the chats as rows (iOS MTChatListView rows) ───────────────────────────
@@ -2106,9 +2065,6 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         setPadding(dp(8), dp(4), dp(8), dp(4))
         addView(callHandset(act, true, null).also { handsets.add(it) }, lp(dp(44), dp(44)))   // 15.8: back to the folded call (iOS chatTop 1847)
         addView(roundMark(R.drawable.ic_arrow_back_ios_new, R.string.back) { hideKeys(); onClose() }.also { rounds.add(it) }, lp(dp(44), dp(44)))
-        // THE SHIELD ON THE INTERLOCUTOR'S BUBBLE (iOS MontanaConversation.swift:1957-1962): a badge over its top right corner while this
-        // phone keeps what others delete -- a sibling over the door, never inside it, its target centred on the corner; a group's too,
-        // its keeper telling the one who deleted (Groups.tellKept).
         addView(FrameLayout(c).apply {
         nameBubble = this
         clipChildren = false
@@ -2131,8 +2087,6 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 }.show(); true
             }
         }, FrameLayout.LayoutParams(MATCH, MATCH))
-        if (!local) addView(keepShield(act).apply { translationX = c.dp(18).toFloat(); translationY = -c.dp(18).toFloat() },
-            FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.END))
         }, lp(0, dp(44), 1f).apply { marginStart = dp(6); if (!local) marginEnd = dp(6) })
         if (walletStands) {
             // THE WALLET BESIDE THE COIN (iOS walletMark): the wallet page over the chat, the one road a coin's link takes

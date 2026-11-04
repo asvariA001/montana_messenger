@@ -1766,8 +1766,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
 }
 
 /**
- * THE COUNTS OF A POST (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
- * where the wall's owner counts them. A POST OF THE TABLE ANSWERS THROUGH ITS WRITER'S @NAME (iOS counters, 8b1932d3 (5) at 2351; the
+ * THE COUNTS OF A POST (iOS counters 445-487): like, comments, keepers, reposts; in the corner the eye with the views where the wall's owner
+ * counts them. NO DOWNLOADS UNDER A POST (iOS 2358, the author's word 16165 p.3): the row ends with the eye alone. A POST OF THE TABLE ANSWERS THROUGH ITS WRITER'S @NAME (iOS counters, 8b1932d3 (5) at 2351; the
  * author's word 14475): its marks stand as on any post, and the first one taken opens the road (reached); the mark is drawn on the
  * table's row at once.
  */
@@ -1816,10 +1816,7 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
             reached(act, it.wall, p) { r -> Thread { Board.repost(r, p); if (MyWall.post(id) != null) WallGlobal.mark(id) { s -> if (!s.optBoolean("reposted")) { s.put("reposted", true); s.put("reposts", s.optInt("reposts") + 1) } } }.start() }
         }) else ({ Thread { Board.repost(it.wall, p) }.start() }))
     spacer()
-    addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)
-    addView(c.text(p.optInt("downloads").toString(), 13f, MT.gray, bold = true))
     if (p.has("views")) {
-        gap(12)
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(44)

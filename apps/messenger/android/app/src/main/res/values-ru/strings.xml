@@ -554,7 +554,6 @@
     <string name="wall_like">Нравится</string>
     <string name="wall_keepers">Хранители</string>
     <string name="wall_repost">Репост</string>
-    <string name="wall_downloads">Скачивания</string>
     <string name="wall_views">Просмотры</string>
     <string name="wall_likes">Лайки</string>
     <string name="wall_nobody_yet">Пока никого</string>
@@ -704,8 +703,6 @@
     <string name="vo_histogram_note">Гистограмма носит цвета текстового пузыря.</string>
     <!-- the folders over the chats (iOS MTChatFolders, d335474b + 786313d3 at 2240) -->
     <string name="cf_all">Все</string>
-    <string name="cf_bots">Боты</string>
-    <string name="cf_bot">бот</string>
     <string name="cf_read_all">Прочитать все</string>
     <string name="cf_mute_all">Выключить звук у всех</string>
     <string name="cf_unmute_all">Включить звук у всех</string>
@@ -731,7 +728,6 @@
     <string name="cf_personal_note">Только сообщения из личных чатов.</string>
     <string name="cf_groups_note">Только сообщения из групп.</string>
     <string name="cf_channels_note">Только сообщения из каналов.</string>
-    <string name="cf_bots_note">Только сообщения от ботов.</string>
     <string name="cf_name">Название папки</string>
     <string name="cf_add_chats">Добавить чаты</string>
     <string name="cf_included">Включённые чаты</string>
@@ -750,17 +746,6 @@
     <string name="cf_reorder">Порядок вкладок</string>
     <string name="cf_done">Готово</string>
     <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
-    <string name="lv_access">Доступ по уровню</string>
-    <string name="lv_global">Глобальный уровень %d</string>
-    <string name="lv_fabric">Ткань времени</string>
-    <string name="lv_footer">Ваш уровень — наименьший из трёх: ваше время в Монтане, монеты, которые вы держите, и Ткань времени — люди, с которыми вы регулярно переписываетесь и созваниваетесь последние две недели, взвешенные по уровням, которые дают им их собственное время и кошелёк. Каждый уровень открывает новые функции Монтаны.</string>
-    <string name="lv_keep">Запрет удаления у меня</string>
-    <string name="lv_keep_caption">Сообщение, которое собеседник удаляет у всех, остаётся на этом телефоне, а телефон собеседника получает об этом уведомление.</string>
-    <string name="lv_level">Уровень %d</string>
-    <string name="lv_opens">Открывается на уровне %1$d. Ваш уровень — %2$d.</string>
-    <string name="lv_node_caption">Подключите свою машину к сети Монтаны через это приложение: она настраивается отсюда, и на неё уходят копии всего телефона. Забрать свою копию можно на любом уровне.</string>
-    <string name="lv_shield_title">Удаление на этом телефоне запрещено</string>
-    <string name="lv_shield_rule">В Монтане уровни открывают функции: с уровня %1$d человек может запретить удаление у себя. Ваш уровень — %2$d.</string>
     <string name="sound_sub">Уведомления о новых сообщениях звучат. Выключено — приходят беззвучно.</string>
     <string name="show_text_sub">Уведомление показывает текст сообщения. Выключено — ни одного слова из него.</string>
     <string name="show_sender_sub">Уведомление о сообщении называет, кто написал. Выключено — вместо имени стоит Montana.</string>
@@ -842,9 +827,9 @@
     <string name="voice_text_unsupported">Распознавание речи на устройстве недоступно для этого языка</string>
     <string name="voice_text_silent">Речь не распознана</string>
     <string name="call_rec_switch">Записывать звонки</string>
-    <string name="call_rec_caption">Звонки записываются сами на этом телефоне и после вашего первого согласия отправляются в чат звонка. Пока это выключено, собеседник, чей уровень не выше вашего, не может записать ваши звонки; собеседник с более высоким уровнем записывает только на своей стороне. Кнопка записи на экране звонка работает на любом уровне, если её не держит переключатель собеседника.</string>
+    <string name="call_rec_caption">Звонки записываются сами на этом телефоне и после вашего первого согласия отправляются в чат звонка. Кнопка записи на экране звонка работает в каждом звонке.</string>
     <string name="call_rec_ask_title">Записывать звонки автоматически?</string>
-    <string name="call_rec_ask_body">Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет тот, кто позвонил, а если он не записывает — тот, кто ответил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в Настройках, в разделе «Доступ по уровню», в любой момент.</string>
+    <string name="call_rec_ask_body">Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет тот, кто позвонил, а если он не записывает — тот, кто ответил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в Настройках в любой момент.</string>
     <string name="call_rec_no">Не записывать</string>
     <string name="call_rec_notice_send">Этот звонок записывается. После завершения запись будет отправлена в этот чат.</string>
     <string name="call_rec_notice_local">Этот телефон записывает разговор локально. Запись в чат отправляет только тот, кто позвонил.</string>
