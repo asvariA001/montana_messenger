@@ -64,9 +64,22 @@ object Update {
 
     fun own(c: Context): Long = runCatching { c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode }.getOrDefault(0L)
 
-    /** The site's newest, asked without a word about this phone: the agent is the plain name, not the model. */
+    /**
+     * HOW MANY PEOPLE USE ANDROID (the author's word 04.11.2026: «make the counter»): the site's log counts the marks of a day. The mark is
+     * a random number born each UTC day and forgotten the next: it names no phone and no person, and two days cannot be joined by it.
+     */
+    private fun dayMark(): String {
+        val day = (System.currentTimeMillis() / 86_400_000L).toString()
+        val held = Prefs.str("mt.update.day", "")
+        if (held.startsWith("$day:")) return held.substringAfter(':')
+        val mark = java.lang.Long.toHexString(java.security.SecureRandom().nextLong())
+        Prefs.setStr("mt.update.day", "$day:$mark")
+        return mark
+    }
+
+    /** The site's newest, asked with the day's mark alone: the agent is the plain name, not the model. */
     fun newest(): Site? = runCatching {
-        val conn = URL(SITE + "latest.json").openConnection() as HttpURLConnection
+        val conn = URL(SITE + "latest.json?d=" + dayMark()).openConnection() as HttpURLConnection
         conn.connectTimeout = 8000; conn.readTimeout = 8000
         conn.useCaches = false
         conn.setRequestProperty("User-Agent", "Montana")
