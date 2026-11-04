@@ -160,7 +160,6 @@
     <string name="app_chess">国际象棋</string>
     <string name="app_wallet">时间币</string>
     <string name="app_network">网络</string>
-    <string name="app_card">名片</string>
     <string name="notif_sounds">通知与声音</string>
     <string name="data_storage">数据和存储</string>
     <string name="privacy">隐私</string>
@@ -244,7 +243,6 @@
     <string name="compose_hold">按住录制</string>
     <string name="emoji">表情</string>
     <string name="gallery">照片</string>
-    <string name="business_card">名片</string>
     <string name="file">文件</string>
     <string name="location">位置</string>
     <string name="contact">联系人</string>

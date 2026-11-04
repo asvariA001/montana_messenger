@@ -38,11 +38,26 @@ class MainActivity : Activity() {
     private var termsAccepted = false
     private var showWelcome = false
 
+    /**
+     * THE CONTACT CARD LEFT THE APP (iOS a2a4f782, ContentView, decision 601): the name, phone, e-mail and other ways an earlier build
+     * sealed for it leave the device, with the photo and the contact file its share left in the media folder.
+     */
+    private fun forgetContactCard() {
+        val kept = DeviceVault.get("businessCard") ?: return
+        val name = runCatching { org.json.JSONObject(String(kept, Charsets.UTF_8)).optString("name") }.getOrDefault("").ifBlank { Prefs.userName }
+        val base = name.trim().replace("/", " ").replace(":", " ").trim().ifEmpty { "card" }
+        val dir = Media.dir(this)
+        java.io.File(dir, "business-card.jpg").delete()
+        java.io.File(dir, "$base.vcf").delete()
+        DeviceVault.delete("businessCard")
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         DeviceVault.init(this)
         Prefs.init(this)
         Book.ctx = applicationContext
+        forgetContactCard()
         window.setDecorFitsSystemWindows(false)
         window.statusBarColor = Color.TRANSPARENT
         window.navigationBarColor = Color.TRANSPARENT

@@ -161,7 +161,6 @@
     <string name="app_chess">Chess</string>
     <string name="app_wallet">TimeCoin</string>
     <string name="app_network">Network</string>
-    <string name="app_card">Contact card</string>
     <string name="notif_sounds">Notifications and Sounds</string>
     <string name="data_storage">Data and Storage</string>
     <string name="privacy">Privacy</string>
@@ -245,7 +244,6 @@
     <string name="compose_hold">Hold to record</string>
     <string name="emoji">Emoji</string>
     <string name="gallery">Photo</string>
-    <string name="business_card">Contact card</string>
     <string name="file">File</string>
     <string name="location">Location</string>
     <string name="contact">Contact</string>

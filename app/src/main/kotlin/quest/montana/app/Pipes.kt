@@ -1919,7 +1919,7 @@ object Book {
         // 29.07): the history was sealed under the words before they left (Archive.sealForForget, iOS sealForForget) and stays in
         // Montana/Chats; everything else goes — the chats' files, the letters set for later, the words still waiting to leave, the
         // pins and marks of the chats, the card, the read marks, the walls held, the stickers and the grounds.
-        Media.wipe(ctx); Scheduled.wipe(); ChatMarks.wipe(); MsgPins.wipe(); BusinessCard.forget(); Post.PeerRead.wipe()
+        Media.wipe(ctx); Scheduled.wipe(); ChatMarks.wipe(); MsgPins.wipe(); Post.PeerRead.wipe()
         Board.wipe(); Stickers.wipe(ctx); GifBook.wipe(ctx); ChatWall.wipe()
         changed()
     }

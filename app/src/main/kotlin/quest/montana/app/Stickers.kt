@@ -32,8 +32,8 @@ import java.io.File
 /**
  * STICKERS (iOS MontanaSticker / MontanaStickerScreens), in the two shapes every build already draws without a bubble:
  *   · a glyph — the invisible sticker mark and one emoji (iOS sendSticker: stickerMark + e), drawn large;
- *   · a picture of my own set — an ordinary picture letter whose manifest carries the card sticker's name «montana-card»
- *     (iOS sendStickerFile: kind img, docName MontanaCardPlate.stickerName), drawn in its own square without a bubble.
+ *   · a picture of my own set — an ordinary picture letter whose manifest carries the sticker's name «montana-card»
+ *     (iOS sendStickerFile: kind img, docName MontanaStickerBook.docName), drawn in its own square without a bubble.
  * MY OWN SET (iOS MontanaStickerBook): the pictures lie in the app's private storage, the order in the defaults; a picture is
  * named by its own bytes, so the same sticker is kept once and, used again, moves to the front; the ceiling is a person's set.
  * THE SETS OF OTHER PEOPLE travel by the «SP:» words (StickerWire): a sticker of my set carries its passport, my set is given to
@@ -41,8 +41,8 @@ import java.io.File
  * giver for them. Not yet here: the platform's subject cut — iOS lifts the subject with Vision; Android has no such native road.
  */
 object Stickers {
-    /** The card sticker's name in a picture's manifest (iOS MontanaCardPlate.stickerName): every build draws it bare. */
-    const val CARD = "montana-card"
+    /** A sticker's name in a picture's manifest (iOS MontanaStickerBook.docName): every build draws it bare. The contact card left the app, the name on the wire stays, or the stickers of earlier builds turn photos. */
+    const val DOC_NAME = "montana-card"
     private const val SHELF = "stickers.mine"
     private const val CEILING = 120                  // iOS MontanaStickerBook.ceiling
     private const val SIDE = 512                     // iOS MontanaStickerCut.side
@@ -84,7 +84,7 @@ object Stickers {
     // ── what a letter is ──
 
     private fun manifestOf(m: Msg): JSONObject? = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
-    private fun isPicture(m: Msg) = m.text.startsWith(Marks.MEDIA) && manifestOf(m)?.optString("n") == CARD
+    private fun isPicture(m: Msg) = m.text.startsWith(Marks.MEDIA) && manifestOf(m)?.optString("n") == DOC_NAME
     /** A STICKER OF THE HOUSE (iOS gifBubble, MontanaBubble.swift 1121 at 2155): a moving picture on the document road whose name
      * says «stick_» — drawn bare and at a sticker's size on both sides; a build that knows neither name shows the file plate. */
     fun house(m: Msg): Boolean = m.text.startsWith(Marks.MEDIA) &&
@@ -187,7 +187,7 @@ object Stickers {
         // the plate stands over the sticker here at once; the picture road carries no reply, the quote rides the passport (iOS 22.09)
         val q = answered(ref)
         Thread {
-            Media.send(c, ref, Media.Picked(bytes, "img", f.extension, CARD), "", named = mid, plate = q)
+            Media.send(c, ref, Media.Picked(bytes, "img", f.extension, DOC_NAME), "", named = mid, plate = q)
             if (Book.chat(ref)?.msgs?.any { it.mid == mid } == true) StickerWire.sendPassport(ref, mid, bytes, q)   // a refused letter has no passport
         }.start()
     }
