@@ -75,7 +75,7 @@ fun mediaWords(c: Context, man: JSONObject?): String {
     val cap = man.optString("cap").trim()
     val name = man.optString("n").ifEmpty { man.optString("name") }
     return when (man.optString("k")) {
-        "img" -> if (name == Stickers.CARD) c.getString(R.string.lw_sticker) else "📷 " + cap.ifEmpty { c.getString(R.string.lw_photo) }
+        "img" -> if (name == Stickers.DOC_NAME) c.getString(R.string.lw_sticker) else "📷 " + cap.ifEmpty { c.getString(R.string.lw_photo) }
         "vid", "video" -> "📹 " + if (man.optBoolean("r")) c.getString(R.string.lw_video_message) else cap.ifEmpty { c.getString(R.string.lw_video) }
         "aud" -> c.getString(R.string.voice_message)
         "doc" -> if (name.lowercase().endsWith(".gif")) c.getString(R.string.lw_gif) else "📄 " + name.ifEmpty { c.getString(R.string.file) }
@@ -1572,7 +1572,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val bmp = if (gif) null else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         if (bmp != null && seeThrough(bmp)) {
             val png = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
-            Media.send(c, ref, Media.Picked(png, "img", "png", Stickers.CARD), "")
+            Media.send(c, ref, Media.Picked(png, "img", "png", Stickers.DOC_NAME), "")
             MainThread.post { toBottom() }
             return true
         }
@@ -1652,25 +1652,20 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
     // A KEY OF THE BAR ASKS THE GROUP BEFORE ITS PAGE OPENS (iOS groupLets, 18b97c6c, G.5): a right the group took, or slow mode's
     // wait, is said at the tap, as the field says it at the arrow, so nothing chosen on a page is lost to a refusal
-    val groupLets: (String, Boolean) -> Boolean = lets@{ words, photo ->
+    val groupLets: (String) -> Boolean = lets@{ words ->
         if (!group) return@lets true
-        val why = (if (photo) Groups.mediaRefusal(c, ref, "img", false, "card.jpg", "") else Groups.refusal(c, ref, words, true)) ?: return@lets true
+        val why = Groups.refusal(c, ref, words, true) ?: return@lets true
         AlertDialog.Builder(c).setMessage(why).setPositiveButton(android.R.string.ok, null).show()
         false
     }
-    bar.onContact = { hideKeys(); if (groupLets("\uD83D\uDC64", false)) act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
+    bar.onContact = { hideKeys(); if (groupLets("\uD83D\uDC64")) act.pickContact { u -> u?.let { contactLetter(c, it) }?.let { words -> sendWords(ref, words); toBottom() } } }
     // FILES BY THE HANDFUL, IN THE ORDER CHOSEN (iOS 1e46c25e, the author's word 23.10 20:5x), AND THEY WAIT ABOVE THE FIELD WITH
     // THEIR NUMBERS (iOS stageChosen, 2312; the author's word 25.10.2026 17:40 UTC, council link 8089): read one after another in the
     // page's order, off the screen's thread, into the one tray the pictures stand in -- numbered, taken out and sent as a picture is;
     // the tray's «+» opens the page again, the arrow sends the tray in its order. The diary names the count.
     bar.onFile = { hideKeys(); pickFiles() }
-    // THE CARD AS A PHOTO (iOS sendCardPhoto): the kept card drawn at the standard size, its words the caption under the card's mark
-    bar.onCard = { hideKeys(); if (groupLets("", true)) act.push { close -> businessCardPage(act, close) { card ->
-        close()
-        Thread { Media.send(c, ref, Media.Picked(cardPhoto(c, card), "img", "jpg", null), card.wire); MainThread.post { toBottom() } }.start()
-    } } }
     // THE PLACE (iOS onLocation → MTLocationPicker → mtSendPlace): this spot leaves as the place's words, by the one road of words
-    bar.onLocation = { hideKeys(); if (groupLets(PlaceLetter.ROAD, false)) act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
+    bar.onLocation = { hideKeys(); if (groupLets(PlaceLetter.ROAD)) act.push { close -> placePage(act, close) { words -> sendWords(ref, words); toBottom() } } }
     // THE EMOJI KEY SWAPS THE KEYBOARD FOR THE FIELD'S OWN PANEL AND BACK (iOS emojiKey: showEmoji.toggle(), the glyph «keyboard»
     // while the panel stands; MontanaConversation.swift 803-813 at 2155). Android lets no app view be the field's input view, so the
     // panel stands in the keyboard's place under the bar, as tall as the keyboard last stood (Picker.kt); the keyboard rising puts it
@@ -2759,7 +2754,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         // a media group's plate is its bubble the same way (iOS groupBubble 1431-1468): the tiles fill it, the caption of the pick under them
         val edge = (1 == members.size && edgePlate(m)) || 1 < members.size
         val edgeCap = if (edge) members.firstNotNullOfOrNull { Media.manifestOf(it)?.optString("cap")?.takeIf { c -> c.isNotEmpty() } } else null
-        val onPlate = edge && (edgeCap == null || BusinessCard.lines(edgeCap) != null)
+        val onPlate = edge && edgeCap == null
         // A STICKER OR A LETTER OF EMOJI ALONE STANDS BARE (iOS bigEmojiText branch, MontanaBubble.swift 758-776): the quote keeps a
         // small bubble of its own above it, the time stands under it in the same dark capsule as on a picture
         val bare = Stickers.bare(m)
@@ -3384,9 +3379,9 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
         var spinner: View? = null
         // ONE PLATE FOR A PICTURE AND A VIDEO (iOS mediaBubble 1526-1574, the author's word 15.09): as wide as the widest of its contents —
         // the picture fitted, or the caption's own bubble — never the picture alone; a picture narrower than the plate keeps its fitted
-        // size in the middle and the sides are a mirrored blur of the picture itself. A card's words are not drawn under it.
+        // size in the middle and the sides are a mirrored blur of the picture itself.
         val fit = mediaBox(c, pic?.width ?: 4, pic?.height ?: 3)
-        val words = man?.optString("cap")?.takeIf { it.isNotEmpty() && BusinessCard.lines(it) == null }
+        val words = man?.optString("cap")?.takeIf { it.isNotEmpty() }
         val boxW = minOf(c.dp(PLATE_CEILING), maxOf(fit.first, words?.let { captionWidth(c, it, c.text(it, 16f, tint).paint) } ?: 0))
         val narrow = pic != null && fit.first < boxW - 1
         capRoom = boxW
@@ -3450,23 +3445,13 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     }
     if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
     val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
-    // A CARD'S PHOTO (iOS: a build that knows the mark draws the photo alone, and offers its words to the contacts — MTCardContactBadge)
-    val card = cap?.let { BusinessCard.lines(it) }
-    if (card != null && !m.mine) into.addView(c.hstack {
-        gravity = Gravity.CENTER_VERTICAL
-        addView(FrameLayout(c).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(115, 0, 0, 0)) }
-            addView(c.icon(R.drawable.ic_person_add, Color.WHITE, 18), FrameLayout.LayoutParams(c.dp(18), c.dp(18), Gravity.CENTER))
-        }, lp(c.dp(40), c.dp(40)).apply { marginEnd = c.dp(8) })
-        addView(c.text(c.getString(R.string.bc_add_contacts), 15f, tint), lp(WRAP, WRAP))
-        pressable { (c as? MainActivity)?.let { a -> cardToContacts(a, card) } }
-    }, lp(WRAP, WRAP))
-    else if (card == null) cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = capRoom }) }   // USER-DATA: the caption
+    // A CARD OF AN EARLIER BUILD IS A PHOTO WITH ITS WORDS (iOS a2a4f782, decision 601): the card left the app, what was sent stays readable
+    cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = capRoom }) }   // USER-DATA: the caption
 }
 
 /**
  * A CORRESPONDENT'S PICTURE OR FILM, WHOLE ON DISK (iOS the guard before MTSaveMediaBadge, MontanaBubble.swift 865-880): not a
- * round note (it plays, it does not save) and not a business card's photo (its own badge offers the contacts instead).
+ * round note (it plays, it does not save).
  */
 private fun saveMediaFile(m: Msg): Pair<java.io.File, Boolean>? {
     if (m.mine || !m.text.startsWith(Marks.MEDIA)) return null
@@ -3476,8 +3461,6 @@ private fun saveMediaFile(m: Msg): Pair<java.io.File, Boolean>? {
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     if (kind != "img" && kind != "vid") return null
     if (kind == "vid" && man?.optBoolean("r") == true) return null
-    val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
-    if (cap != null && BusinessCard.lines(cap) != null) return null
     return f to (kind == "vid")
 }
 

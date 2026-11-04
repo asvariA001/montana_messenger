@@ -160,7 +160,6 @@
     <string name="app_chess">Шахматы</string>
     <string name="app_wallet">Монета Времени</string>
     <string name="app_network">Сеть</string>
-    <string name="app_card">Визитка</string>
     <string name="notif_sounds">Уведомления и звуки</string>
     <string name="data_storage">Данные и память</string>
     <string name="privacy">Приватность</string>
@@ -244,7 +243,6 @@
     <string name="compose_hold">Удерживайте для записи</string>
     <string name="emoji">Эмодзи</string>
     <string name="gallery">Фото</string>
-    <string name="business_card">Визитка</string>
     <string name="file">Файл</string>
     <string name="location">Геопозиция</string>
     <string name="contact">Контакт</string>

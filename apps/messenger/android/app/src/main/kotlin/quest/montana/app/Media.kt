@@ -361,7 +361,7 @@ object Media {
             if (mid != null) ((i + 1f) / sealedPieces.size).let { Transfers.set(mid, it, Transfers.megabytes(it, total.toLong())) }
         }
         val m = JSONObject().put("k", p.kind).put("e", p.ext).put("bk", Base64.encodeToString(bk, Base64.NO_WRAP)).put("sz", total).put("chunks", chunks)
-        p.name?.let { if (p.kind == "doc" || it == Stickers.CARD) m.put("n", it) }   // a sticker's picture names itself (iOS docName)
+        p.name?.let { if (p.kind == "doc" || it == Stickers.DOC_NAME) m.put("n", it) }   // a sticker's picture names itself (iOS docName)
         if (caption.isNotEmpty()) m.put("cap", caption)
         p.du?.let { m.put("du", Math.round(it * 10) / 10.0) }   // the tape's length is the sender's word (iOS «du»)
         if (p.round) m.put("r", true)   // a round video note (iOS «r»)
@@ -540,7 +540,7 @@ object Media {
         // A STICKER THAT ARRIVED IS KEPT (iOS MontanaChatStore.swift:3608-3620 at 2155, atom 0d501f110022): the
         // receiver's panel holds what was used in the conversation, exactly as the sender's does -- one copy per
         // picture, since Stickers.add names a sticker by its own bytes and moves a known one to the front.
-        if (man.optString("n") == Stickers.CARD) {
+        if (man.optString("n") == Stickers.DOC_NAME) {
             runCatching { Stickers.add(c, dest.readBytes(), dest.extension) }
             StickerWire.enrich(ref, mid)   // the passport may have come before the picture: its quote settles here (iOS mediaLanded)
         }

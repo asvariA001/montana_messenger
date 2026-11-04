@@ -44,9 +44,8 @@
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <!-- A pair call is also the system's own self-managed call, so it lands in the phone's call log (SystemCall.kt, iOS CallKit's Recents). -->
     <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
-    <!-- One build for the site and Google Play (GooglePlay.SELF_UPDATE false, the author's word 31.10.2026): the app installs no newer
-         Montana itself, so it asks no right to install packages. With SELF_UPDATE true put back:
-         <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" /> -->
+    <!-- The app brings its own newer build from the site (GooglePlay.SELF_UPDATE, the author's word 04.11.2026). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- The active seed lives device-only (iOS AfterFirstUnlockThisDeviceOnly): no file of the app is copied —
          no Auto Backup (fullBackupContent=false, every domain excluded), and nothing of the words (Montana Identity.md:343,

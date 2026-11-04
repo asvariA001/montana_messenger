@@ -41,7 +41,7 @@ object Mosaic {
     fun folds(m: Msg): Boolean {
         if (!m.text.startsWith(Marks.MEDIA)) return false
         val man = Media.manifestOf(m) ?: return false
-        if (man.optString("n") == Stickers.CARD) return false
+        if (man.optString("n") == Stickers.DOC_NAME) return false
         return when (man.optString("k")) { "img" -> true; "vid" -> !man.optBoolean("r"); else -> false }
     }
 

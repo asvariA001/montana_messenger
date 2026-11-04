@@ -386,7 +386,6 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         onPane = { p -> shell.close { choose(p) } },
         onProfile = { shell.close { act.push { myPage(act, it) } } },   // the face with the name opens my page (iOS MTMyPageFromDrawer)
         onSettings = { shell.close { act.push { settingsRoot(act, onForget, it) } } },
-        onCard = { shell.close { act.push { businessCardPage(act, it) } } },
         onPasswords = { shell.close { act.push { passwordsPage(act, it) } } },
         onWallet = { shell.close { act.push { walletPage(act, it) } } },
         onChess = { shell.close { act.push { chessLobbyPage(act, it) } } }).also { d -> shell.onReveal = { (d.tag as? Runnable)?.run() } }, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -553,7 +552,7 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
  * pages Android does not have yet stand in their places, quieter, and take no tap. The plus of a second login is iOS's
  * multi-login, which Android does not have.
  */
-private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onCard: () -> Unit, onPasswords: () -> Unit, onWallet: () -> Unit, onChess: () -> Unit): View {
+private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () -> Unit, onSettings: () -> Unit, onPasswords: () -> Unit, onWallet: () -> Unit, onChess: () -> Unit): View {
     val c: Context = act
     // A ROW OF THE 1949 LIST (iOS MontanaSideDrawer.row, ContentView.swift:1713-1728): the icon 30, the word 22 bold, the page's own
     // count -- 22 apart, the count beside the word, not at the far edge
@@ -605,7 +604,6 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         // phone; the nodes this phone reaches
         addView(row(glyph(R.drawable.ic_set_antenna), R.string.app_mesh_wall) { onPane(Pane.MESH) }, lp())
         addView(row(glyph(R.drawable.ic_language), R.string.app_p2p_wall) { onPane(Pane.P2P) }, lp())
-        addView(row(glyph(R.drawable.ic_app_card), R.string.app_card, onTap = onCard), lp())   // the business card (iOS MTCardFromDrawer, the author's word 28.09)
         // PASSWORDS (iOS MTApplication .passwords, key.fill, the author's word 06.10.2026 17:4x MSK): a page of its own over the tabs
         addView(row(glyph(R.drawable.ic_key), R.string.pw_title, onTap = onPasswords), lp())
         spacer()

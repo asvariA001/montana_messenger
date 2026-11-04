@@ -723,10 +723,10 @@ object Card {
             val held = m.filterKeys { MontanaBackup.plainName(it) && Book.myFace(it).exists() }
             if (held.isEmpty()) out.remove("d:manualPhotos") else out.put("d:manualPhotos", b64(JSONObject(held).toString()))
         }
-        // One's own node and its certificate's digest (iOS MontanaHomeNode.swift 22-48), the business card (MontanaProfile.swift
-        // 113-136), the face as the iPhone carries it (avatarData: the bytes as they are)
+        // One's own node and its certificate's digest (iOS MontanaHomeNode.swift 22-48), the face as the iPhone carries it (avatarData:
+        // the bytes as they are); an earlier build's contact card leaves the copy (iOS a2a4f782, decision 601)
         for ((k, v) in listOf(NODE to MontanaHomeNode.host, NODE_PIN to MontanaHomeNode.pin)) if (v.isEmpty()) out.remove("d:$k") else out.put("d:$k", b64(v))
-        BusinessCard.stored()?.let { out.put("d:businessCard", b64(it.json().toString())) } ?: out.remove("d:businessCard")
+        out.remove("d:businessCard")
         SelfFace.bytes(c)?.let { out.put("b:avatarData", android.util.Base64.encodeToString(it, android.util.Base64.NO_WRAP)) } ?: out.remove("b:avatarData")
         // The records sealed in the same JSON on both phones (iOS SeedScope.dataKeys 6132-6133): the peers' read marks (ChatStore
         // notePeerRead 2872-2879), the name held in the network (MontanaNames.swift 113-132), the permanent link, its keys and the
@@ -817,7 +817,6 @@ object Card {
         var faces: Map<String, String>? = null
         var node: String? = null
         var nodePin: String? = null
-        var card: JSONObject? = null
         var face: ByteArray? = null
         var mesh: Boolean? = null
         var readMarks: Map<String, Long>? = null
@@ -859,7 +858,6 @@ object Card {
                 tag == "d:" && k == "manualPhotos" -> faces = strings(v)
                 tag == "d:" && k == NODE -> node = unb64(v)?.toString(Charsets.UTF_8)
                 tag == "d:" && k == NODE_PIN -> nodePin = unb64(v)?.toString(Charsets.UTF_8)
-                tag == "d:" && k == "businessCard" -> card = unb64(v)?.let { JSONObject(it.toString(Charsets.UTF_8)) }
                 tag == "b:" && k == "avatarData" -> face = unb64(v)
                 tag == "d:" && k == "peerReadMap" -> readMarks = json(v)?.let { o -> o.keys().asSequence().associateWith { o.getLong(it) } }
                 tag == "d:" && k == "mt.name" -> nameRecord = unb64(v)
@@ -895,7 +893,6 @@ object Card {
             { for ((ref, v) in grounds) wearable(ref, v, walls)?.let { w -> if (w !is ChatWall.Choice.Photo || mirror(File(walls, w.file), ChatWall.folder())) ChatWall.set(ref, w) } },
             { node?.let { MontanaHomeNode.setHost(it) } },
             { nodePin?.let { MontanaHomeNode.setPin(it) } },
-            { card?.let { BusinessCard(it.optString("name"), it.optString("phone"), it.optString("email"), it.optString("other")).keep() } },
             { face?.let { SelfFace.set(c, it) } },
             { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } },
             { readMarks?.let { Post.PeerRead.lay(it) } },

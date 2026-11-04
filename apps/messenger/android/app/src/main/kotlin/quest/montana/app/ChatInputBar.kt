@@ -151,7 +151,6 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
                 glassKey(R.drawable.ic_chevron_up, R.string.compose_fold) { if (!record.active) setOpen(false) },
                 glassKey(R.drawable.ic_face_smiling, R.string.emoji) { onEmojiKey?.invoke() ?: showKeys() }.apply { emojiRowKey = this; setOnLongClickListener { onStickers?.invoke(); onStickers != null } },
                 glassKey(R.drawable.ic_compose_photo, R.string.gallery) { onGallery?.invoke() ?: notYet() },
-                glassKey(R.drawable.ic_compose_card, R.string.business_card) { onCard?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_doc, R.string.file) { onFile?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_location, R.string.location) { onLocation?.invoke() ?: notYet() },
                 glassKey(R.drawable.ic_compose_contact, R.string.contact) { onContact?.invoke() ?: notYet() },
@@ -250,7 +249,6 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     var onContact: (() -> Unit)? = null   // the phone's contact as a letter (iOS ContactPicker)
     var onFile: (() -> Unit)? = null
     /** The card key (iOS .card → MontanaCardNoteView with onSend): the person's business card, sent as a photo. */
-    var onCard: (() -> Unit)? = null
     var onStickers: (() -> Unit)? = null   // the field's panel on the stickers, opened by a hold on the emoji key (Picker.kt)
     /** The emoji key's tap: the keyboard and the field's own panel swap places (iOS showEmoji.toggle()). */
     var onEmojiKey: (() -> Unit)? = null

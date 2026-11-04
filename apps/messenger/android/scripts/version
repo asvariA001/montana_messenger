@@ -7,6 +7,9 @@
 # When Android does what iOS 1277 does, TARGET empties and BUILD becomes 1277: the app shows v1.0 (1277).
 # From then on BUILD is the iOS build Android has reached, by the iOS changelog:
 #   https://github.com/efir369999/montana_messenger/blob/main/CHANGELOG.md
+# LIFT is added to the count of commits (the author's word 04.11.2026: one build, one number): the trial branch had reached 806 while main
+# stood at 681, and Android refuses a lower number over a higher one, so the phone could not take the site's build. Never lower it.
 MARKETING=1.0
+LIFT=128
 TARGET=1277
 BUILD=

@@ -1707,7 +1707,7 @@ object Groups {
     private fun links(text: String) = text.isNotEmpty() && LinkPreview.webURLs(text).isNotEmpty()
     /** The right one media letter asks (iOS mediaRight), by its kind, its roundness and its file's name. */
     private fun mediaRight(kind: String, round: Boolean, name: String): String = when (kind) {
-        "img" -> if (name == Stickers.CARD) M_STICKERS else M_PHOTOS
+        "img" -> if (name == Stickers.DOC_NAME) M_STICKERS else M_PHOTOS
         "vid", "video" -> if (round) M_ROUNDS else M_VIDEOS
         "aud" -> M_VOICE
         else -> if (Waveform.isAudio(name)) M_MUSIC else if (name.lowercase().endsWith(".gif")) M_STICKERS else M_FILES

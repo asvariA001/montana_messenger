@@ -30,7 +30,7 @@ private fun moments(): List<Moment> = Book.all().flatMap { ch ->
         val kind = man?.optString("k")
         val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() }
         // a round note and a sticker are letters of their own kind, not moments of the library
-        if (f == null || (kind != "img" && kind != "vid") || man.optBoolean("r") || man.optString("n") == Stickers.CARD) null
+        if (f == null || (kind != "img" && kind != "vid") || man.optBoolean("r") || man.optString("n") == Stickers.DOC_NAME) null
         else Moment(f, kind == "img", ch.ref, m.mid, m.at)
     }
 }.sortedBy { it.at }
