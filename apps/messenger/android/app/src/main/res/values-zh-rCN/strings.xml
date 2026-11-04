@@ -123,9 +123,6 @@
     <string name="share">分享</string>
     <!-- The page «Appearance» (iOS AppearanceView) -->
     <string name="appearance">外观</string>
-    <string name="app_icon">应用图标</string>
-    <string name="icon_glass">液态玻璃</string>
-    <string name="icon_gold">黑底金色</string>
     <string name="note_quality">视频圈画质</string>
     <string name="q_min">最低</string>
     <string name="q_medium">中</string>

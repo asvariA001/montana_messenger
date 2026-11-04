@@ -121,9 +121,8 @@
             android:resizeableActivity="true"
             android:supportsPictureInPicture="true"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
-        <!-- THE APP'S ICON, CHOSEN IN «APPEARANCE» (iOS MTAppIconChooser, setAlternateIconName): the launcher entry is one of two
-             aliases of the one activity, and exactly one of them is enabled — the liquid glass (iOS primary, AppIcon.icon)
-             by default, the gold on black (iOS AppIconGold) when chosen. -->
+        <!-- THE APP'S ICON: one icon, no variants (iOS 68bbc2d1). The launcher entry is the alias of the liquid glass; the gold alias
+             stands disabled only so a phone that had chosen it keeps an entry until AppIcon.primary brings it back. -->
         <activity-alias
             android:name="quest.montana.app.IconGlass"
             android:targetActivity="quest.montana.app.MainActivity"
