@@ -80,7 +80,8 @@ def version():
             v[key.strip()] = value.strip()
     if v["TARGET"]:
         # catching up: our own build is the count of commits on main, and the iOS build we go to stands beside it
-        code, target = int(git(["rev-list", "--count", "HEAD"])), int(v["TARGET"])
+        # plus LIFT: one number for the site and the phones (the author's word 04.11.2026), above every trial build a phone already holds
+        code, target = int(git(["rev-list", "--count", "HEAD"])) + int(v.get("LIFT") or 0), int(v["TARGET"])
         if max(code, target) == code:
             raise SystemExit("own build %d reached %d: the jump to %d would go backwards (scripts/version)"
                              % (code, target, target))
