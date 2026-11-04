@@ -1436,7 +1436,11 @@ object CallLine {
             for ((id, f) in pictureNow) l.pictureSeen[id] = maxOf(l.pictureSeen[id] ?: 0L, f)
             if (movedNow) { l.pictureStall = 0; notePeerPicture(false) }
             else { sm.videoDarkS += 2; l.pictureStall++; if (l.pictureStall == 2) notePeerPicture(true) }
-        } else if (!video) { l.pictureStall = 0; notePeerPicture(false) }
+        } else if (!video) {
+            // video left the call: the next rise may count its frames from zero on the same stream id, and the old larger count
+            // would keep the cover over a live picture for as long as the first video lasted (A1, 04.11.2026: 18 s after 17 s of video)
+            l.pictureStall = 0; l.pictureSeen.clear(); notePeerPicture(false)
+        }
         val now = System.currentTimeMillis()
         if (now - l.lastJournalAt < 5000) return   // the journal keeps its five-second rhythm (iOS 4080-4087)
         l.lastJournalAt = now
