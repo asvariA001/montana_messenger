@@ -24,5 +24,5 @@ package quest.montana.app
 object GooglePlay {
     const val COINS = false
     const val VPN = false
-    const val SELF_UPDATE = false
+    const val SELF_UPDATE = true   // the author's word 04.11.2026: the update in the chat as before Google; false again before any Play upload
 }
