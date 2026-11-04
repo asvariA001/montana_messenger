@@ -501,7 +501,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
-        if (hasSeed && termsAccepted) CallTape.recover()   // a call's tape the app's death cut leaves for its chat, «incomplete» (iOS MontanaApp 349)
+        sweepCallRecordings()   // NO CALL IS RECORDED (iOS 214dc096, the author's word 16428): what an earlier build left leaves this phone
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
         Update.onLeast = { keepUpdateRequired(again = false) }; keepUpdateRequired()   // a build below the network's least sees the update banner
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
@@ -783,4 +783,13 @@ object FilesFolder {
         read = true; held = file
         DeviceVault.set(KEY, file.toString().toByteArray(Charsets.UTF_8))
     }
+}
+
+/** NO CALL IS RECORDED (iOS ChatStore.sweepCallRecordings, 214dc096, the author's word 16428): the unfinished runs under CallRecordings,
+ * the switch and the consent leave this phone; a recording already sent to a chat is that chat's letter and stays. */
+private fun sweepCallRecordings() {
+    Thread({
+        runCatching { java.io.File(Book.ctx.filesDir, "CallRecordings").deleteRecursively() }
+        for (key in listOf("callRecordingEnabled", "callRecordingConsent.v1")) Prefs.remove(key)   // NOT-UI: the retired keys' names
+    }, "call-record-sweep").start()
 }

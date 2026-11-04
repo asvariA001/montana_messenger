@@ -825,17 +825,4 @@
     <string name="voice_text_refused">Разрешите микрофон в Настройках</string>
     <string name="voice_text_unsupported">Распознавание речи на устройстве недоступно для этого языка</string>
     <string name="voice_text_silent">Речь не распознана</string>
-    <string name="call_rec_switch">Записывать звонки</string>
-    <string name="call_rec_caption">Звонки записываются сами на этом телефоне и после вашего первого согласия отправляются в чат звонка. Кнопка записи на экране звонка работает в каждом звонке.</string>
-    <string name="call_rec_ask_title">Записывать звонки автоматически?</string>
-    <string name="call_rec_ask_body">Аудио и видео сохраняются на этом телефоне. В личном звонке запись в чат отправляет тот, кто позвонил, а если он не записывает — тот, кто ответил. Участники комнат отправляют собственные записи. Участники получают уведомление. Вы можете отключить запись в Настройках в любой момент.</string>
-    <string name="call_rec_no">Не записывать</string>
-    <string name="call_rec_notice_send">Этот звонок записывается. После завершения запись будет отправлена в этот чат.</string>
-    <string name="call_rec_notice_local">Этот телефон записывает разговор локально. Запись в чат отправляет только тот, кто позвонил.</string>
-    <string name="call_rec_row">Запись звонка</string>
-    <string name="call_rec_row_partial">Запись звонка — неполная</string>
-    <string name="call_rec_none">Запись этого звонка отсутствует: звук не поступал.</string>
-    <string name="call_rec_mark">Записать</string>
-    <string name="call_rec_stop">Остановить запись</string>
-    <string name="call_rec_on">Идёт запись</string>
 </resources>

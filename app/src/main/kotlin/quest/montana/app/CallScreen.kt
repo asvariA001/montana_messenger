@@ -1,7 +1,5 @@
 package quest.montana.app
 
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -202,7 +200,6 @@ object CallScreen {
         // THE RECORDING'S DOT (iOS MTCallRecordingStatus, MTCallRecording.swift 829-841, beside MTCallLight in MTCallClock 6514):
         // red, eight across, while a tape rolls on this phone; it breathes between whole and a quarter every 0.65 s, still when
         // the system's animations are off (iOS accessibilityReduceMotion)
-        val recDot = recordingDot(c)
         val status = c.text("", 20f, Color.argb(153, 255, 255, 255)).apply { singleLineEllipsis(); fontFeatureSettings = "tnum" }
         val state = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
         val voiceHead = c.vstack(Gravity.CENTER_HORIZONTAL) {
@@ -210,7 +207,6 @@ object CallScreen {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(light, lp(dp(11), dp(11)).apply { marginEnd = dp(6) })
-                addView(recDot, lp(dp(8), dp(8)).apply { marginEnd = dp(6) })
                 addView(status, lp(WRAP, WRAP))
             }, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16) })
             gap(10)
@@ -265,14 +261,12 @@ object CallScreen {
         }
         title.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> title.post { fitName() } }
         val vlight = c.icon(R.drawable.ic_dot, SysColor.green, 11)
-        val vrecDot = recordingDot(c)
         val clock =c.text("", 17f, Color.argb(217, 255, 255, 255)).apply {
             typeface = medium; fontFeatureSettings = "tnum"; singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze)
         }
         val timeLine = c.hstack {
             gravity = Gravity.CENTER
             addView(vlight, lp(dp(11), dp(11)).apply { marginEnd = dp(5) })
-            addView(vrecDot, lp(dp(8), dp(8)).apply { marginEnd = dp(5) })
             addView(clock, lp(WRAP, WRAP))
         }
         val events = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis(); setShadowLayer(dp(3).toFloat(), 0f, 0f, haze) }
@@ -283,22 +277,6 @@ object CallScreen {
         // TWO MARKS ON EACH SIDE (iOS 650002fb, the author's word 16294): the fold and this room on the left, the add mark's room and
         // the camera flip on the right, each held at its size when it is not there, so the name has all the room between them
         val roomL = FrameLayout(c)
-        // THE RECORD MARK STANDS IN IT (iOS MTCallRecordMark, MontanaCall.swift 8026-8039; the author's word 16.10.2026 15:2x UTC)
-        // once the call is connected: the record glyph starts this call's recording by the hand, the stop glyph ends it
-        var recDraw: () -> Unit = {}
-        val recMark = mark(c, R.drawable.ic_record_circle, R.string.call_rec_mark) { CallLine.talkingSeed?.let { CallTape.toggleByHand(it) }; recDraw() }
-        roomL.addView(recMark, FrameLayout.LayoutParams(MATCH, MATCH))
-        var recGlyph = R.drawable.ic_record_circle
-        recDraw = {
-            val seed = CallLine.talkingSeed
-            for (d in listOf(recDot, vrecDot)) recordingDot(d, CallTape.rolling)
-            recMark.visibility = if (seed != null && CallTape.markShown(seed)) View.VISIBLE else View.GONE
-            val rg = if (seed != null && CallTape.markOn(seed)) R.drawable.ic_stop_circle else R.drawable.ic_record_circle
-            if (rg != recGlyph) {
-                recGlyph = rg; (recMark.getChildAt(0) as ImageView).setImageResource(rg)
-                recMark.contentDescription = c.getString(if (rg == R.drawable.ic_stop_circle) R.string.call_rec_stop else R.string.call_rec_mark)
-            }
-        }
         val route = routeButton(c)
         fun line() {
             // iOS MTCallLight 5427-5433: green clean at the top step, yellow (the system's orange) held below it, red squeezed
@@ -323,7 +301,6 @@ object CallScreen {
             status.text = c.getString(R.string.call_title_audio) + " — " + tail
             clock.text = tail
             route.second.invoke()
-            recDraw()
             // under the name, the call's own state in bold (iOS 6771-6784): the hold line, then the break's own line, each from
             // the call's state -- both stand when both are so; a video call's one line puts a break before a hold (5399-5414)
             val held = CallLine.held || CallLine.heldByPeer
@@ -374,7 +351,7 @@ object CallScreen {
         val mute = button(c, R.string.call_mute, R.drawable.ic_mic_slash, null, { CallLine.muted }, SysColor.red) { CallLine.setMuted(!CallLine.muted) }
         val end = button(c, R.string.call_end, R.drawable.ic_phone_down, SysColor.red, { false }) { Thread { Calls.hangUp("hangup") }.start() }
         // «Video» (iOS 6799): lit while the call carries pictures or my ask waits; the camera is asked of the system first
-        val videoBtn = button(c, R.string.call_video_btn, R.drawable.ic_peer_video, null, { (CallLine.video && !CallLine.sharing) || CallLine.asking }) {
+        val videoBtn = button(c, R.string.call_video_btn, R.drawable.ic_peer_video, null, { (CallLine.video && !CallLine.sharing) || CallLine.asking || CallLine.joinPending }) {
             if (CallLine.video || c.checkSelfPermission(android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) CallLine.toggleVideo()
             else act.askCamera { ok -> if (ok) CallLine.toggleVideo() }
         }
@@ -469,14 +446,6 @@ object CallScreen {
         // the screen and mine rides the corner — until the corner is tapped; before theirs comes, mine fills the screen. The
         // corner stands whether my camera runs or not (iOS shown = pip && !peerSharing): a sleeping camera wears my own face.
         var coverSaid = ""
-        // THE RECORDING IS TOLD WHAT STANDS WHERE (iOS MTCallRecordingLayout's writers, applySides and MTCallMini): the screen's
-        // shape, which picture fills it, where the corner stands, whether mine is mirrored and theirs a shared screen shown whole
-        fun film(bigLocal: Boolean, shown: Boolean, x: Float = miniBox.translationX, y: Float = miniBox.translationY) {
-            if (pictures.width == 0) return
-            CallFilm.shape = CallFilm.Shape(pictures.width, pictures.height, bigLocal,
-                if (shown) android.graphics.RectF(x, y, x + c.dp(MINI_W), y + c.dp(MINI_H)) else null,
-                CallLine.front, CallLine.peerSharing, c.dp(12).toFloat())
-        }
         fun sides() {
             if (CallFloat.standing) return   // the window over other apps holds the peer's picture while it stands
             // the sharer sees the peer's ground, not the screen it shares (iOS 6566-6574): no picture is drawn
@@ -505,7 +474,6 @@ object CallScreen {
             val ownCovered = CallLine.video && (CallLine.held || !CallLine.camera || CallLine.selfPaused)
             selfCoverBig.visibility = if (ownCovered && bigLocal) View.VISIBLE else View.GONE
             selfCoverMini.visibility = if (ownCovered && !bigLocal && shown) View.VISIBLE else View.GONE
-            film(bigLocal, shown)
             val said = "remote=" + (if (covered) 1 else 0) + " self=" + (if (ownCovered) 1 else 0)
             if (said != coverSaid) { coverSaid = said; Log.d("Montana", "call_cover " + said) }
         }
@@ -540,7 +508,6 @@ object CallScreen {
             val bottomEdge = if (up) raised else pictures.height - column.paddingBottom - c.dp(14)
             val x = (if (corner % 2 == 0) c.dp(14) else pictures.width - c.dp(14) - c.dp(MINI_W)).toFloat()
             val y = (if (corner < 2) topEdge else maxOf(topEdge, bottomEdge - c.dp(MINI_H))).toFloat()
-            CallFilm.shape.let { f -> if (f.mini != null) film(f.bigLocal, true, x, y) }
             if (glide && placed) miniBox.animate().translationX(x).translationY(y).setDuration(300).start()
             else { miniBox.animate().cancel(); miniBox.translationX = x; miniBox.translationY = y }
             placed = true
@@ -674,24 +641,6 @@ object CallScreen {
     /** A mark of the chat's own (iOS MontanaCallMark): the glass circle, its glyph, the finger's forty-four. */
     /** THE CALL'S MARK (iOS MontanaCallMark, MontanaShapes.swift 1092-1114, atom 710032f3b132): the bar's glyph colour on the
      * bar's glass circle with a white 0.28 rim, a 44-point target, a press -- the chat's scroll-down face, one to one. */
-    /** The recording's red dot (iOS MTCallRecordingStatus): hidden until a tape rolls. */
-    private fun recordingDot(c: Context): ImageView = c.icon(R.drawable.ic_dot, SysColor.red, 8).apply {
-        visibility = View.GONE
-        contentDescription = c.getString(R.string.call_rec_on)
-    }
-    /** The dot stands while a tape rolls and breathes only while it stands: a hidden dot draws nothing and costs nothing. */
-    private fun recordingDot(d: ImageView, on: Boolean) {
-        if ((d.visibility == View.VISIBLE) == on) return
-        d.visibility = if (on) View.VISIBLE else View.GONE
-        (d.tag as? ObjectAnimator)?.cancel()
-        d.tag = null
-        d.alpha = 1f
-        if (on && ValueAnimator.areAnimatorsEnabled())
-            d.tag = ObjectAnimator.ofFloat(d, View.ALPHA, 1f, 0.25f).apply {
-                duration = 650; repeatCount = ValueAnimator.INFINITE; repeatMode = ValueAnimator.REVERSE
-                interpolator = AccelerateDecelerateInterpolator(); start()
-            }
-    }
 
     private fun mark(c: Context, glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
         background = c.glassPlate(oval = true).apply { setStroke(c.dp(1), Color.argb(71, 255, 255, 255)) }

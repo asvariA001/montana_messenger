@@ -825,17 +825,4 @@
     <string name="voice_text_refused">请在设置中允许麦克风</string>
     <string name="voice_text_unsupported">此语言不支持设备上的语音识别</string>
     <string name="voice_text_silent">未识别到语音</string>
-    <string name="call_rec_switch">录制通话</string>
-    <string name="call_rec_caption">通话会在本机自动录制，并在你首次同意后发送到该通话的聊天中。通话界面上的录制按钮在每次通话中都可用。</string>
-    <string name="call_rec_ask_title">自动录制通话？</string>
-    <string name="call_rec_ask_body">音频和视频保存在本机。一对一通话中，由主叫方将录音发送到聊天；主叫方未录制时，由接听方发送。房间参与者各自发送录音。参与者会收到通知。您随时可以在设置中关闭录制。</string>
-    <string name="call_rec_no">不录制</string>
-    <string name="call_rec_notice_send">此通话正在录制。通话结束后，录制文件将发送到此聊天。</string>
-    <string name="call_rec_notice_local">本机正在本地录制通话。只有主叫方会将录音发送到聊天。</string>
-    <string name="call_rec_row">通话录制</string>
-    <string name="call_rec_row_partial">通话录制 — 不完整</string>
-    <string name="call_rec_none">此通话没有录音，因为未收到音频。</string>
-    <string name="call_rec_mark">录制</string>
-    <string name="call_rec_stop">停止录制</string>
-    <string name="call_rec_on">正在录制</string>
 </resources>

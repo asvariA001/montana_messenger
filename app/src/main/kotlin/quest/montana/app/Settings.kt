@@ -140,7 +140,7 @@ fun View.standAboveKeys() = setOnApplyWindowInsetsListener { v, insets ->
 // ─────────────────────────── the settings' first page (iOS SettingsTabView) ───────────────────────────
 
 /** THE SETTINGS ARE THE PLATFORM'S OWN LIST: sections of rows, the cross top left. NO MENU OF ACCESS BY LEVEL (iOS 2358, the author's
- * word 16165 p.6, decision 606 (a)): the recording's switch and one's own node stand here on every level. */
+ * word 16165 p.6), NO CALL RECORDING AND NO ROW OF ONE'S OWN NODE (iOS 214dc096, the author's word 16428): no section stands for them. */
 fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): View {
     val c: Context = act
     return settingsPage(act, c.getString(R.string.settings), onClose, cross = true) {
@@ -151,10 +151,6 @@ fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): 
             c.settingsRow(R.drawable.ic_set_lock, SysColor.gray, c.getString(R.string.privacy)) { act.push { privacyPage(act, onForget, it) } },
             c.settingsRow(R.drawable.ic_set_brush, SysColor.blue, c.getString(R.string.appearance)) { act.push { AppearancePage(act, it).view } },
             c.settingsRow(R.drawable.ic_language, SysColor.cyan, c.getString(R.string.language)) { act.push { languagePage(act, it) } })
-        section(null, null,
-            c.switchLine(R.drawable.ic_record_circle, SysColor.red, c.getString(R.string.call_rec_switch), CallTape.enabled,
-                c.getString(R.string.call_rec_caption)) { on -> Prefs.setBool(CallTape.KEY, on); CallTape.changed(on, act) },
-            c.settingsRow(R.drawable.ic_set_server, SysColor.gray, c.getString(R.string.your_node)) { act.push { NodePage(act, it).view } })
         section(null, null,
             c.settingsRow(R.drawable.ic_set_help, SysColor.blue, c.getString(R.string.ask_question)) { act.push { supportPage(act, it) } },
             c.settingsRow(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.terms_of_use)) { act.push { termsGate(act, onAgree = null, onClose = it) } })

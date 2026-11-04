@@ -490,7 +490,6 @@ object Calls {
         noteSeed(r.seed, "dead", engaged = r.answered || r.out)
         tone(false)
         val spoken = CallLine.stop(r.seed)
-        CallTape.finish(r.seed)   // the recording leaves for the chat (iOS MontanaCall 3888)
         val dur = spoken.dur
         story(r, why, spoken)
         holdOnDisk()   // the call ended: its record goes (iOS 3508-3510)

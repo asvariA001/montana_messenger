@@ -154,26 +154,8 @@ object CallLine {
      * then waits for it as long as a ring rings -- its run comes back within it. */
     @Volatile var peerRebuilds = false
         private set
-    private val peerRec = LinkedHashMap<String, Boolean>()   // the call's name -> the correspondent's recording switch
 
-    /** The connected call's recording is weighed (iOS refreshRecording): at the connect, at the correspondent's caps, at a consent. */
-    fun refreshRecording() {
-        val l = synchronized(gate) { line } ?: return
-        if (l.connectedAt == 0L) return
-        CallTape.refresh(l.seed, l.ref, l.caller, synchronized(peerRec) { peerRec[Calls.epochOf(l.seed)] })
-    }
-    /** The seed of the call that stands connected, for the call screen's record mark (iOS handRecordingUUID once talkSince stands). */
-    val talkingSeed: String? get() = synchronized(gate) { line?.takeIf { it.connectedAt != 0L }?.seed }
     fun learnCaps(ref: String, epoch: String, caps: JSONObject?) {
-        // THE CORRESPONDENT'S RECORDING SWITCH (iOS learnPeerCaps 1623, peerRecordSwitch 1232): kept by the call's name, so the offer
-        // heard before the ring is born is not lost; the connected call is weighed again. It says only who sends (iOS 2358).
-        if (caps != null && caps.has("rec")) {
-            synchronized(peerRec) {
-                peerRec[epoch] = caps.optBoolean("rec")
-                while (peerRec.size > 4) peerRec.remove(peerRec.keys.first())
-            }
-            refreshRecording()
-        }
         if (caps?.optBoolean("rejoin") != true || peerRebuilds) return
         if (mine(ref, epoch) == null && Calls.peer() != ref) return
         peerRebuilds = true
@@ -212,8 +194,6 @@ object CallLine {
     @Volatile var powerSaving = false
         private set
     @Volatile private var powerFloorNow = 0
-    /** The power's floor now (iOS MontanaPower.floorNow): the recording's film slows under 2 and stops at 4 (CallFilm). */
-    val powerFloor: Int get() = powerFloorNow
     @Volatile var peerSharing = false   // their screen rides the video line
         private set
     @Volatile var sharing = false   // my screen rides it (iOS screenSharing)
@@ -223,6 +203,9 @@ object CallLine {
         private set
     @Volatile var changed: (() -> Unit)? = null   // the call's screen, told on the main thread when the picture's state moves
     @Volatile private var askRound = 0
+    @Volatile var joinPending = false   // I said yes and wait for the asker's picture (iOS videoJoinPending): the Video button stands lit
+        private set
+    @Volatile private var joinRound = 0
     @Volatile private var sniffed = false
 
     /** My camera stands in the call. */
@@ -231,8 +214,7 @@ object CallLine {
     /** A picture's way to the screen (iOS VideoView's side): the track draws into it, the screen lends it a surface or none. */
     class Slot(private val local: Boolean) : VideoSink {
         @Volatile var into: VideoSink? = null
-        // a rolling tape takes the picture too, whether the screen shows it or not (iOS MTCallRecordingVideo beside the view)
-        override fun onFrame(f: VideoFrame) { CallFilm.frame(f, local); into?.onFrame(f) }
+        override fun onFrame(f: VideoFrame) { into?.onFrame(f) }
     }
     val theirs = Slot(false)
     val own = Slot(true)
@@ -412,7 +394,6 @@ object CallLine {
     // iOS myCaps, as this build is: SFrame off, no answer read off the wake road, no rejoin
     fun caps(): JSONObject = JSONObject().put("tier", "android-native").put("ver", 1).put("opus_max", 40000).put("hw_aec", true)
         .put("sframe", false).put("av", false).put("rejoin", true)   // this build rebuilds a call in place and goes back into it (iOS caps.rejoin)
-        .put("rec", CallTape.automatic).apply { LevelAccess.level?.let { put("lv", it) } }   // my recording switch and level (iOS 1614)
 
     private fun word(l: Line, ctrl: String) =
         JSONObject().put("t", "cal").put("ctrl", ctrl).put("ts", NodeClock.now()).put("e", Calls.epochOf(l.seed))
@@ -511,7 +492,6 @@ object CallLine {
                     l.sum.battStart = power().level   // iOS 4420: every call's battery at its connect, a voice call's too
                     CallService.sync()
                     autoSpeaker(l)
-                    refreshRecording()
                 }
                 // THE MEASUREMENT STARTS HERE AND ONLY HERE (iOS 5048-5055): a reconnect never starts a second loop
                 if (!l.measuring) { l.measuring = true; measure(l, ++l.measureGen) }
@@ -773,10 +753,9 @@ object CallLine {
         lost = false
         held = false
         heldByPeer = false
-        video = false; asking = false; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
+        video = false; asking = false; joinPending = false; joinRound++; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
         front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false; peerShape = null
         peerRebuilds = false
-        synchronized(peerRec) { peerRec.clear() }
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
         l.measureGen++   // no tick of the ended call survives into the next one (iOS K-9, 3081)
         breakTone(false)
@@ -1017,7 +996,11 @@ object CallLine {
     fun toggleVideo() {
         val l = synchronized(gate) { line } ?: return
         if (sharing) return stopShare()   // «Video» ends the share; the camera comes back as it was (iOS 3139)
+        // IN VIDEO WITHOUT MY CAMERA (iOS 214dc096, K4): the peer's picture came first -- the press joins my camera, never ends the video
+        if (video && l.vtrack == null) { l.armedAt = 0L; work.execute { enableMine(l) }; return }
         if (video) { work.execute { drop(l, aloud = true) }; return }
+        // THE YES ALREADY GIVEN WAITS FOR THE ASKER'S PICTURE (iOS K1): a press between my consent and their offer asks nothing anew
+        if (fresh(l)) { log("video: consent already given -- the camera joins with the offer"); return }
         if (asking) return
         asking = true
         val round = ++askRound
@@ -1032,6 +1015,10 @@ object CallLine {
         val l = synchronized(gate) { line } ?: return
         asked = false
         l.armedAt = System.currentTimeMillis()
+        // the yes given lights the Video button as long as the consent lives (iOS K3, videoJoinPending)
+        joinPending = true
+        val round = ++joinRound
+        MainThread.later(40_000) { if (joinRound == round && joinPending) { joinPending = false; moved() } }
         moved()
         work.execute { say(l, JSONArray().put(word(l, "call-video-ok"))) }
         log("video: consent accepted")
@@ -1073,7 +1060,14 @@ object CallLine {
             return@execute
         }
         when (ctrl) {
-            "call-video-ask" -> { asked = true; log("video: consent asked by peer") }
+            // THE ASK MEETS A CALL ALREADY ON ITS WAY TO VIDEO (iOS 214dc096, K2, the author's words 16421 and 16428): a call in video
+            // answers yes by itself, no plate; asks that crossed leave the caller's: the callee yields and says yes, so one offer rides
+            "call-video-ask" -> when {
+                video -> { say(l, JSONArray().put(word(l, "call-video-ok"))); log("video: consent asked by peer in video -- granted by itself") }
+                asking && l.caller -> log("video: asks crossed -- the caller's ask stands")
+                asking -> { askRound++; asking = false; log("video: asks crossed -- the callee yields"); acceptAsk() }
+                else -> { asked = true; log("video: consent asked by peer") }
+            }
             "call-video-ok" -> { askRound++; log("video: consent granted"); if (asking) { asking = false; upgrade(l) } }
             "call-video-no" -> { askRound++; asking = false; log("video: consent declined") }
             "call-video-end" -> drop(l, aloud = false)
@@ -1482,6 +1476,7 @@ object CallLine {
 
     /** My camera joins their picture (iOS enableMyVideo 3227): only in a call that stands; a camera already there is lit again. */
     private fun enableMine(l: Line) {
+        joinRound++; joinPending = false
         offerMine = false
         if (synchronized(gate) { line !== l } || l.connectedAt == 0L) return moved()
         val track = l.vtrack
@@ -1797,6 +1792,7 @@ object CallLine {
                 if (l.vtrack != null) bound(l)
                 // my «yes» joins here, on their picture's offer, while it is fresh — never on fresh checks (iOS K-6)
                 if (fresh(l) && rsn != "ice") { l.armedAt = 0L; enableMine(l) }
+                else if (rsn != "ice") { joinRound++; joinPending = false }   // a stale yes lights nothing (iOS remoteVideoArrived)
             }, onFail = { e -> log("restart answer refused here: " + e) }), tuned)
         }, onFail = { e -> log("restart answer unbuilt: " + e) }), MediaConstraints())
         l.pc.setRemoteDescription(sdp(onSet = { answerIt() }, onFail = { e ->
