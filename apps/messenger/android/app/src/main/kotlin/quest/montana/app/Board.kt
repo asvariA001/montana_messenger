@@ -831,7 +831,7 @@ object Board {
     fun writer(wall: String, p: JSONObject): String? {
         // A WRITER OF THE TABLE is nobody this phone knows (iOS 18.10) -- unless this phone holds a pipe under the @name the post
         // carries (iOS writer(of:on:) 2331-2345 at 2351, the author's word 14475): then the writer is that correspondent
-        if (WallGlobal.isRef(wall)) return reach(p)
+        if (WallGlobal.isRef(wall)) return reach(p, wall)
         if (wall.isEmpty()) return MyWall.writerOf(p.optString("id")) ?: if (p.optBoolean("mine")) "" else null
         if (p.has("from")) return if (p.optBoolean("own")) wall else originalWriter(p.optString("id"), wall)
         if (p.optBoolean("mine")) return ""
@@ -845,22 +845,53 @@ object Board {
         return writer(o.first, o.second)
     }
     /**
+     * ONE ROW OF THE TABLE, ONE WRITER (a deviation from iOS by the author's word 04.11.2026: a like on a post of a person whose chat this
+     * phone holds was refused, because that post came by the table and carried no @name): a row is its writer's alone, so a post of the row
+     * that a held wall carries as its owner's own -- never a repost, which keeps its original's id -- names the wall of them all. A row that
+     * borrows such an id gains nothing: the wall's owner ignores a word about a post not theirs. Null -- no such wall.
+     */
+    private fun rowRoad(wall: String): String? {
+        if (!WallGlobal.isRef(wall)) return null
+        val row = wall.removePrefix(WallGlobal.PREFIX)
+        val ids = WallGlobal.posts.filter { it.first == row }.map { it.second.optString("id") }.toSet()
+        val barred = PeerSafety.barred().toSet()
+        return synchronized(lock) {
+            ensure()
+            pages.entries.firstOrNull { e ->
+                val ps = e.value.optJSONArray("ps")
+                ps != null && e.key !in barred && !PeerSafety.isBlocked(e.key) && Book.secret(e.key) != null &&
+                    (0 until ps.length()).any { i -> ps.optJSONObject(i)?.let { q -> q.optBoolean("own") && !q.has("from") && q.optString("id") in ids } == true }
+            }?.key
+        }
+    }
+    /**
+     * THE @NAME A TABLE POST ANSWERS BY: the one its writer's phone laid (nm), else the one written in their signature. A DEVIATION FROM
+     * iOS BY THE AUTHOR'S WORD 04.11.2026: on that day none of the table's 225 posts carried nm, and a like on a post of someone with no
+     * chat went nowhere, while 192 of them were signed «Alik Montana @alikmontana». The signature proves no more than nm does: the name's
+     * plane resolves it to its real holder, who ignores a word about a post not theirs.
+     */
+    fun atName(p: JSONObject): String? {
+        p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) }?.let { return it }
+        return signedName.find(p.optString("byName"))?.let { Names.normalize(it.groupValues[1]) }
+    }
+    private val signedName = Regex("""(?:^|\s)@([\p{L}\p{N}_.-]{1,32})(?=\s|$)""")
+    /**
      * THE WRITER OF A TABLE POST, REACHED BY THEIR @NAME (iOS MTBoard.reach, 8b1932d3 (5) at 2351; the author's word 14475: «if there is
      * no chat with the contact, the field to put reactions and likes does not appear on the Wall of Thoughts -- fix it»): a post of the
      * table is held by no conversation, so it carries the @name its writer holds (nm), and the name is the road: a pipe this phone holds
      * under that name answers at once -- one look at the name book, never a walk of the pipes. A row that claims another's name gains
      * nothing: the name's plane resolves it to its real holder, who ignores a word about a post not theirs. Null -- no name, or no pipe.
      */
-    fun reach(p: JSONObject): String? {
-        val n = p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) } ?: return null
+    fun reach(p: JSONObject, wall: String): String? {
+        rowRoad(wall)?.let { return it }
+        val n = atName(p) ?: return null
         return Meeting.convs(n).firstOrNull { !PeerSafety.isBlocked(it) && it !in PeerSafety.barred() }
     }
     /** The same road, opened when none is held (iOS reachOpen): the one meeting door opens a conversation by the name as a search by
      *  name does, the wall is asked by it, and the caller's word goes by it. Off the main thread: the plane of names is asked. */
-    fun reachOpen(p: JSONObject): String? {
-        reach(p)?.let { return it }
-        val n = p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) }
-            ?: run { Log.d("Montana", "wall_reach REFUSED no name"); return null }
+    fun reachOpen(p: JSONObject, wall: String): String? {
+        reach(p, wall)?.let { return it }
+        val n = atName(p) ?: run { Log.d("Montana", "wall_reach REFUSED no name"); return null }
         val o = Meeting.meetName(n) as? Meeting.Outcome.Opened ?: run { Log.d("Montana", "wall_reach REFUSED name did not open"); return null }
         Log.d("Montana", "wall_reach opened id=" + p.optString("id").take(10) + " conv=" + o.ref.take(10))
         ask(o.ref)
@@ -1392,33 +1423,61 @@ private class WallLinkClip(c: Context, private val url: String, private val show
  * wall -- a like, a view, a keep, a page come -- laid every post anew, and each new cell stood a moment without its picture and its
  * fold, so the posts above the eye changed height and the feed jumped. The cells are kept by their wall and their post: a post that
  * did not change keeps its very cell where it stands; a changed one is drawn anew at the height its old cell held, for its first frames.
+ * A MARK DOES NOT SHAKE ITS OWN POST EITHER (the author's word 04.11.2026: «when you like a post the post itself jerks»): the post a like
+ * lands on was still drawn anew, its picture and its fold coming a moment later. Its counts are told apart from its body now: only the
+ * row of counts is drawn again, at the height it had, and the words and the pictures never leave the screen.
  */
 class PostCells(private val act: MainActivity) {
-    private val held = HashMap<String, Pair<String, View>>()
-    private fun mark(it: Board.Item): String {
+    private class Held(val body: String, val counts: String, val view: View)
+    private val held = HashMap<String, Held>()
+    /** Everything of a post but its counts: what its picture, its words and its fold are drawn from. */
+    private fun body(it: Board.Item): String {
         val p = it.post
         val id = p.optString("id")
         val r = Board.repostGoing(it.wall, id)
-        return p.toString() + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0) + "|" +
-            (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id) + "|" + postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock
+        val rest = JSONObject()
+        for (k in p.keys()) if (k !in COUNTED) rest.put(k, p.opt(k))
+        return rest.toString() + "|" + (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id) + "|" +
+            postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock
     }
-    /** The cell of a post, its own if nothing of it moved. */
-    fun cell(it: Board.Item, onItsWall: Boolean = false): View {
-        val k = it.wall + "#" + it.post.optString("id") + "#" + onItsWall
-        val m = mark(it)
+    private fun counts(it: Board.Item): String {
+        val p = it.post
+        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else "" + p.opt(k) } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0)
+    }
+    /** The cell of a post, its own if its body did not move; counts that moved are drawn anew in their row alone. */
+    fun cell(it: Board.Item, onItsWall: Boolean = false, whole: Boolean = false): View {
+        val k = it.wall + "#" + it.post.optString("id") + "#" + onItsWall + "#" + whole
+        val b = body(it)
+        val n = counts(it)
         val was = held[k]
-        if (was != null && was.first == m) return was.second
-        val v = postCell(act, it, onItsWall = onItsWall)
-        val h = was?.second?.height ?: 0
+        if (was != null && was.body == b) {
+            if (was.counts != n) {
+                (was.view.tag as? PostNow)?.take(it)
+                held[k] = Held(b, n, was.view)
+            }
+            return was.view
+        }
+        val v = postCell(act, it, whole = whole, onItsWall = onItsWall)
+        val h = was?.view?.height ?: 0
         if (0 < h) { v.minimumHeight = h; v.postDelayed({ v.minimumHeight = 0 }, 300) }
-        held[k] = m to v
+        held[k] = Held(b, n, v)
         return v
     }
     /** The cells no list draws any more let go. */
     fun keepOnly(items: Collection<View>) {
         val live = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<View, Boolean>()).apply { addAll(items) }
-        held.entries.removeAll { it.value.second !in live }
+        held.entries.removeAll { it.value.view !in live }
     }
+    private companion object {
+        /** The fields a mark moves; `ln` is who liked, `comments` the thread the post's own page draws under the cell. */
+        val COUNTED = setOf("likes", "liked", "ln", "keepers", "kept", "reposts", "reposted", "downloads", "views", "comments", "commentCount")
+    }
+}
+
+/** WHAT A DRAWN CELL HOLDS OF ITS POST: the post as it stands now, for the menu, and the way to its row of counts. */
+class PostNow(var post: JSONObject) {
+    var counts: ((Board.Item) -> Unit)? = null
+    fun take(it: Board.Item) { post = it.post; counts?.invoke(it) }
 }
 
 /**
@@ -1470,6 +1529,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
+    val now = PostNow(p)
+    tag = now
     val own = p.optBoolean("own")
     // A REPOST ON ITS WAY, OVER THE POST IT TAKES (iOS MTRepostBar, MontanaBoardViews.swift:2800-2813 at 2155 -- over the cell in
     // MTBoardRows 178 and in the feed 2945): the bar a post goes out under, live, with its try again and its letting go
@@ -1523,14 +1584,14 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
                 // word 14475: «a tap on the user's name must lead to the publisher's profile page»): nobody this phone knows yet, but the
                 // post names them -- the tap opens the road
-                else if (table && w == null && p.optString("nm").isNotEmpty()) pressable { reached(act, p) { r -> openWriter(act, r) } }
+                else if (table && w == null && Board.atName(p) != null) pressable { reached(act, it.wall, p) { r -> openWriter(act, r) } }
             }, lp(0, WRAP, 1f))
             // THE POST'S OWN MENU (iOS MTBoardCell menuItems, MontanaBoardViews.swift:404-441 at 2155): on every wall, while the post is
             // not on its way (postMenu)
             if (!sending) addView(c.icon(R.drawable.ic_more_horiz, MT.gray).apply {
                 setPadding(dp(11), dp(11), dp(11), dp(11))
                 contentDescription = c.getString(R.string.pi_more)
-                pressable { postMenu(act, this, it.wall, p) }
+                pressable { postMenu(act, this, it.wall, now.post) }
             }, lp(dp(44), dp(44)))
         }, lp())
         p.optString("from").takeIf { f -> f.isNotEmpty() }?.let { f ->
@@ -1637,70 +1698,17 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             gap(8)
             addView(if (kind == "aud") trackRow(act, it.wall, p, i, m, !onItsWall) else fileRow(act, it.wall, p, i, m), lp())
         }
-        // THE COUNTS (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
-        // where the wall's owner counts them.
+        // THE COUNTS (iOS counters 445-487), a row of their own: a mark draws this row again and nothing above it (PostCells)
         if (sending) return@vstack
         gap(4)
-        // A POST OF THE TABLE ANSWERS THROUGH ITS WRITER'S @NAME (iOS counters, 8b1932d3 (5) at 2351; the author's word 14475): its
-        // marks stand as on any post, and the first one taken opens the road (reached); the mark is drawn on the table's row at once
-        val id = p.optString("id")
-        val wall = it.wall
-        addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            fun mark(glyph: Int, n: Int, tint: Int, words: Int, onHold: (() -> Unit)? = null, onTap: (() -> Unit)?) = addView(c.hstack {
-                gravity = Gravity.CENTER_VERTICAL
-                contentDescription = c.getString(words)
-                addView(c.icon(glyph, tint, 18)); gap(4)
-                addView(c.text(n.toString(), 13f, MT.gray, bold = true))
-                if (onTap != null) pressable(onTap)
-                // A MARK THAT ANSWERS THE HOLD TOO (iOS mark(hold:), the author's word 14475: «on a long press one must see who put it»)
-                if (onHold != null) setOnLongClickListener { onHold(); true }
-            }, lp(WRAP, dp(44)).apply { marginEnd = dp(14) })
-            val liked = p.optBoolean("liked")
-            mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like,
-                onHold = { act.push { close -> wallPeoplePage(act, it.wall, id, likes = true, onClose = close) } }) {
-                if (table) {
-                    val on = !liked
-                    reached(act, p) { r -> Board.like(r, p); WallGlobal.mark(id) { s -> if (on) s.put("liked", true) else s.remove("liked"); s.put("likes", maxOf(0, s.optInt("likes") + (if (on) 1 else -1))) } }
-                } else Board.like(it.wall, p)
-            }
-            // a repost counts its original's thread (iOS d71617c6, board.thread(of:on:)?.post.commentCount ?? 0)
-            mark(R.drawable.ic_set_textbubble, Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0, MT.gray, R.string.wall_comments, onTap = if (whole) null else openComments)
-            // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
-            mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
-                val on = !p.optBoolean("kept")
-                if (table) reached(act, p) { r ->
-                    Thread {
-                        if (on) Board.keep(r, p) else Board.unkeep(r, p)
-                        WallGlobal.mark(id) { s -> if (on) s.put("kept", true) else s.remove("kept"); s.put("keepers", maxOf(0, s.optInt("keepers") + (if (on) 1 else -1))) }
-                    }.start()
-                }
-                else Thread { if (!on) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
-            }
-            // A REPOST FROM ITS MARK (iOS counters 455-457): on another's wall, of a post neither mine nor reposted yet; a post of the table
-            // by the road its writer's @name opens
-            val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
-            mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
-                onTap = if (!reposts) null else if (table) ({
-                    reached(act, p) { r -> Thread { Board.repost(r, p); if (MyWall.post(id) != null) WallGlobal.mark(id) { s -> if (!s.optBoolean("reposted")) { s.put("reposted", true); s.put("reposts", s.optInt("reposts") + 1) } } }.start() }
-                }) else ({ Thread { Board.repost(it.wall, p) }.start() }))
-            spacer()
-            addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)
-            addView(c.text(p.optInt("downloads").toString(), 13f, MT.gray, bold = true))
-            if (p.has("views")) {
-                gap(12)
-                addView(c.hstack {
-                    gravity = Gravity.CENTER_VERTICAL
-                    minimumHeight = dp(44)
-                    contentDescription = c.getString(R.string.wall_views)
-                    addView(c.icon(R.drawable.ic_set_eye, MT.gray, 16)); gap(4)
-                    addView(c.text(p.optInt("views").toString(), 13f, MT.gray, bold = true))
-                    // WHO SAW IT, on a hold (iOS 8b1932d3 (5), the author's word 14475) -- on my own posts alone: a reader is named to the
-                    // post's owner and to nobody else (Board.countsViews, the critic of 14486)
-                    if (Board.countsViews(wall)) setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
-                }, lp(WRAP, WRAP))
-            }
-        }, lp())
+        var counts = postCounts(act, it, whole, openComments)
+        addView(counts, lp())
+        now.counts = { next ->
+            val at = indexOfChild(counts)
+            counts = postCounts(act, next, whole, openComments)
+            removeViewAt(at)
+            addView(counts, at, lp())
+        }
         if (!whole) pressable(openComments)
     }, lp())
     // A POST ON THE SCREEN IS A POST SEEN (iOS MTBoardCell.onAppear, 06.10): its wall is told once
@@ -1708,6 +1716,74 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         override fun onViewAttachedToWindow(v: View) { Board.view(it.wall, it.post) }
         override fun onViewDetachedFromWindow(v: View) {}
     })
+}
+
+/**
+ * THE COUNTS OF A POST (iOS counters 445-487): like, comments, keepers, reposts; in the corner the downloads and the eye with the views
+ * where the wall's owner counts them. A POST OF THE TABLE ANSWERS THROUGH ITS WRITER'S @NAME (iOS counters, 8b1932d3 (5) at 2351; the
+ * author's word 14475): its marks stand as on any post, and the first one taken opens the road (reached); the mark is drawn on the
+ * table's row at once.
+ */
+private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openComments: () -> Unit): View = act.hstack {
+    val c: Context = act
+    val p = it.post
+    val table = WallGlobal.isRef(it.wall)
+    val id = p.optString("id")
+    val wall = it.wall
+    gravity = Gravity.CENTER_VERTICAL
+    fun mark(glyph: Int, n: Int, tint: Int, words: Int, onHold: (() -> Unit)? = null, onTap: (() -> Unit)?) = addView(c.hstack {
+        gravity = Gravity.CENTER_VERTICAL
+        contentDescription = c.getString(words)
+        addView(c.icon(glyph, tint, 18)); gap(4)
+        addView(c.text(n.toString(), 13f, MT.gray, bold = true))
+        if (onTap != null) pressable(onTap)
+        // A MARK THAT ANSWERS THE HOLD TOO (iOS mark(hold:), the author's word 14475: «on a long press one must see who put it»)
+        if (onHold != null) setOnLongClickListener { onHold(); true }
+    }, lp(WRAP, dp(44)).apply { marginEnd = dp(14) })
+    val liked = p.optBoolean("liked")
+    mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like,
+        onHold = { act.push { close -> wallPeoplePage(act, it.wall, id, likes = true, onClose = close) } }) {
+        if (table) {
+            val on = !liked
+            reached(act, it.wall, p) { r -> Board.like(r, p); WallGlobal.mark(id) { s -> if (on) s.put("liked", true) else s.remove("liked"); s.put("likes", maxOf(0, s.optInt("likes") + (if (on) 1 else -1))) } }
+        } else Board.like(it.wall, p)
+    }
+    // a repost counts its original's thread (iOS d71617c6, board.thread(of:on:)?.post.commentCount ?? 0)
+    mark(R.drawable.ic_set_textbubble, Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0, MT.gray, R.string.wall_comments, onTap = if (whole) null else openComments)
+    // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
+    mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
+        val on = !p.optBoolean("kept")
+        if (table) reached(act, it.wall, p) { r ->
+            Thread {
+                if (on) Board.keep(r, p) else Board.unkeep(r, p)
+                WallGlobal.mark(id) { s -> if (on) s.put("kept", true) else s.remove("kept"); s.put("keepers", maxOf(0, s.optInt("keepers") + (if (on) 1 else -1))) }
+            }.start()
+        }
+        else Thread { if (!on) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
+    }
+    // A REPOST FROM ITS MARK (iOS counters 455-457): on another's wall, of a post neither mine nor reposted yet; a post of the table
+    // by the road its writer's @name opens
+    val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
+    mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
+        onTap = if (!reposts) null else if (table) ({
+            reached(act, it.wall, p) { r -> Thread { Board.repost(r, p); if (MyWall.post(id) != null) WallGlobal.mark(id) { s -> if (!s.optBoolean("reposted")) { s.put("reposted", true); s.put("reposts", s.optInt("reposts") + 1) } } }.start() }
+        }) else ({ Thread { Board.repost(it.wall, p) }.start() }))
+    spacer()
+    addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)
+    addView(c.text(p.optInt("downloads").toString(), 13f, MT.gray, bold = true))
+    if (p.has("views")) {
+        gap(12)
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(44)
+            contentDescription = c.getString(R.string.wall_views)
+            addView(c.icon(R.drawable.ic_set_eye, MT.gray, 16)); gap(4)
+            addView(c.text(p.optInt("views").toString(), 13f, MT.gray, bold = true))
+            // WHO SAW IT, on a hold (iOS 8b1932d3 (5), the author's word 14475) -- on my own posts alone: a reader is named to the
+            // post's owner and to nobody else (Board.countsViews, the critic of 14486)
+            if (Board.countsViews(wall)) setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
+        }, lp(WRAP, WRAP))
+    }
 }
 
 /**
@@ -1829,10 +1905,10 @@ fun wallChainPage(act: MainActivity, wall: String, id: String, onClose: () -> Un
  * once; not held -- the meeting door opens one (Board.reachOpen), then the word goes; no name, or a name that did not answer -- the
  * person is told, and nothing is sent. `then` runs on the main thread.
  */
-private fun reached(act: MainActivity, p: JSONObject, then: (String) -> Unit) {
-    Board.reach(p)?.let { then(it); return }
+private fun reached(act: MainActivity, wall: String, p: JSONObject, then: (String) -> Unit) {
+    Board.reach(p, wall)?.let { then(it); return }
     Thread {
-        val r = Board.reachOpen(p)
+        val r = Board.reachOpen(p, wall)
         act.runOnUiThread {
             if (r != null) then(r)
             else android.app.AlertDialog.Builder(act).setTitle(R.string.wall_not_sent).setMessage(R.string.wall_reach_refused)
@@ -2442,13 +2518,16 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
     // A COMMENT'S OWN LINK SCROLLS TO IT, ONCE (iOS MTBoardComments's ScrollViewReader.onAppear, MontanaBoardViews.swift:1591, 2155
     // build): montana://wall/comment opens this same page already drawn to its one comment.
     var scrolled = focus == null
+    val cells = PostCells(act)   // the post on its own page stands as in the feed: a mark moves its counts alone
     fun draw() {
-        body.removeAllViews()
-        val (tw, p) = Board.post(wall, id)?.let { Board.thread(wall, it) } ?: run {
+        val thread = Board.post(wall, id)?.let { Board.thread(wall, it) }
+        val cell = thread?.let { (w, post) -> cells.cell(Board.Item(w, post), whole = true) }
+        for (i in body.childCount - 1 downTo 0) if (body.getChildAt(i) !== cell) body.removeViewAt(i)
+        val (tw, p) = thread ?: run {
             if (Board.post(wall, id) != null) body.addView(c.text(c.getString(R.string.wall_under_original), 15f, MT.gray).apply { setPadding(0, dp(16), 0, 0) }, lp())
             return
         }
-        body.addView(postCell(act, Board.Item(tw, p), whole = true), lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
+        if (cell != null && cell.parent == null) body.addView(cell, lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
         val cs = p.optJSONArray("comments") ?: JSONArray()
         if (cs.length() == 0) { body.addView(c.text(c.getString(R.string.wall_no_comments), 15f, MT.gray), lp()); return }
         val base = p.optInt("commentCount") - cs.length()
