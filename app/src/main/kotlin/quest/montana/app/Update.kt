@@ -109,11 +109,11 @@ object Update {
         Prefs.setStr("mt.update.least", s.least.toString())
         Prefs.setStr("mt.update.core", s.core)
         onLeast?.let { android.os.Handler(android.os.Looper.getMainLooper()).post(it) }
-        // THE ROOM HEARS THE BUILD (iOS MTReleaseState.deliver: release.build >= ownBuild): the newest and the one running alike, once
-        if (own(c) <= s.number) {
-            if (Book.appendRelease(s.number, s.version, s.notes, s.l10n, SITE)) Log.d("Montana", "release told build=" + s.number)
-            Prefs.setStr("mt.release.row", s.number.toString())
-        }
+        // THE ROOM HEARS EVERY BUILD OF THE SITE, once (the author's word 04.11.2026: «in the chat with Montana put the updates back as they
+        // were»): iOS MTReleaseState.deliver holds to release.build >= ownBuild, and a phone on a trial number above the site stood silent
+        // from 631 to 679. The mark stands at the build running as well, or such a phone would ask the site on every look.
+        if (Book.appendRelease(s.number, s.version, s.notes, s.l10n, SITE)) Log.d("Montana", "release told build=" + s.number)
+        Prefs.setStr("mt.release.row", maxOf(s.number, own(c)).toString())
         if (s.number <= own(c)) { if (!busy) clear(c); return }
         if (Prefs.str("mt.update.told", "") == s.number.toString()) return
         Prefs.setStr("mt.update.told", s.number.toString())
