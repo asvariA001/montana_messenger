@@ -243,6 +243,27 @@ object CallScreen {
             isSelected = true
             setShadowLayer(dp(3).toFloat(), 0f, 0f, haze)
         }
+        // THE NAME FITS ITS ROOM (iOS 650002fb, MTCallTopTitle.fit, the author's word 16294 p.2): it starts as large as the marks
+        // allow and shrinks a point at a time to the room between them, down to six tenths of that size; only a name wider still
+        // runs. The width is the platform's own measure of the line. The diary says room, size and width (iOS call_name).
+        val leastSp = kotlin.math.floor(nameSp * 0.6f)
+        var fittedRoom = 0
+        fun fitName() {
+            val room = title.width
+            if (room <= 0 || room == fittedRoom) return
+            fittedRoom = room
+            val paint = Paint(title.paint)
+            fun wide(sp: Float): Float {
+                paint.textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, c.resources.displayMetrics)
+                return kotlin.math.ceil(paint.measureText(name))
+            }
+            var size = nameSp
+            while (size > leastSp && wide(size) > room) size -= 1f
+            title.textSize = size
+            val density = c.resources.displayMetrics.density
+            log("call_name room=" + (room / density).toInt() + " size=" + size.toInt() + " width=" + (wide(size) / density).toInt())
+        }
+        title.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> title.post { fitName() } }
         val vlight = c.icon(R.drawable.ic_dot, SysColor.green, 11)
         val vrecDot = recordingDot(c)
         val clock =c.text("", 17f, Color.argb(217, 255, 255, 255)).apply {
@@ -259,7 +280,9 @@ object CallScreen {
         // rise; with no window to ask (a ring, a system without it, the person's switch off) it folds the call into the app
         val back = mark(c, R.drawable.ic_chevron_down, R.string.call_back) { if (!CallFloat.foldAway(act, "back")) close?.invoke() }
         val flip = mark(c, R.drawable.ic_camera_rotate, R.string.call_camera) { CallLine.switchCamera() }
-        val roomL = FrameLayout(c)   // the mask's twin room keeps the name in the centre (iOS MontanaCall.swift 6709-6713)
+        // TWO MARKS ON EACH SIDE (iOS 650002fb, the author's word 16294): the fold and this room on the left, the add mark's room and
+        // the camera flip on the right, each held at its size when it is not there, so the name has all the room between them
+        val roomL = FrameLayout(c)
         // THE RECORD MARK STANDS IN IT (iOS MTCallRecordMark, MontanaCall.swift 8026-8039; the author's word 16.10.2026 15:2x UTC)
         // once the call is connected: the record glyph starts this call's recording by the hand, the stop glyph ends it
         var recDraw: () -> Unit = {}
@@ -276,10 +299,6 @@ object CallScreen {
                 recMark.contentDescription = c.getString(if (rg == R.drawable.ic_stop_circle) R.string.call_rec_stop else R.string.call_rec_mark)
             }
         }
-        // THE MASK (iOS MontanaCall.swift 6723-6727, the author's word 30.09, atom c98a92d589e3): a glyph mark with no word on the
-        // platform's 44, beside the camera flip -- the filled masks while it is on (theatermasks.fill)
-        val maskMark = mark(c, R.drawable.ic_theatermasks, R.string.call_mask) { AvatarMask.toggle("tap") }
-        var maskGlyph = R.drawable.ic_theatermasks
         val route = routeButton(c)
         fun line() {
             // iOS MTCallLight 5427-5433: green clean at the top step, yellow (the system's orange) held below it, red squeezed
@@ -387,7 +406,7 @@ object CallScreen {
             addView(back, lp(dp(44), dp(44)))
             addView(roomL, lp(dp(44), dp(44)))
             addView(title, lp(0, dp(44), 1f))
-            addView(maskMark, lp(dp(44), dp(44)))
+            addView(View(c), lp(dp(44), dp(44)))   // the add mark's room: Calls carries one line, so it stands empty (iOS 8094-8097)
             addView(flip, lp(dp(44), dp(44)))
         }
         val column = c.vstack(Gravity.CENTER_HORIZONTAL) {
@@ -555,10 +574,6 @@ object CallScreen {
             val head = if (v && !screen) View.VISIBLE else View.INVISIBLE
             title.visibility = head   // the room stands always: its record mark is the voice call's too (iOS 8035-8037)
             flip.visibility = if (v && !screen && CallLine.camera) View.VISIBLE else View.INVISIBLE
-            // the mask stands with the flip (iOS 6722-6733): without my camera both places stand empty, the name stays centred
-            maskMark.visibility = flip.visibility
-            val glyph = if (AvatarMask.masked) R.drawable.ic_theatermasks_fill else R.drawable.ic_theatermasks
-            if (glyph != maskGlyph) { maskGlyph = glyph; (maskMark.getChildAt(0) as ImageView).setImageResource(glyph) }
             timeLine.visibility = if (v && !screen) View.VISIBLE else View.GONE
             events.visibility = timeLine.visibility
             voiceHead.visibility = if (v || mine) View.GONE else View.VISIBLE
