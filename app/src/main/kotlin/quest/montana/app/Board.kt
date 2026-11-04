@@ -855,7 +855,7 @@ object Board {
         val row = wall.removePrefix(WallGlobal.PREFIX)
         val ids = WallGlobal.posts.filter { it.first == row }.map { it.second.optString("id") }.toSet()
         val barred = PeerSafety.barred().toSet()
-        val road = synchronized(lock) {
+        return synchronized(lock) {
             ensure()
             pages.entries.firstOrNull { e ->
                 val ps = e.value.optJSONArray("ps")
@@ -863,8 +863,6 @@ object Board {
                     (0 until ps.length()).any { i -> ps.optJSONObject(i)?.let { q -> q.optBoolean("own") && !q.has("from") && q.optString("id") in ids } == true }
             }?.key
         }
-        if (road != null) Log.d("Montana", "wall_reach by row conv=" + road.take(10))
-        return road
     }
     /**
      * THE @NAME A TABLE POST ANSWERS BY: the one its writer's phone laid (nm), else the one written in their signature. A DEVIATION FROM
