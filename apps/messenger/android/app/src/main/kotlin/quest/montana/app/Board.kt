@@ -1428,7 +1428,7 @@ private class WallLinkClip(c: Context, private val url: String, private val show
  * row of counts is drawn again, at the height it had, and the words and the pictures never leave the screen.
  */
 class PostCells(private val act: MainActivity) {
-    private class Held(val body: String, val counts: String, val view: View)
+    private class Held(val body: String, val counts: String, val media: String, val view: View, val parts: Map<String, Int>)
     private val held = HashMap<String, Held>()
     /** Everything of a post but its counts: what its picture, its words and its fold are drawn from. */
     private fun body(it: Board.Item): String {
@@ -1436,31 +1436,57 @@ class PostCells(private val act: MainActivity) {
         val id = p.optString("id")
         val r = Board.repostGoing(it.wall, id)
         val rest = JSONObject()
-        for (k in p.keys()) if (k !in COUNTED) rest.put(k, p.opt(k))
-        return rest.toString() + "|" + (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id) + "|" +
-            postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock
+        for (k in p.keys()) if (k !in COUNTED && k != "media") rest.put(k, p.opt(k))
+        return rest.toString() + "|" + files(p) + "|" + (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id)
+    }
+    /**
+     * THE FILES A POST SHOWS, BY WHAT MAKES THEM THOSE FILES (the author's word 04.11.2026, seen on A1 in trial 818: a like brought the owner's
+     * next page, every post of that wall was drawn anew with «media» moved, and the feed jumped): a page may carry a file's poster or its
+     * pieces differently while the file stays the same, and that draws nothing new; PostNow hands the drawn cell the new ones.
+     */
+    private fun files(p: JSONObject): String {
+        val ms = p.optJSONArray("media") ?: return ""
+        return (0 until ms.length()).joinToString(",") { i ->
+            val m = ms.optJSONObject(i)
+            if (m == null) "" else listOf("kind", "name", "ext", "size", "key", "dur", "fr").joinToString("/") { k -> "" + m.opt(k) }
+        }
+    }
+    /** The body field by field, by its hash alone: a redrawn cell names what moved it, and no word of the post reaches the log. */
+    private fun parts(it: Board.Item): Map<String, Int> {
+        val out = HashMap<String, Int>()
+        for (k in it.post.keys()) if (k !in COUNTED && k != "media") out[k] = ("" + it.post.opt(k)).hashCode()
+        val ms = it.post.optJSONArray("media") ?: return out
+        for (i in 0 until ms.length()) ms.optJSONObject(i)?.let { m ->
+            for (f in m.keys()) out["media." + f] = ("" + out["media." + f] + m.opt(f)).hashCode()
+        }
+        return out
     }
     private fun counts(it: Board.Item): String {
         val p = it.post
-        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else "" + p.opt(k) } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0)
+        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else "" + p.opt(k) } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0) + "|" +
+            postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock, and its line alone is written anew
     }
     /** The cell of a post, its own if its body did not move; counts that moved are drawn anew in their row alone. */
     fun cell(it: Board.Item, onItsWall: Boolean = false, whole: Boolean = false): View {
         val k = it.wall + "#" + it.post.optString("id") + "#" + onItsWall + "#" + whole
         val b = body(it)
         val n = counts(it)
+        val raw = "" + it.post.opt("media")
         val was = held[k]
+        val now = parts(it)
         if (was != null && was.body == b) {
-            if (was.counts != n) {
+            if (was.counts != n || was.media != raw) {
+                if (was.media != raw) Log.d("Montana", "wall_cell kept id=" + it.post.optString("id").take(10) + " moved=" + (now.keys + was.parts.keys).filter { f -> now[f] != was.parts[f] })
                 (was.view.tag as? PostNow)?.take(it)
-                held[k] = Held(b, n, was.view)
+                held[k] = Held(b, n, raw, was.view, now)
             }
             return was.view
         }
         val v = postCell(act, it, whole = whole, onItsWall = onItsWall)
         val h = was?.view?.height ?: 0
         if (0 < h) { v.minimumHeight = h; v.postDelayed({ v.minimumHeight = 0 }, 300) }
-        held[k] = Held(b, n, v)
+        if (was != null) Log.d("Montana", "wall_cell redrawn id=" + it.post.optString("id").take(10) + " moved=" + (now.keys + was.parts.keys).filter { f -> now[f] != was.parts[f] })
+        held[k] = Held(b, n, raw, v, now)
         return v
     }
     /** The cells no list draws any more let go. */
@@ -1477,7 +1503,19 @@ class PostCells(private val act: MainActivity) {
 /** WHAT A DRAWN CELL HOLDS OF ITS POST: the post as it stands now, for the menu, and the way to its row of counts. */
 class PostNow(var post: JSONObject) {
     var counts: ((Board.Item) -> Unit)? = null
-    fun take(it: Board.Item) { post = it.post; counts?.invoke(it) }
+    var stamp: android.widget.TextView? = null
+    private val drawn = post.optJSONArray("media")   // the very files the cell's taps hold
+    fun take(it: Board.Item) {
+        post = it.post
+        val fresh = it.post.optJSONArray("media")
+        if (drawn != null && fresh != null && drawn !== fresh && drawn.length() == fresh.length()) for (i in 0 until fresh.length()) {
+            val to = drawn.optJSONObject(i) ?: continue
+            val from = fresh.optJSONObject(i) ?: continue
+            for (f in from.keys()) to.put(f, from.opt(f))
+        }
+        stamp?.text = postWhen((it.post.optDouble("at") * 1000).toLong())
+        counts?.invoke(it)
+    }
 }
 
 /**
@@ -1578,7 +1616,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 addView(c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())
                     val at = (p.optDouble("at") * 1000).toLong()
-                    addView(c.text(postWhen(at), 12f, MT.gray), lp())
+                    addView(c.text(postWhen(at), 12f, MT.gray).also { t -> now.stamp = t }, lp())
                 }, lp(0, WRAP, 1f))
                 if (opens && w != null) pressable { openWriter(act, w) }
                 // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
@@ -1624,11 +1662,20 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                     gap(6)
                     addView(c.icon(R.drawable.ic_chevron_right, android.graphics.Color.WHITE).apply { setPadding(dp(4), dp(4), dp(4), dp(4)) }, lp(dp(22), dp(22)))
                 }
-                addView(foot, lp())
+                // THE FOOT STANDS IN THE WORDS' OWN PASS (seen on A1, trial 818: a folded post grew 50 pixels a frame after it was laid, and
+                // everything under it jumped): the words are measured first, so the room under them knows at once whether they fold.
+                var folded = false
+                addView(object : FrameLayout(c) {
+                    override fun onMeasure(w: Int, h: Int) {
+                        val l = shown.layout
+                        val long = l != null && POST_FOLD_LINES <= l.lineCount && l.getLineEnd(POST_FOLD_LINES - 1) < shown.text.length
+                        foot.visibility = if (folded || long) View.VISIBLE else View.GONE
+                        super.onMeasure(w, h)
+                    }
+                }.apply { addView(foot, FrameLayout.LayoutParams(MATCH, WRAP)) }, lp())
                 // THE ELLIPSIS IS CUT BY HAND: a TextView with a movement method (the links' touch) lays no ellipsis of its own, so
                 // the eighth line stood cut with nothing to say more follows (seen on A1, trial 666). A layout that stops before the
                 // words' end folds: its last line takes the ellipsis where it fits, the links' spans kept, and the foot shows.
-                var folded = false
                 shown.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
                     val t = v as android.widget.TextView
                     val l = t.layout ?: return@addOnLayoutChangeListener
@@ -2662,6 +2709,11 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     private inner class Slot : FrameLayout(c) {
         lateinit var item: Board.Item
         var born = false
+        // a slot that changes its height above the eye moves everything under it: the log says so, with its place on the screen
+        override fun onSizeChanged(w: Int, h: Int, oldW: Int, oldH: Int) {
+            super.onSizeChanged(w, h, oldW, oldH)
+            if (oldH != 0 && h != oldH) Log.d("Montana", "wall_slot height " + oldH + " to " + h + " top=" + (top + column.top - scroll.scrollY) + " cell=" + childCount)
+        }
         fun fill() {
             born = true
             if (childCount != 0) return
