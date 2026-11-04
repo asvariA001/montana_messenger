@@ -327,7 +327,8 @@ object Board {
                 val gone = pages.filterValues { pg -> pg.optJSONArray("ps").let { ps -> ps != null && isEcho((0 until ps.length()).mapNotNull { ps.optJSONObject(it) }, mine) } }.keys.toList()
                 if (gone.isNotEmpty()) { gone.forEach { pages.remove(it) }; save(); Log.d("Montana", "wall_echo let go at the load n=" + gone.size) }
             }
-            pages.entries.filter { it.key in held && !PeerSafety.isBlocked(it.key) }.flatMap { e ->
+            val barred = PeerSafety.barred().toSet()   // the wall of an address the network barred stands out of the feed (iOS feed 848)
+            pages.entries.filter { it.key in held && !PeerSafety.isBlocked(it.key) && it.key !in barred }.flatMap { e ->
                 val ps = e.value.optJSONArray("ps") ?: JSONArray()
                 (0 until ps.length()).mapNotNull { ps.optJSONObject(it)?.let { p -> Item(e.key, p) } }
             }

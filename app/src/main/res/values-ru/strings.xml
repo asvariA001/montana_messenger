@@ -123,9 +123,6 @@
     <string name="share">Поделиться</string>
     <!-- The page «Appearance» (iOS AppearanceView) -->
     <string name="appearance">Оформление</string>
-    <string name="app_icon">Иконка приложения</string>
-    <string name="icon_glass">Жидкое стекло</string>
-    <string name="icon_gold">Золото на чёрном</string>
     <string name="note_quality">Качество кружочков</string>
     <string name="q_min">Мин</string>
     <string name="q_medium">Сред</string>
