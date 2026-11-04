@@ -360,7 +360,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     }
 }
 
-/** The version as scripts/version makes it: "1.0 (31 → 1277)" while catching up with iOS, "1.0 (1277)" once level. */
+/** The version as scripts/version makes it: "1.0 (798)", the build alone (the author's word 04.11.2026). */
 private fun versionName(c: Context): String =
     c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: "—"
 
