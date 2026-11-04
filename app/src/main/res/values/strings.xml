@@ -490,6 +490,7 @@
     <string name="coin_window_inactive">Not active</string>
     <string name="coin_right_share">Right to a share</string>
     <string name="wall_on">On %1$s\'s wall</string>
+    <string name="wall_on_yours">On your wall</string>
     <string name="wall_reposted">Reposted from %1$s</string>
     <string name="wall_someone">Someone</string>
     <!-- chess between two phones (Chess.kt, ChessPage.kt; iOS MTChessScreen) -->

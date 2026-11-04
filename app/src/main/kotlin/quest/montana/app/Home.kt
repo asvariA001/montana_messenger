@@ -155,6 +155,8 @@ private val barGlyph = Color.rgb(204, 204, 204)
 
 /** The pages under the bar (iOS UIState.Pane): the mesh wall from the drawer, the P2P wall the globe's page. */
 enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, MESH, P2P }
+/** The pages whose word at the head narrows their own rows (iOS searchesItself, MontanaChatsList.swift:515 at a91328e3). */
+private fun searchesItself(p: Pane) = p == Pane.MUSIC || p == Pane.FEED || p == Pane.MESH || p == Pane.P2P || p == Pane.GALLERY
 
 fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val c = act
@@ -200,6 +202,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         chats.pin(search.active)   // iOS pinTop: ownSearch ? false : searchActive -- the chats page has no search of its own
         views.values.distinct().forEach { v -> if (v !== chats) v.findViewWithTag<EdgeSink>(EdgeSink.TAG)?.down = !search.active }   // the contacts' and the calls' too (iOS pinned on every time panel list)
         music.query = if (pane == Pane.MUSIC) search.query else ""   // the music page searches its own tracks (iOS ownSearch)
+        feed.search(if (pane == Pane.FEED) search.query else "", pane == Pane.FEED && search.active)   // the feed its own posts (iOS ownSearch, 951)
         if (search.active != searching) {
             searching = search.active
             if (searching) { keepBack = act.back; act.back = { search.clear() } } else { act.back = keepBack; keepBack = null }
@@ -209,8 +212,9 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     lateinit var bar: HomeBar
     /** The pane stands: the bar's puck under it, the dynamic glyph's memory, the music's walk, the player's place. */
     fun arrived(p: Pane) {
-        // a word typed over the tracks does not follow the person to the chats, nor the other way (iOS 12063b4d0f35)
-        if ((p == Pane.MUSIC) != (pane == Pane.MUSIC) && search.query.isNotEmpty()) search.clear()
+        // a word typed over a page that searches itself does not follow the person off it, nor the other way (iOS 12063b4d0f35;
+        // searchesItself, MontanaChatsList.swift:515 and 1194 at a91328e3)
+        if (p != pane && (searchesItself(p) || searchesItself(pane)) && search.active) search.clear()
         pane = p
         chats.showKind(when (p) { Pane.GROUPS -> ChatFolders.GROUPS; Pane.CHANNELS -> ChatFolders.CHANNELS; else -> null })
         if (p == Pane.CALLS) CallsSeen.clear()   // the calls page is looked at: the missed calls are seen (iOS 3010-3012)
@@ -900,7 +904,7 @@ private class SearchRow(val c: Context, onChange: (String, Boolean) -> Unit) : L
 }
 
 /** Words compared as a person reads them: case and marks aside, the dotted e as the plain one (iOS .caseInsensitive, .diacriticInsensitive). */
-private fun fold(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(foldMarks, "").lowercase()
+internal fun fold(s: String) = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replace(foldMarks, "").lowercase()
 private val foldMarks = Regex("\\p{Mn}+")   // compiled once: the scan folds every letter of every conversation
 
 /**

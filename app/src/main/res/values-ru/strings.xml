@@ -485,6 +485,7 @@
     <string name="coin_window_inactive">Не активно</string>
     <string name="coin_right_share">Право на долю</string>
     <string name="wall_on">На стене: %1$s</string>
+    <string name="wall_on_yours">На вашей стене</string>
     <string name="wall_reposted">Репост со стены: %1$s</string>
     <string name="wall_someone">Кто-то</string>
     <!-- chess between two phones (Chess.kt, ChessPage.kt; iOS MTChessScreen) -->
