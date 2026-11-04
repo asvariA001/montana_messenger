@@ -154,24 +154,22 @@ object CallLine {
      * then waits for it as long as a ring rings -- its run comes back within it. */
     @Volatile var peerRebuilds = false
         private set
-    private val peerRec = LinkedHashMap<String, Pair<Boolean?, Int?>>()   // the call's name -> the correspondent's switch and level
+    private val peerRec = LinkedHashMap<String, Boolean>()   // the call's name -> the correspondent's recording switch
 
     /** The connected call's recording is weighed (iOS refreshRecording): at the connect, at the correspondent's caps, at a consent. */
     fun refreshRecording() {
         val l = synchronized(gate) { line } ?: return
         if (l.connectedAt == 0L) return
-        val (rec, lv) = synchronized(peerRec) { peerRec[Calls.epochOf(l.seed)] } ?: Pair(null, null)
-        CallTape.refresh(l.seed, l.ref, l.caller, rec, lv)
+        CallTape.refresh(l.seed, l.ref, l.caller, synchronized(peerRec) { peerRec[Calls.epochOf(l.seed)] })
     }
     /** The seed of the call that stands connected, for the call screen's record mark (iOS handRecordingUUID once talkSince stands). */
     val talkingSeed: String? get() = synchronized(gate) { line?.takeIf { it.connectedAt != 0L }?.seed }
     fun learnCaps(ref: String, epoch: String, caps: JSONObject?) {
-        // THE CORRESPONDENT'S RECORDING SWITCH AND LEVEL (iOS learnPeerCaps 1623, peerRecordSwitch 1232): kept by the call's name,
-        // so the offer heard before the ring is born is not lost; the connected call is weighed again
-        if (caps != null && (caps.has("rec") || caps.has("lv"))) {
+        // THE CORRESPONDENT'S RECORDING SWITCH (iOS learnPeerCaps 1623, peerRecordSwitch 1232): kept by the call's name, so the offer
+        // heard before the ring is born is not lost; the connected call is weighed again. It says only who sends (iOS 2358).
+        if (caps != null && caps.has("rec")) {
             synchronized(peerRec) {
-                val was = peerRec[epoch]
-                peerRec[epoch] = Pair(if (caps.has("rec")) caps.optBoolean("rec") else was?.first, if (caps.has("lv")) caps.optInt("lv") else was?.second)
+                peerRec[epoch] = caps.optBoolean("rec")
                 while (peerRec.size > 4) peerRec.remove(peerRec.keys.first())
             }
             refreshRecording()

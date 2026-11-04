@@ -31,8 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger
  * RTCAudioCustomProcessingDelegate. Each voice is laid on its own tape by the clock; at the end the two are mixed half and half
  * (iOS AVMutableAudioMixInputParameters 0.5) and encoded once into AAC, mono 48 kHz 48 kbit/s, an .m4a the chat sends as a voice.
  * The call's side (iOS MTCallRecording begin/finish/consent/changed/toggleByHand, MontanaCall.refreshRecording): a call that
- * connects is recorded by itself from level 7 (the person's switch and one consent) or by the call screen's mark on any level, unless
- * the correspondent's switch holds; the chat is told once; the caller sends the recording to the chat, or the one who answered when
+ * connects is recorded by itself (the person's switch and one consent) or by the call screen's mark, on every level, whatever the
+ * correspondent's switch (iOS 2358, the author's word 16165 p.6); the chat is told once; the caller sends the recording to the chat, or the one who answered when
  * the caller does not record -- one copy, never none. A video call's pictures are filmed beside the voices (CallFilm) and leave
  * with them as one .mp4. A tape cut by the app's death is brought back at the next return and sent signed «incomplete» (iOS
  * recover); DEVIATION: its manifest is plain JSON in the app's own files (iOS seals it in MontanaLocalVault).
@@ -43,16 +43,8 @@ object CallTape {
     private const val RATE = 48_000
     val enabled: Boolean get() = Prefs.bool(KEY, true)
     val consented: Boolean get() = Prefs.bool(CONSENT_KEY, false)
-    /** Recording by itself opens at its level (iOS MTCallRecording.automatic, MTLevelAccess.autoRecord). */
-    val automatic: Boolean get() = enabled && LevelAccess.opens(LevelAccess.Feature.AUTO_RECORD)
-
-    /** THE CORRESPONDENT'S SWITCH HOLDS BY LEVEL (iOS mayRecord; the author's word 20.10.2026 17:2x UTC): a forbidding correspondent
-     *  holds unless my level is above theirs; a build that says nothing forbids nothing; an unknown level holds. */
-    fun mayRecord(theirSwitch: Boolean?, theirLevel: Int?, mine: Int?): Boolean {
-        if (theirSwitch != false) return true
-        if (theirLevel == null || mine == null) return false
-        return mine > theirLevel
-    }
+    /** Recording by itself is the person's switch on every level (iOS MTCallRecording.automatic, 16165 p.6). */
+    val automatic: Boolean get() = enabled
 
     // ── THE HOOKS, given to the call engine's factory once (CallEngine.warm, after PeerConnectionFactory.initialize) ──
     private class Hook(val local: Boolean) : ExternalAudioProcessingFactory.AudioProcessing {
@@ -85,7 +77,6 @@ object CallTape {
     private var waiting: Call? = null
     private val byHand = HashSet<String>()   // the calls the person started by the call screen's mark (iOS byHand)
     private val stoppedByHand = HashSet<String>()   // and those they ended by it: not recorded again by themselves (iOS stoppedByHand)
-    private val forbidden = HashSet<String>()   // the correspondent's switch holds against this phone: no tape, no mark (iOS forbidden)
     private val noticed = HashSet<String>()   // the chat was told of this call's recording, once (iOS manifest.notice)
 
     /** The call's name on disk (iOS MTCallName): SHA-256 of «montana.call.identity.v1:» and the seed's bytes, in hex. */
@@ -98,26 +89,23 @@ object CallTape {
     /** A tape rolls on this phone (iOS MTCallRecording.recording is not empty): the call screen's red dot stands. */
     val rolling: Boolean get() = tape != null
     /** The call screen's mark stands (iOS MTCallRecordMark): not on a call the person ended by it, nor one the correspondent holds. */
-    @Synchronized fun markShown(seed: String): Boolean = seed !in stoppedByHand && seed !in forbidden
+    @Synchronized fun markShown(seed: String): Boolean = seed !in stoppedByHand
     @Synchronized fun markOn(seed: String): Boolean = recording(seed) || seed in byHand
 
     /**
      * THE CONNECTED CALL IS WEIGHED (iOS MontanaCall.refreshRecording 1323-1340; the author's word 20.10.2026 16:5x UTC: «the call's
      * recording must be in the chat in any case, even if the correspondent's does not record»): the correspondent's switch holds by
      * level; the caller sends, and the one who answered does when the caller does not record by itself.
+     * NO LEVEL AND NO SWITCH OF THE CORRESPONDENT HOLDS A RECORDING (iOS 2358 refreshRecording, 16165 p.6): their switch says only who sends.
      */
-    @Synchronized fun refresh(seed: String, ref: String, caller: Boolean, theirSwitch: Boolean?, theirLevel: Int?) {
-        val mine = LevelAccess.level
-        if (!mayRecord(theirSwitch, theirLevel, mine)) forbidden.add(seed) else forbidden.remove(seed)
-        val peerRecords = theirSwitch == true && mayRecord(automatic, mine, theirLevel)
-        begin(Call(seed, ref, name(seed), caller || !peerRecords))
+    @Synchronized fun refresh(seed: String, ref: String, caller: Boolean, theirSwitch: Boolean?) {
+        begin(Call(seed, ref, name(seed), caller || theirSwitch != true))
     }
 
     /** The tape begins (iOS MTCallRecording.begin): by itself or by the hand, never over the correspondent's switch, after one consent. */
     @Synchronized private fun begin(call: Call) {
         val s = call.seed
         if (!(automatic || s in byHand) || s in stoppedByHand || live != null) return
-        if (s in forbidden) return log("held by the correspondent's switch")
         // A press of the call's own mark is the person's consent for this call; recording by itself asks once
         if (!consented && s !in byHand) { waiting = call; ask(); return }
         if (s !in noticed) {
@@ -231,7 +219,7 @@ object CallTape {
         if (allow) CallLine.refreshRecording()
     }
 
-    /** The switch on Access by level moved (iOS changed): on asks the consent once; off ends what rolls by itself, undelivered. */
+    /** The switch in Settings moved (iOS changed): on asks the consent once; off ends what rolls by itself, undelivered. */
     fun changed(on: Boolean, act: MainActivity?) {
         if (on) { if (!consented) ask(act) else CallLine.refreshRecording(); return }
         val s = synchronized(this) { waiting = null; live?.seed?.takeIf { it !in byHand } } ?: return
@@ -242,10 +230,10 @@ object CallTape {
     fun toggleByHand(seed: String) {
         val stop = synchronized(this) {
             if (live?.seed == seed || waiting?.seed == seed) { stoppedByHand.add(seed); byHand.remove(seed); true }
-            else if (seed !in stoppedByHand && seed !in forbidden) { byHand.add(seed); false }
+            else if (seed !in stoppedByHand) { byHand.add(seed); false }
             else return
         }
-        log("hand " + if (stop) "stop" else "start level=" + (LevelAccess.level ?: -1))
+        log("hand " + if (stop) "stop" else "start")
         if (stop) finish(seed) else CallLine.refreshRecording()
     }
 

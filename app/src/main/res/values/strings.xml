@@ -559,7 +559,6 @@
     <string name="wall_like">Like</string>
     <string name="wall_keepers">Keepers</string>
     <string name="wall_repost">Repost</string>
-    <string name="wall_downloads">Downloads</string>
     <string name="wall_views">Views</string>
     <string name="wall_likes">Likes</string>
     <string name="wall_nobody_yet">Nobody yet</string>
@@ -752,17 +751,6 @@
     <string name="cf_reorder">Reorder Tabs</string>
     <string name="cf_done">Done</string>
     <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
-    <string name="lv_access">Access by level</string>
-    <string name="lv_global">Global level %d</string>
-    <string name="lv_fabric">Fabric of Time</string>
-    <string name="lv_footer">Your level is the lowest of three: your time in Montana, the coins you hold and the Fabric of Time, the people you write to and call regularly in the last two weeks, weighed by the levels their own time and wallet give them. Each level opens new functions of Montana.</string>
-    <string name="lv_keep">Forbid deletion on my phone</string>
-    <string name="lv_keep_caption">A message your correspondent deletes for everyone stays on this phone, and their phone is told so.</string>
-    <string name="lv_level">Level %d</string>
-    <string name="lv_opens">Opens at level %1$d. Your level is %2$d.</string>
-    <string name="lv_node_caption">Connect a machine you own to the Montana network through this app: it is set up from here and copies of the whole phone go to it. Taking your copy back is open on every level.</string>
-    <string name="lv_shield_title">Deletion is forbidden on this phone</string>
-    <string name="lv_shield_rule">In Montana levels open functions: from level %1$d a person can forbid deletion on their phone. Your level is %2$d.</string>
     <string name="sound_sub">Notifications of new messages play a sound. Off, they arrive silently.</string>
     <string name="show_text_sub">A notification shows the words of the message. Off, it shows none of them.</string>
     <string name="show_sender_sub">A notification of a message names who wrote. Off, it reads Montana instead.</string>
@@ -844,9 +832,9 @@
     <string name="voice_text_unsupported">Speech recognition is not available for this language</string>
     <string name="voice_text_silent">No speech recognized</string>
     <string name="call_rec_switch">Record calls</string>
-    <string name="call_rec_caption">Calls are recorded by themselves on this phone and sent to the call\'s chat after your first consent. While this is off, a correspondent whose level is not above yours cannot record your calls; one with a higher level records on their side only. The record button on the call screen works on every level unless the correspondent\'s switch holds.</string>
+    <string name="call_rec_caption">Calls are recorded by themselves on this phone and sent to the call\'s chat after your first consent. The record button on the call screen works on every call.</string>
     <string name="call_rec_ask_title">Record calls automatically?</string>
-    <string name="call_rec_ask_body">Audio and video are saved on this phone. For a one-to-one call, the caller sends the recording to the chat, or the one who answered when the caller does not record. Room participants send their own recordings. Participants are notified. You can turn this off in Settings, Access by level, at any time.</string>
+    <string name="call_rec_ask_body">Audio and video are saved on this phone. For a one-to-one call, the caller sends the recording to the chat, or the one who answered when the caller does not record. Room participants send their own recordings. Participants are notified. You can turn this off in Settings at any time.</string>
     <string name="call_rec_no">Do not record</string>
     <string name="call_rec_notice_send">This call is being recorded. The recording will be sent to this chat after the call.</string>
     <string name="call_rec_notice_local">This phone is recording the call locally. Only the caller sends a recording to the chat.</string>
