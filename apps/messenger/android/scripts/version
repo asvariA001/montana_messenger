@@ -1,7 +1,7 @@
 # The version Montana for Android shows, the way iOS shows its own: v<MARKETING> (<build>).
 #
-# While Android is catching up with iOS it shows its own build and the iOS build it goes to:
-#   v1.0 (31 → 1277)   — the 31st Android build (the commits on main), on the way to iOS 1277.
+# While Android is catching up with iOS it shows its own build alone (the author's word 04.11.2026):
+#   v1.0 (798)   — the Android build, the commits of the branch built. The target below stays ours alone: no site and no build shows it.
 # iOS 1277 is the frozen point shipped to TestFlight on 02.09 (iOS commit c181287d, «version 0.313, build 1277»).
 #
 # When Android does what iOS 1277 does, TARGET empties and BUILD becomes 1277: the app shows v1.0 (1277).

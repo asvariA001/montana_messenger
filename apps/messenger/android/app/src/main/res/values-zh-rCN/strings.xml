@@ -484,6 +484,7 @@
     <string name="coin_window_inactive">未参与</string>
     <string name="coin_right_share">份额权益</string>
     <string name="wall_on">在%1$s的墙上</string>
+    <string name="wall_on_yours">在你的墙上</string>
     <string name="wall_reposted">转发自 %1$s</string>
     <string name="wall_someone">某人</string>
     <!-- chess between two phones (Chess.kt, ChessPage.kt; iOS MTChessScreen) -->

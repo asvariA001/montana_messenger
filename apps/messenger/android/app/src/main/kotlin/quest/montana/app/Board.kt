@@ -1099,6 +1099,24 @@ object Board {
     }
 
     fun nameOf(c: Context, ref: String) = Book.chat(ref)?.name?.takeIf { it.isNotBlank() } ?: c.getString(R.string.wall_someone)
+    /** The word at the feed's head, for the pictures' pager opened from it (iOS MTBoardShow.feed): "" -- the whole feed. */
+    @Volatile var feedWord = ""
+    /**
+     * THE FEED'S OWN SEARCH (iOS MTFeedTabView.matches, MontanaBoardViews.swift:2755-2763 at a91328e3; the author's word 25.09): every word
+     * a post carries -- its words, its writer's name, the wall it stands on, the wall it was taken from, every file's name, every comment
+     * and its writer -- case and marks aside; every word typed must be found among them. Nothing leaves the phone.
+     */
+    fun matches(c: Context, it: Item, q: String): Boolean {
+        val words = q.trim().split(Regex("\\s+")).filter { w -> w.isNotEmpty() }
+        if (words.isEmpty()) return true
+        val p = it.post
+        val said = StringBuilder(p.optString("text")).append('\n').append(p.optString("byName")).append('\n').append(p.optString("from")).append('\n')
+            .append(if (it.wall.isEmpty()) Prefs.userName else nameOf(c, it.wall))
+        p.optJSONArray("media")?.let { ms -> for (i in 0 until ms.length()) said.append('\n').append(ms.optJSONObject(i)?.optString("name").orEmpty()) }
+        p.optJSONArray("comments")?.let { cs -> for (i in 0 until cs.length()) cs.optJSONObject(i)?.let { x -> said.append('\n').append(x.optString("by")).append('\n').append(x.optString("text")) } }
+        val all = fold(said.toString())
+        return words.all { w -> fold(w) in all }
+    }
 }
 
 /**
@@ -1431,6 +1449,23 @@ fun postWhen(at: Long, now: Long = System.currentTimeMillis()): CharSequence {
 }
 
 /** ONE POST OF THE FEED (iOS MTBoardCell in MTFeedTabView): whose wall, the writer, the words, the pictures, the counts. */
+/** WHOSE WALL A POST STANDS ON, A LINK TO THAT PAGE (iOS MTFeedTabView.wallLink, MontanaBoardViews.swift:2796-2812 at a91328e3): a person's,
+ * their name in the system's blue, or my own, the whole line blue; the row is the target, 44 high. */
+private fun wallLink(act: MainActivity, wall: String): View = act.hstack {
+    val c: Context = act
+    gravity = Gravity.CENTER_VERTICAL
+    minimumHeight = dp(44)
+    addView(c.icon(R.drawable.ic_text_below_photo, MT.gray, 14), lp(dp(14), dp(14)))
+    gap(6)
+    val name = Board.nameOf(c, wall)
+    val said = if (wall.isEmpty()) c.getString(R.string.wall_on_yours) else c.getString(R.string.wall_on, name)
+    val from = if (wall.isEmpty()) 0 else maxOf(0, said.indexOf(name))
+    val to = if (wall.isEmpty()) said.length else minOf(said.length, from + name.length)
+    val line = android.text.SpannableString(said).apply { setSpan(android.text.style.ForegroundColorSpan(MT.blue), from, to, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE) }
+    addView(c.text(line, 12f, MT.gray), lp(0, WRAP, 1f))
+    pressable { openWriter(act, wall) }
+}
+
 fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
@@ -1444,7 +1479,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
     }
     // WHOSE WALL A POST STANDS ON, when its writer is not the wall's owner and the row is not drawn on that very wall's
     // own page (iOS onItsWall, MontanaBoardViews.swift: "Drawn on its wall's own page... in the feed, off it")
-    if (!own && !onItsWall) addView(c.text(c.getString(R.string.wall_on, Board.nameOf(c, it.wall)), 12f, MT.gray).apply { setPadding(dp(4), 0, 0, dp(6)) }, lp())
+    if (!own && !onItsWall) addView(wallLink(act, it.wall), lp())
     addView(c.vstack(Gravity.NO_GRAVITY) {
         // THE POST'S PLATE (iOS MTBoardPostPlate, MontanaBoardViews.swift:2548-2560 at 2155; BubbleShape 18, MontanaBubble.swift:62-69):
         // one-tone glass in a correspondent's bubble's own shape, under the glass's thin light rim -- the clear glass is the buttons'
@@ -1933,7 +1968,8 @@ private fun shownAll(wall: String, p: JSONObject, i: Int, inFeed: Boolean): List
         return out
     }
     val start = p.optString("id") + "#" + i
-    val out = visual(wallPage(wall, inFeed))
+    // the feed's pictures under its search in the feed (iOS MTBoardShown.all at a91328e3)
+    val out = visual(wallPage(wall, inFeed).let { page -> if (inFeed) page.filter { x -> Board.matches(Book.ctx, x, Board.feedWord) } else page })
     return if (out.any { it.id == start }) out else visual(listOf(Board.Item(wall, p)))
 }
 
@@ -2539,13 +2575,48 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     private val scroll = ScrollView(c)
     private var items = emptyList<Board.Item>()
     private var laid = 0
+    // A POST FAR FROM THE SCREEN KEEPS ITS PLACE, NOT ITS CELL (iOS MontanaTimePanelList, a list that lets its rows go): a cell held in the
+    // column held its pictures and its films past every cache's bound -- on A1, trial 798, forty flicks down the feed took the app from 474 MB
+    // to 1033 MB and from 2001 views to 11131, and the feed has no bound of 300 any more. Each post stands in its slot; a slot beyond
+    // KEEP screens from the view lets its cell go and holds the height it had, and the cell is drawn again as the scroll comes near.
+    private val slots = HashMap<String, Slot>()
+    private inner class Slot : FrameLayout(c) {
+        lateinit var item: Board.Item
+        var born = false
+        fun fill() {
+            born = true
+            if (childCount != 0) return
+            val v = cells.cell(item)
+            (v.parent as? android.view.ViewGroup)?.removeView(v)
+            addView(v, LayoutParams(MATCH, WRAP))
+            if (0 < minimumHeight) postDelayed({ if (childCount != 0) minimumHeight = 0 }, 600)
+        }
+        /** The post moved while its cell stood: the new cell takes its place; a cell let go waits for the scroll. */
+        fun refresh() {
+            if (childCount == 0) return
+            val v = cells.cell(item)
+            if (getChildAt(0) === v) return
+            removeAllViews()
+            (v.parent as? android.view.ViewGroup)?.removeView(v)
+            addView(v, LayoutParams(MATCH, WRAP))
+        }
+        fun free(): Boolean {
+            if (childCount == 0 || height == 0) return false
+            minimumHeight = height
+            removeAllViews()
+            return true
+        }
+    }
     private var stale = true        // the board moved while the page stood unseen
     private var drawnAt = 0L
     private val again: () -> Unit = { if (isShown) draw() else stale = true }
     private var goingIds = emptyList<String>()
     // A POST OF MINE ON ITS WAY READ LIVE (iOS MTBoardSendingLive, MontanaBoardViews.swift:2824-2834 at 2155): its bar moves with every
     // piece the node confirms; a post that left its way, or a new one, moves the feed
-    private val moved: () -> Unit = { if (isShown) { if (MyWall.sendingAll().map { it.id } != goingIds) draw() else drawGoing() } else stale = true }
+    private val moved: () -> Unit = { if (isShown) { if (going().map { it.id } != goingIds) draw() else drawGoing() } else stale = true }
+    // THE WORD AT THE PAGE'S HEAD NARROWS THE POSTS (iOS MTFeedTabView.query): the rows follow it once the typing rests, as the chats' results do
+    private var query = ""
+    private val narrow = Runnable { laid = 0; scroll.scrollTo(0, 0); if (isShown) draw() else stale = true }
     // ROOM KEPT AT THE BOTTOM FOR THE FLOATING PLAYER (iOS MTFeedTabView.reserve, MontanaBoardViews.swift:2864 at 2155,
     // atom f056cf90ad09): the posts scroll clear of the bar while it stands -- 60 more than the tab bar's own room, as
     // the music page's plus moves for it (MusicPage.reserve).
@@ -2563,7 +2634,7 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         addView(scroll.apply {
             isVerticalScrollBarEnabled = false
             addView(c.vstack(Gravity.NO_GRAVITY) { addView(goingColumn, lp()); addView(column, lp()); addView(foot, lp(MATCH, dp(120))) })
-            val near = android.view.ViewTreeObserver.OnScrollChangedListener { reach() }
+            val near = android.view.ViewTreeObserver.OnScrollChangedListener { reach(); window() }
             addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(v: View) { v.viewTreeObserver.addOnScrollChangedListener(near) }
                 override fun onViewDetachedFromWindow(v: View) { v.viewTreeObserver.removeOnScrollChangedListener(near) }
@@ -2578,23 +2649,55 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         foot.layoutParams = lp(MATCH, dp(if (on) 180 else 120)); foot.requestLayout()
         write.layoutParams = PageCorner.params(c, reserve = on)
     }
+    /** The word at the head; «Write» stands over the rows save while the search holds the page (iOS writes: !searchActive). */
+    fun search(word: String, active: Boolean) {
+        write.visibility = if (active) View.GONE else View.VISIBLE
+        val q = word.trim()
+        if (q == query) return
+        query = q; Board.feedWord = q
+        removeCallbacks(narrow); postDelayed(narrow, if (q.isEmpty()) 0 else 120)
+    }
+    private fun going() = MyWall.sendingAll().filter { Board.matches(c, Board.Item(it.wall, it.post), query) }
     private fun draw() {
-        items = Board.feed()
+        items = Board.feed().filter { Board.matches(c, it, query) }
         stale = false; drawnAt = System.currentTimeMillis()
         // as many as stood laid are laid again, so a feed read deep down keeps its place when the board moves; a post that did not
         // change keeps its own cell where it stands (PostCells)
         val n = minOf(items.size, maxOf(FIRST, laid))
-        val rows = (0 until n).map { i -> row(items[i]) }
+        val rows = (0 until n).map { i -> slot(items[i]) }
         column.relay(rows); laid = n
-        cells.keepOnly(rows)
+        val live = rows.toSet()
+        slots.values.removeAll { it !in live }
+        rows.forEach { s -> if (s.born) s.refresh() else s.fill() }
+        cells.keepOnly(standing())
+        scroll.post { window() }
         if (laid < items.size) scroll.post { reach() }
         drawGoing()
     }
     private val cells = PostCells(act)
-    private fun row(it: Board.Item): View = cells.cell(it).also { v -> if (v.layoutParams == null) v.layoutParams = lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) } }
+    private fun slot(it: Board.Item): Slot = slots.getOrPut(it.wall + "#" + it.post.optString("id")) { Slot().apply { layoutParams = lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) } } }.also { s -> s.item = it }
+    private fun standing(): List<View> = (0 until column.childCount).mapNotNull { i -> (column.getChildAt(i) as Slot).getChildAt(0) }
+    /** The cells near the view stand, the others let go; a few come at a time, so the scroll keeps its frames. */
+    private fun window() {
+        val h = scroll.height
+        if (h == 0) return
+        val at = scroll.scrollY - column.top
+        val from = at - h * KEEP
+        val to = at + h * (KEEP + 1)
+        var let = false
+        var came = 0
+        var more = false
+        for (i in 0 until column.childCount) {
+            val s = column.getChildAt(i) as Slot
+            if (s.bottom <= from || to <= s.top) { if (s.free()) let = true }
+            else if (s.childCount == 0) { if (came < 2) { s.fill(); came++ } else more = true }
+        }
+        if (let) cells.keepOnly(standing())
+        if (more) scroll.post { window() }
+    }
     private fun lay(n: Int) {
         val to = minOf(items.size, laid + n)
-        for (i in laid until to) column.addView(row(items[i]))
+        for (i in laid until to) column.addView(slot(items[i]).also { s -> s.fill() })
         laid = to
         if (laid < items.size) scroll.post { reach() }   // a short feed that does not fill the reach yet is laid on, a frame at a time
     }
@@ -2605,11 +2708,15 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     /** THE POSTS ON THEIR WAY STAND FIRST (iOS MTFeedTabView's rows, MontanaBoardViews.swift:2875-2879 and 2940-2942 at 2155): every post
      * of mine on its way to any wall, under the bar of its files, newest first, over the posts of the walls. */
     private fun drawGoing() {
-        val going = MyWall.sendingAll()
+        val going = going()
         goingIds = going.map { it.id }
         goingColumn.removeAllViews()
+        // MY OWN DRAFT STANDS FIRST (iOS MTFeedTabView.draftMark, MTBoardDraftLive at a91328e3; the author's word 25.09), not under a search
+        val draft = if (query.isEmpty()) draftCell(act) else null
+        draft?.let { goingColumn.addView(it, lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) }) }
         for (o in going) goingColumn.addView(goingCell(act, o), lp().apply { setMargins(dp(12), dp(6), dp(12), dp(6)) })
-        empty.visibility = if (column.childCount == 0 && going.isEmpty()) View.VISIBLE else View.GONE
+        empty.text = c.getString(if (query.isEmpty()) R.string.no_posts else R.string.nothing_found)
+        empty.visibility = if (column.childCount == 0 && going.isEmpty() && draft == null) View.VISIBLE else View.GONE
     }
     override fun onAttachedToWindow() { super.onAttachedToWindow(); Board.listen(again); MyWall.listen(moved); draw() }
     override fun onDetachedFromWindow() { Board.leaveFeed(); Board.unlisten(again); MyWall.unlisten(moved); super.onDetachedFromWindow() }
@@ -2619,5 +2726,5 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         if (visibility == View.VISIBLE && isAttachedToWindow) { Board.lookFeed(); if (stale || 60_000L < System.currentTimeMillis() - drawnAt) draw() }
         else Board.leaveFeed()   // the feed left: its asks still waiting their turn are not sent (iOS leaveFeed)
     }
-    private companion object { const val FIRST = 12; const val NEXT = 12 }
+    private companion object { const val FIRST = 12; const val NEXT = 12; const val KEEP = 2 }
 }

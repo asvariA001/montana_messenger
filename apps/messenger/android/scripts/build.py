@@ -84,7 +84,8 @@ def version():
         if max(code, target) == code:
             raise SystemExit("own build %d reached %d: the jump to %d would go backwards (scripts/version)"
                              % (code, target, target))
-        return code, "%s (%d → %d)" % (v["MARKETING"], code, target)
+        # the author's word 04.11.2026: the site and the build say 1.0 (N); the target stays ours alone, in scripts/version and the check above
+        return code, "%s (%d)" % (v["MARKETING"], code)
     # level with iOS: the number is the iOS build whose features Android has
     return int(v["BUILD"]), "%s (%s)" % (v["MARKETING"], v["BUILD"])
 
