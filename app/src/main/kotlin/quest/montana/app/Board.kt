@@ -1442,7 +1442,7 @@ class PostCells(private val act: MainActivity) {
     }
     private fun counts(it: Board.Item): String {
         val p = it.post
-        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else p.opt(k).toString() } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0)
+        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else "" + p.opt(k) } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0)
     }
     /** The cell of a post, its own if its body did not move; counts that moved are drawn anew in their row alone. */
     fun cell(it: Board.Item, onItsWall: Boolean = false, whole: Boolean = false): View {
