@@ -191,7 +191,7 @@
     <string name="no_mail">此手机上没有邮件账户。地址已复制。</string>
     <!-- Privacy, Data and Storage (iOS PrivacyView, DataStorageView) -->
     <string name="online_status">在线状态</string>
-    <string name="online_status_sub">仅决定他人是否能看到你在线。留言墙和页面的往来不受影响。</string>
+    <string name="online_status_sub">仅决定他人是否能看到你在线。其他内容的往来不受影响。</string>
     <string name="read_receipts">已读回执</string>
     <string name="live_chat">实时聊天</string>
     <string name="sync_contacts">同步联系人</string>
@@ -681,7 +681,7 @@
     <string name="call_filtered_body">此网络仅允许访问许可的目的地。在过滤解除前无法通话。</string>
     <string name="picture_cache_header">图片缓存</string>
     <string name="picture_cache_clear">清除</string>
-    <string name="picture_cache_footer">图片保存在内存中，让聊天和墙面无需等待即可打开。它们会一直保留，直到你在这里清除。</string>
+    <string name="picture_cache_footer">图片保存在内存中，无需等待即可打开。它们会一直保留，直到你在这里清除。</string>
     <string name="share_preparing">准备中</string>
     <string name="share_sending">发送中…</string>
     <string name="share_still_on_way">部分内容仍在发送中——Montana 会自动完成。</string>
@@ -767,7 +767,7 @@
     <string name="show_sender_sub">消息通知会显示发送者。关闭后，改为显示 Montana。</string>
     <string name="name_lock_sub">当手机在锁定屏幕上隐藏预览时，通知仍会显示发送者。</string>
     <string name="read_receipts_sub">对方会看到你已读他们的消息，频道主会统计你的浏览。关闭后，不会告知任何人。</string>
-    <string name="filter_objectionable_sub">他人发送的含冒犯性词语的消息、墙帖和评论会被折叠，点按后才显示。</string>
+    <string name="filter_objectionable_sub">他人发送的含冒犯性词语的消息、帖子和评论会被折叠，点按后才显示。</string>
     <string name="note_quality_footer">“最高”使用摄像头最清晰的画面和最高码率，“最低”生成最小的文件。摄像头跟不上时会自动降低画质。</string>
     <string name="message_style_footer">“蒙大拿”：你的消息为系统蓝色，他人的为灰色。“经典”：你的消息为你的气泡颜色，他人的为深灰色。“自定义”：使用你在下方设置的颜色。</string>
     <string name="node_copies_sub">每天一次，在 Montana 打开且仅通过 Wi-Fi 时，整个应用的密封备份会发送到您的节点。关闭时，不发送任何内容，也不会从节点删除任何内容。</string>

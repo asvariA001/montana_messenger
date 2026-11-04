@@ -2807,7 +2807,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // A COIN LETTER (iOS MTCoinLetter's bubble): our coin, the signed number, which way the coins went
             else if (CoinSend.coinOf(m) != null) addView(c.coinPlate(m, CoinSend.coinOf(m)!!, mine, c as? MainActivity, chat.ref), lp(WRAP, WRAP))
             // A SECRET SHARED FROM PASSWORDS (iOS MTSecretLetter): the key and the title; the receiver's tap saves it
-            else if (SecretLetter.parse(m.text) != null) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text)!!, mine), lp(WRAP, WRAP))
+            else if (SecretLetter.isOne(m.text)) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text), mine), lp(WRAP, WRAP))
             // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
             else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
             // THE FILTER (iOS MontanaBubble 672-691): a letter of theirs with a word of the list stands folded; the tap unfolds it
@@ -3008,7 +3008,7 @@ private const val SPEAKER_INSIDE = 2
 private fun speakerPlace(c: Context, m: Msg, members: List<Msg>): Int = when {
     1 < members.size || edgePlate(m) -> SPEAKER_NONE
     m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null
-        || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null || SecretLetter.parse(m.text) != null -> SPEAKER_ABOVE
+        || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null || SecretLetter.isOne(m.text) -> SPEAKER_ABOVE
     m.qt == null && PlaceLetter.parse(c, m.text) != null -> SPEAKER_NONE
     else -> SPEAKER_INSIDE
 }
