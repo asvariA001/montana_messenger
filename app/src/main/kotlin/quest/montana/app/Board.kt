@@ -831,7 +831,7 @@ object Board {
     fun writer(wall: String, p: JSONObject): String? {
         // A WRITER OF THE TABLE is nobody this phone knows (iOS 18.10) -- unless this phone holds a pipe under the @name the post
         // carries (iOS writer(of:on:) 2331-2345 at 2351, the author's word 14475): then the writer is that correspondent
-        if (WallGlobal.isRef(wall)) return reach(p)
+        if (WallGlobal.isRef(wall)) return reach(p, wall)
         if (wall.isEmpty()) return MyWall.writerOf(p.optString("id")) ?: if (p.optBoolean("mine")) "" else null
         if (p.has("from")) return if (p.optBoolean("own")) wall else originalWriter(p.optString("id"), wall)
         if (p.optBoolean("mine")) return ""
@@ -843,6 +843,28 @@ object Board {
         MyWall.originalWriterOf(id)?.let { return it }
         val o = original(id, besides) ?: return null
         return writer(o.first, o.second)
+    }
+    /**
+     * ONE ROW OF THE TABLE, ONE WRITER (a deviation from iOS by the author's word 04.11.2026: a like on a post of a person whose chat this
+     * phone holds was refused, because that post came by the table and carried no @name): a row is its writer's alone, so a post of the row
+     * that a held wall carries as its owner's own -- never a repost, which keeps its original's id -- names the wall of them all. A row that
+     * borrows such an id gains nothing: the wall's owner ignores a word about a post not theirs. Null -- no such wall.
+     */
+    private fun rowRoad(wall: String): String? {
+        if (!WallGlobal.isRef(wall)) return null
+        val row = wall.removePrefix(WallGlobal.PREFIX)
+        val ids = WallGlobal.posts.filter { it.first == row }.map { it.second.optString("id") }.toSet()
+        val barred = PeerSafety.barred().toSet()
+        val road = synchronized(lock) {
+            ensure()
+            pages.entries.firstOrNull { e ->
+                val ps = e.value.optJSONArray("ps")
+                ps != null && e.key !in barred && !PeerSafety.isBlocked(e.key) && Book.secret(e.key) != null &&
+                    (0 until ps.length()).any { i -> ps.optJSONObject(i)?.let { q -> q.optBoolean("own") && !q.has("from") && q.optString("id") in ids } == true }
+            }?.key
+        }
+        if (road != null) Log.d("Montana", "wall_reach by row conv=" + road.take(10))
+        return road
     }
     /**
      * THE @NAME A TABLE POST ANSWERS BY: the one its writer's phone laid (nm), else the one written in their signature. A DEVIATION FROM
@@ -862,14 +884,15 @@ object Board {
      * under that name answers at once -- one look at the name book, never a walk of the pipes. A row that claims another's name gains
      * nothing: the name's plane resolves it to its real holder, who ignores a word about a post not theirs. Null -- no name, or no pipe.
      */
-    fun reach(p: JSONObject): String? {
+    fun reach(p: JSONObject, wall: String): String? {
+        rowRoad(wall)?.let { return it }
         val n = atName(p) ?: return null
         return Meeting.convs(n).firstOrNull { !PeerSafety.isBlocked(it) && it !in PeerSafety.barred() }
     }
     /** The same road, opened when none is held (iOS reachOpen): the one meeting door opens a conversation by the name as a search by
      *  name does, the wall is asked by it, and the caller's word goes by it. Off the main thread: the plane of names is asked. */
-    fun reachOpen(p: JSONObject): String? {
-        reach(p)?.let { return it }
+    fun reachOpen(p: JSONObject, wall: String): String? {
+        reach(p, wall)?.let { return it }
         val n = atName(p) ?: run { Log.d("Montana", "wall_reach REFUSED no name"); return null }
         val o = Meeting.meetName(n) as? Meeting.Outcome.Opened ?: run { Log.d("Montana", "wall_reach REFUSED name did not open"); return null }
         Log.d("Montana", "wall_reach opened id=" + p.optString("id").take(10) + " conv=" + o.ref.take(10))
@@ -1563,7 +1586,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
                 // word 14475: «a tap on the user's name must lead to the publisher's profile page»): nobody this phone knows yet, but the
                 // post names them -- the tap opens the road
-                else if (table && w == null && Board.atName(p) != null) pressable { reached(act, p) { r -> openWriter(act, r) } }
+                else if (table && w == null && Board.atName(p) != null) pressable { reached(act, it.wall, p) { r -> openWriter(act, r) } }
             }, lp(0, WRAP, 1f))
             // THE POST'S OWN MENU (iOS MTBoardCell menuItems, MontanaBoardViews.swift:404-441 at 2155): on every wall, while the post is
             // not on its way (postMenu)
@@ -1724,7 +1747,7 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
         onHold = { act.push { close -> wallPeoplePage(act, it.wall, id, likes = true, onClose = close) } }) {
         if (table) {
             val on = !liked
-            reached(act, p) { r -> Board.like(r, p); WallGlobal.mark(id) { s -> if (on) s.put("liked", true) else s.remove("liked"); s.put("likes", maxOf(0, s.optInt("likes") + (if (on) 1 else -1))) } }
+            reached(act, it.wall, p) { r -> Board.like(r, p); WallGlobal.mark(id) { s -> if (on) s.put("liked", true) else s.remove("liked"); s.put("likes", maxOf(0, s.optInt("likes") + (if (on) 1 else -1))) } }
         } else Board.like(it.wall, p)
     }
     // a repost counts its original's thread (iOS d71617c6, board.thread(of:on:)?.post.commentCount ?? 0)
@@ -1732,7 +1755,7 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
     // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
     mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
         val on = !p.optBoolean("kept")
-        if (table) reached(act, p) { r ->
+        if (table) reached(act, it.wall, p) { r ->
             Thread {
                 if (on) Board.keep(r, p) else Board.unkeep(r, p)
                 WallGlobal.mark(id) { s -> if (on) s.put("kept", true) else s.remove("kept"); s.put("keepers", maxOf(0, s.optInt("keepers") + (if (on) 1 else -1))) }
@@ -1745,7 +1768,7 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
     val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
     mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
         onTap = if (!reposts) null else if (table) ({
-            reached(act, p) { r -> Thread { Board.repost(r, p); if (MyWall.post(id) != null) WallGlobal.mark(id) { s -> if (!s.optBoolean("reposted")) { s.put("reposted", true); s.put("reposts", s.optInt("reposts") + 1) } } }.start() }
+            reached(act, it.wall, p) { r -> Thread { Board.repost(r, p); if (MyWall.post(id) != null) WallGlobal.mark(id) { s -> if (!s.optBoolean("reposted")) { s.put("reposted", true); s.put("reposts", s.optInt("reposts") + 1) } } }.start() }
         }) else ({ Thread { Board.repost(it.wall, p) }.start() }))
     spacer()
     addView(c.icon(R.drawable.ic_arrow_circle_down, MT.gray, 16).apply { contentDescription = c.getString(R.string.wall_downloads) }); gap(4)
@@ -1884,10 +1907,10 @@ fun wallChainPage(act: MainActivity, wall: String, id: String, onClose: () -> Un
  * once; not held -- the meeting door opens one (Board.reachOpen), then the word goes; no name, or a name that did not answer -- the
  * person is told, and nothing is sent. `then` runs on the main thread.
  */
-private fun reached(act: MainActivity, p: JSONObject, then: (String) -> Unit) {
-    Board.reach(p)?.let { then(it); return }
+private fun reached(act: MainActivity, wall: String, p: JSONObject, then: (String) -> Unit) {
+    Board.reach(p, wall)?.let { then(it); return }
     Thread {
-        val r = Board.reachOpen(p)
+        val r = Board.reachOpen(p, wall)
         act.runOnUiThread {
             if (r != null) then(r)
             else android.app.AlertDialog.Builder(act).setTitle(R.string.wall_not_sent).setMessage(R.string.wall_reach_refused)
