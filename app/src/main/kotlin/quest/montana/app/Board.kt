@@ -1428,7 +1428,7 @@ private class WallLinkClip(c: Context, private val url: String, private val show
  * row of counts is drawn again, at the height it had, and the words and the pictures never leave the screen.
  */
 class PostCells(private val act: MainActivity) {
-    private class Held(val body: String, val counts: String, val view: View)
+    private class Held(val body: String, val counts: String, val view: View, val parts: Map<String, Int>)
     private val held = HashMap<String, Held>()
     /** Everything of a post but its counts: what its picture, its words and its fold are drawn from. */
     private fun body(it: Board.Item): String {
@@ -1437,12 +1437,18 @@ class PostCells(private val act: MainActivity) {
         val r = Board.repostGoing(it.wall, id)
         val rest = JSONObject()
         for (k in p.keys()) if (k !in COUNTED) rest.put(k, p.opt(k))
-        return rest.toString() + "|" + (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id) + "|" +
-            postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock
+        return rest.toString() + "|" + (r?.let { g -> "" + g.done + "/" + g.failed } ?: "-") + "|" + Board.isFetching(id)
+    }
+    /** The body field by field, by its hash alone: a redrawn cell names what moved it, and no word of the post reaches the log. */
+    private fun parts(it: Board.Item): Map<String, Int> {
+        val out = HashMap<String, Int>()
+        for (k in it.post.keys()) if (k !in COUNTED) out[k] = ("" + it.post.opt(k)).hashCode()
+        return out
     }
     private fun counts(it: Board.Item): String {
         val p = it.post
-        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else "" + p.opt(k) } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0)
+        return COUNTED.joinToString("|") { k -> if (k == "comments") "" else "" + p.opt(k) } + "|" + (Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0) + "|" +
+            postWhen((p.optDouble("at") * 1000).toLong())   // the «when» moves on with the clock, and its line alone is written anew
     }
     /** The cell of a post, its own if its body did not move; counts that moved are drawn anew in their row alone. */
     fun cell(it: Board.Item, onItsWall: Boolean = false, whole: Boolean = false): View {
@@ -1453,14 +1459,16 @@ class PostCells(private val act: MainActivity) {
         if (was != null && was.body == b) {
             if (was.counts != n) {
                 (was.view.tag as? PostNow)?.take(it)
-                held[k] = Held(b, n, was.view)
+                held[k] = Held(b, n, was.view, was.parts)
             }
             return was.view
         }
         val v = postCell(act, it, whole = whole, onItsWall = onItsWall)
         val h = was?.view?.height ?: 0
         if (0 < h) { v.minimumHeight = h; v.postDelayed({ v.minimumHeight = 0 }, 300) }
-        held[k] = Held(b, n, v)
+        val now = parts(it)
+        if (was != null) Log.d("Montana", "wall_cell redrawn id=" + it.post.optString("id").take(10) + " moved=" + (now.keys + was.parts.keys).filter { f -> now[f] != was.parts[f] })
+        held[k] = Held(b, n, v, now)
         return v
     }
     /** The cells no list draws any more let go. */
@@ -1477,7 +1485,12 @@ class PostCells(private val act: MainActivity) {
 /** WHAT A DRAWN CELL HOLDS OF ITS POST: the post as it stands now, for the menu, and the way to its row of counts. */
 class PostNow(var post: JSONObject) {
     var counts: ((Board.Item) -> Unit)? = null
-    fun take(it: Board.Item) { post = it.post; counts?.invoke(it) }
+    var stamp: android.widget.TextView? = null
+    fun take(it: Board.Item) {
+        post = it.post
+        stamp?.text = postWhen((it.post.optDouble("at") * 1000).toLong())
+        counts?.invoke(it)
+    }
 }
 
 /**
@@ -1578,7 +1591,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                 addView(c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.text(name, 15f, android.graphics.Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())
                     val at = (p.optDouble("at") * 1000).toLong()
-                    addView(c.text(postWhen(at), 12f, MT.gray), lp())
+                    addView(c.text(postWhen(at), 12f, MT.gray).also { t -> now.stamp = t }, lp())
                 }, lp(0, WRAP, 1f))
                 if (opens && w != null) pressable { openWriter(act, w) }
                 // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
@@ -2662,6 +2675,11 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
     private inner class Slot : FrameLayout(c) {
         lateinit var item: Board.Item
         var born = false
+        // a slot that changes its height above the eye moves everything under it: the log says so, with its place on the screen
+        override fun onSizeChanged(w: Int, h: Int, oldW: Int, oldH: Int) {
+            super.onSizeChanged(w, h, oldW, oldH)
+            if (oldH != 0 && h != oldH) Log.d("Montana", "wall_slot height " + oldH + " to " + h + " top=" + (top + column.top - scroll.scrollY) + " cell=" + childCount)
+        }
         fun fill() {
             born = true
             if (childCount != 0) return
