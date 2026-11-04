@@ -137,6 +137,37 @@ def lay_on_site(local, record):
     say("site: %s%s serves the build (%d bytes, sha256 %s)" % (SITE["url"], name, len(served), record["sha256"][:16]))
 
 
+RENOTE = """
+import json, os, sys
+path = os.path.join(sys.argv[1], "latest.json")
+shown = json.load(open(path, encoding="utf-8"))
+word = json.loads(RECORD)
+if shown.get("build") != word["build"]:
+    raise SystemExit("this host names build %s" % shown.get("build"))
+shown["notes"], shown["l"] = word["notes"], word["l"]
+part = path + ".part"
+with open(part, "w", encoding="utf-8") as f:
+    json.dump(shown, f, ensure_ascii=False, indent=2)
+os.chmod(part, 0o644)
+os.replace(part, path)
+print(shown["build"])
+"""
+
+
+def renote(notes, ru):
+    """The words of the build the site already serves, written anew: no build, no number, the same bytes. A phone takes them on its next
+    look, because Book.appendRelease rewrites a row of that build whose languages differ."""
+    latest = json.loads(fetch(SITE["url"] + "latest.json"))
+    word = dict(build=latest["build"], notes=notes, l={"en": notes, "ru": ru})
+    for host in SITE["hosts"]:
+        there = remote(host, "RECORD = %r" % json.dumps(word, ensure_ascii=False) + chr(10) + RENOTE, [SITE["dir"]])
+        if there.returncode or there.stdout.strip() != str(latest["build"]):
+            raise SystemExit("%s did not take the words: %s" % (host, (there.stdout + there.stderr).strip()))
+        say("site: %s holds the words of %s" % (host, latest["build"]))
+    if json.loads(fetch(SITE["url"] + "latest.json")).get("l") != word["l"]:
+        raise SystemExit("the site's latest.json does not carry the words")
+
+
 def subject_note(commit):
     """The commit's subject up to its first parenthesis or colon: the change in a line (the rest names the iOS sources)."""
     got = subprocess.run(["git", "-C", ROOT, "log", "-1", "--format=%s", commit], capture_output=True, text=True)
@@ -155,7 +186,14 @@ def main():
     ap.add_argument("--bundle", action="store_true")
     ap.add_argument("--note", action="append", default=[], help="a line of what changed (English); default: the commit's subject")
     ap.add_argument("--note-ru", action="append", default=[], help="the same line in Russian")
+    ap.add_argument("--renote", action="store_true", help="only write --note and --note-ru into the build the site serves")
     a = ap.parse_args()
+    # NO BUILD REACHES PEOPLE WITHOUT ITS WORDS (the author's word 04.11.2026): 826 went out with the subject's one word «Calls» in the
+    # Montana room. Whoever lays a build says what changed for people, in both languages, before anything is built.
+    if not a.no_site and not (a.note and a.note_ru):
+        raise SystemExit("say what changed for people: --note and --note-ru, one line a change")
+    if a.renote:
+        return renote(a.note, a.note_ru)
     record = build(a.ref)
     record["notes"] = a.note or subject_note(record["commit"])
     if a.note_ru:
