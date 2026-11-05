@@ -244,8 +244,7 @@ object Board {
         // WHO LIKED (iOS clean, MTBoardSeen.ln, 8b1932d3 (5) at 2351): fifty names at most
         p.optJSONArray("ln")?.let { a -> x.put("ln", JSONArray((0 until a.length()).map { a.optString(it).take(64) }.takeLast(NAMES_SHOWN))) }
         p.optString("from").takeIf { it.isNotEmpty() }?.let { x.put("from", it.take(64)) }
-        // THE POST'S NUMBER ON ITS WALL STAYS WITH IT (iOS clean bounds the rest and keeps it, MontanaBoard.swift:1037-1054 at 2155): the
-        // number stays with the post
+        // THE POST'S NUMBER ON ITS WALL STAYS WITH IT (iOS clean bounds the rest and keeps it, MontanaBoard.swift:1037-1054 at 2155)
         if (p.has("n")) x.put("n", maxOf(0, p.optInt("n")))
         p.optString("face").takeIf { it.isNotEmpty() && it.length <= FACE_LIMIT }?.let { x.put("face", it) }
         // THE LINK CARD RIDES WITH A VISITOR'S OWN PAGE READ TOO (iOS clean carries every field of MTBoardSeen by decoding it, atom
