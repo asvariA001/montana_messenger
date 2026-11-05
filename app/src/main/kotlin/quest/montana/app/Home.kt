@@ -957,32 +957,6 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close, jump = m.mid) } }
     }
 
-    /**
-     * AN @NAME ALREADY MET OPENS ITS CHAT (iOS runEmailSearch and endpointHit, MontanaChatsList.swift:660-680, 1739-1756 at 2155):
-     * typing asks nobody and begets nothing -- the answer is this phone's own: the name's root heard before (Names.rootFor), the
-     * conversation met by that root while its pipe stands (Meeting.cardMet), not my own name, not a chat already standing in the
-     * list or among the found. Meeting a new name stays the explicit road (the code's screen).
-     */
-    private fun nameHit(raw: String, shown: List<Chat>): String? {
-        val n = Names.normalize(raw.removePrefix("@")) ?: return null
-        if (n == Names.currentName) return null
-        val conv = Names.rootFor(n)?.let { Meeting.cardMet(it) } ?: return null
-        if (Groups.isKey(conv) || shown.any { it.ref == conv } || chatRows().any { it.ref == conv }) return null
-        return conv
-    }
-    /** The met name's row (iOS the «GLOBAL SEARCH» section): the face, the name and «Message on Montana» in the platform's quiet grey -- no
-     *  yellow word (atom 2026b4065ba8); a tap opens the chat. */
-    private fun metRow(conv: String) = act.hstack {
-        setPadding(dp(12), dp(8), dp(12), dp(8))
-        val shown = Book.chat(conv)?.shown?.ifBlank { null } ?: act.getString(R.string.peer)
-        addView(act.peerFace(conv, shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
-        addView(act.vstack(Gravity.NO_GRAVITY) {
-            addView(act.text(shown, 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())   // USER-DATA: the name
-            addView(act.text(act.getString(R.string.search_message_on_montana), 12f, MT.gray), lp().apply { topMargin = dp(3) })
-        }, lp(0, WRAP, 1f))
-        pressable { keysAway(); android.util.Log.d("Montana", "search_name_hit open"); act.push { close -> conversationPage(act, conv, close) } }
-    }
-
     private fun draw() {
         list.removeAllViews()
         val people = Book.all().filter { it.msgs.isNotEmpty() && !Groups.isKey(it.ref) }   // people only: a group is no person
@@ -1015,9 +989,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         if (chats.isNotEmpty()) section(R.string.search_chats, chats.map { personRow(it) })
         if (contacts.isNotEmpty()) section(R.string.search_contacts, contacts.map { personRow(it) })   // after the chats, before the letters (iOS searchResults)
         if (found.isNotEmpty()) section(R.string.search_messages, found.map { (ch, m) -> hitRow(ch, m) })
-        val met = nameHit(q.trim(), chats + contacts)
-        if (met != null) section(R.string.search_global, listOf(metRow(met)))
-        if (chats.isEmpty() && contacts.isEmpty() && found.isEmpty() && met == null)
+        if (chats.isEmpty() && contacts.isEmpty() && found.isEmpty())
             list.addView(act.text(act.getString(R.string.nothing_found), 17f, MT.gray, center = true).apply { setPadding(0, dp(40), 0, 0) }, lp())
     }
 }

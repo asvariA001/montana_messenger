@@ -873,7 +873,7 @@ object Channels {
         val w = Wire.minute()
         if (w != pointsAt) {
             val m = HashMap<String, ByteArray>()
-            for (r in Meeting.awaitingRoots() + MontanaCard.outstandingRoots() + listOfNotNull(Names.heldRoot())) {   // and the name I hold (iOS 585-588)
+            for (r in Meeting.awaitingRoots() + MontanaCard.outstandingRoots()) {
                 for (k in longArrayOf(w - 1, w, w + 1)) MtBindings.nativeFirstTag(r, k)?.let { m[Wire.hex(it)] = r }
             }
             points = m

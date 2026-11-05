@@ -977,7 +977,7 @@ object Groups {
      */
     fun mentionsMe(words: String): Boolean {
         val low = words.lowercase()
-        return listOf(Prefs.userName, Names.heldName ?: "").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.any { name ->
+        return listOf(Prefs.userName).map { it.trim().lowercase() }.filter { it.isNotEmpty() }.any { name ->
             var from = 0
             while (true) {
                 val at = low.indexOf("@$name", from)

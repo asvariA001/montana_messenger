@@ -2665,9 +2665,6 @@ object Post {
         }
         val secret = (point?.let { listOf(it) } ?: MontanaCard.outstandingRoots()).firstNotNullOfOrNull { r ->
             MontanaCard.acceptAt(ct, r, opens)?.also { root = r }
-        } ?: Names.heldRoot()?.takeIf { mine -> point == null || point.contentEquals(mine) }?.let { mine ->
-            // a stranger who knocked at the name I hold (iOS openFirst 1206-1217): the name's own key, the same seal as the proof
-            Names.acceptFirst(ct, opens)?.also { root = mine }
         }
         val body = plain
         val card = root
