@@ -1663,7 +1663,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
 /**
  * THE COUNTS OF A POST (iOS counters 445-487): like, comments, keepers, reposts; in the corner the eye with the views where the wall's owner
  * counts them. NO DOWNLOADS UNDER A POST (iOS 2358, the author's word 16165 p.3): the row ends with the eye alone.
- * A TABLE POST TAKES NO MARK (iOS 2360 counters, decision 613, the author's word 05.11.2026 «Да, как в iOS»): no like, no keeping, no repost;
+ * A TABLE POST TAKES NO MARK (iOS 2360 counters, decision 613, the author's word 05.11.2026 "yes, as in iOS"): no like, no keeping, no repost;
  * its comments and the eye stay.
  */
 private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openComments: () -> Unit): View = act.hstack {

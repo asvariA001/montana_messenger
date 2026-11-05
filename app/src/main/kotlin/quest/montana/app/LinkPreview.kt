@@ -62,7 +62,7 @@ object LinkPreview {
         .filter { runCatching { URL(it).host }.getOrNull()?.isNotEmpty() == true }.toList()
     /**
      * A LINK AS THE REFERENCE WRITES IT (iOS NSDataDetector's URL.absoluteString): a letter beyond ASCII is percent-escaped by its
-     * UTF-8 bytes, so a card's «u» is one string on both sides. iPhone «Анна» → A1 21.10 10:27 UTC, ru.wikipedia.org/wiki/Заглавная…:
+     * UTF-8 bytes, so a card's «u» is one string on both sides. The author's iPhone → A1 21.10 10:27 UTC, the main page of ru.wikipedia.org:
      * the card named the escaped link, the letter's words the plain one, and the group refused the card as past its words.
      */
     private fun wired(link: String): String = buildString {
@@ -175,7 +175,7 @@ object LinkPreview {
     /**
      * THE CARD THAT RIDES IS THE CARD THAT IS SEEN, ITS PICTURE CUT TO THE LEG (iOS MTLinkPreviewBuilder.fitting, 89dfd51d): the
      * row keeps its picture crisp (720, 70 KB), the leg holds 16 KB -- the picture alone is re-encoded, 480 at 0.6 under 11 KB, then
-     * 320 at 0.5 under 8 KB, and only when no size fits does the card ride with its words alone. A1 → iPhone «Анна» 21.10 10:12 UTC:
+     * 320 at 0.5 under 8 KB, and only when no size fits does the card ride with its words alone. A1 → the author's iPhone 21.10 10:12 UTC:
      * the picture caught up at 60 KB and the group's word dropped it whole, the iPhone drew the words with no picture.
      */
     fun fitting(lp: String?): String? {
