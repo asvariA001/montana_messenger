@@ -403,6 +403,7 @@
     <string name="film_close">Close</string>
     <string name="film_fold">Picture in Picture</string>
     <string name="call_video_ask">is calling with video</string>
+    <string name="call_video_sent">Video request sent</string>
     <string name="call_turn_on_video">Turn on your video?</string>
     <string name="call_turn_on">Turn On</string>
     <string name="call_camera">Camera</string>
