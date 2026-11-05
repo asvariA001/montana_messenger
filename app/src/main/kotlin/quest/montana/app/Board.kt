@@ -1701,14 +1701,21 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
     spacer()
     if (p.has("views")) {
         addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
+            // THE EYE'S REACH: the glyph and its digits are 27 wide, a finger laid beside them fell through to the post and the hold never
+            // came (the author's word 05.11.2026: she could not see who saw her post). The glyph stays in the corner, the reach grows left.
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
             minimumHeight = dp(44)
+            minimumWidth = dp(64)
             contentDescription = c.getString(R.string.wall_views)
             addView(c.icon(R.drawable.ic_set_eye, MT.gray, 16)); gap(4)
             addView(c.text(p.optInt("views").toString(), 13f, MT.gray, bold = true))
             // WHO SAW IT, on a hold (iOS 8b1932d3 (5), the author's word 14475) -- on my own posts alone: a reader is named to the
             // post's owner and to nobody else (Board.countsViews, the critic of 14486)
-            if (Board.countsViews(wall)) setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
+            if (Board.countsViews(wall)) {
+                setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
+                // a tap goes on to the post, as iOS's long press lets it: a view that takes holds takes the taps with them
+                if (!whole) setOnClickListener { openComments() }
+            }
         }, lp(WRAP, WRAP))
     }
 }
