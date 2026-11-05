@@ -562,8 +562,6 @@
     <string name="wall_views">Views</string>
     <string name="wall_likes">Likes</string>
     <string name="wall_nobody_yet">Nobody yet</string>
-    <string name="wall_not_sent">Not sent</string>
-    <string name="wall_reach_refused">The writer can be reached only through a chat, and none could be opened: they gave no @name, or the name did not answer.</string>
     <string name="wall_send">Send</string>
     <string name="wall_hide_person">Hide this person</string>
     <string name="wall_save">Save</string>

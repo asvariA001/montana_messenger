@@ -474,7 +474,6 @@ object MyWall {
     fun publicPosts(limit: Int, budget: Int): Map<String, Pair<String, JSONObject>> {
         val name = Prefs.userName.trim().take(64)
         val face = Board.myFace()
-        val atName = Names.heldName?.let { Names.normalize(it) }
         val own = synchronized(lock) {
             ensure()
             mine.filter { it.optString("author").isEmpty() && !it.has("from") }.sortedByDescending { it.optDouble("at") }.take(limit)
@@ -490,7 +489,6 @@ object MyWall {
             // THE @NAME I HOLD RIDES WITH MY POST (iOS publicDrafts, 8b1932d3 (5), the author's word 14475): the name is public already --
             // anyone searches it and opens a chat by it -- so a reader of the table with no pipe to me reaches me by the same door. A
             // lapsed name is not laid (heldName).
-            atName?.let { x.put("nm", it) } ?: x.remove("nm")
             val ms = x.optJSONArray("media") ?: JSONArray()
             var i = ms.length() - 1
             while (0 <= i && budget < x.toString().toByteArray().size) { ms.optJSONObject(i)?.remove("thumb"); i-- }

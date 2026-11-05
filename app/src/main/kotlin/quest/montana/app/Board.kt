@@ -241,12 +241,11 @@ object Board {
         for (k in listOf("keepers", "likes", "downloads", "reposts", "commentCount")) x.put(k, maxOf(0, p.optInt(k)))
         for (k in listOf("liked", "kept", "reposted", "mine", "own")) if (p.optBoolean(k)) x.put(k, true)
         if (p.has("views") && !p.isNull("views")) x.put("views", maxOf(0, p.optInt("views")))
-        // THE WRITER'S @NAME AND WHO LIKED (iOS clean, MTBoardSeen.nm and ln, 8b1932d3 (5) at 2351): a name of 32 at most, fifty names
-        p.optString("nm").takeIf { it.isNotEmpty() }?.let { x.put("nm", it.take(32)) }
+        // WHO LIKED (iOS clean, MTBoardSeen.ln, 8b1932d3 (5) at 2351): fifty names at most
         p.optJSONArray("ln")?.let { a -> x.put("ln", JSONArray((0 until a.length()).map { a.optString(it).take(64) }.takeLast(NAMES_SHOWN))) }
         p.optString("from").takeIf { it.isNotEmpty() }?.let { x.put("from", it.take(64)) }
         // THE POST'S NUMBER ON ITS WALL STAYS WITH IT (iOS clean bounds the rest and keeps it, MontanaBoard.swift:1037-1054 at 2155): the
-        // short link names a post by it (linkPost)
+        // number stays with the post
         if (p.has("n")) x.put("n", maxOf(0, p.optInt("n")))
         p.optString("face").takeIf { it.isNotEmpty() && it.length <= FACE_LIMIT }?.let { x.put("face", it) }
         // THE LINK CARD RIDES WITH A VISITOR'S OWN PAGE READ TOO (iOS clean carries every field of MTBoardSeen by decoding it, atom
@@ -582,7 +581,6 @@ object Board {
      * themselves -- never the one this phone set for them --, else «Someone». */
     fun publicName(wall: String): String =
         Book.chat(wall)?.name?.trim()?.takeIf { it.isNotEmpty() }?.take(64)
-            ?: Meeting.nameOf(wall)?.let { "@" + it }   // their public @name when they gave none (iOS publicName(of:) 768-772 at 2351)
             ?: Book.ctx.getString(R.string.wall_someone)
 
     /**
@@ -751,58 +749,15 @@ object Board {
     class LinkTarget(val wall: String, val post: String, val comment: String?)
     fun isWallLink(link: String): Boolean = Meeting.normalize(link).startsWith("montana://wall/")
     /** The post and the comment a wall link names among the posts this phone holds (iOS MTBoardComments.target,
-     * MontanaBoardViews.swift:2421-2434 at 2155): the long link by the post's name, the short one by the wall's nick and the post's
-     * number on that wall; null for a post not held here. */
+     * MontanaBoardViews.swift:2421-2434 at 2155): the link by the post's name; null for a post not held here. */
     fun linkTarget(link: String): LinkTarget? {
         val parts = Meeting.normalize(link).removePrefix("montana://wall/").split("/").filter { it.isNotEmpty() }
         if (parts.size == 2 && parts[0] == "post") place(parts[1])?.let { return LinkTarget(it, parts[1], null) }
         if (parts.size == 3 && parts[0] == "comment") place(parts[1])?.let { return LinkTarget(it, parts[1], parts[2]) }
-        // THE SHORT LINK READ BACK (2429-2432): «@nick», the post's number on that wall, and a comment's number in its chain
-        val n = parts.getOrNull(1)?.toIntOrNull()
-        if ((parts.size == 2 || parts.size == 3) && parts[0].startsWith("@") && n != null)
-            return shortTarget(parts[0].drop(1), n, if (parts.size == 3) parts[2].toIntOrNull() else null)
         return null
     }
-    /**
-     * THE SHORT LINK (iOS MTBoard.linkPost(_:on:), MontanaBoard.swift:1457-1463 at 2155, the author's word 02.10): the wall's owner by the
-     * nick after «@» in their name, and the post's number on that wall; a post with no number yet, or a wall with no nick, keeps the long
-     * link. Written as a person reads it (iOS MTLinks.readable, MontanaPeerInfo.swift:206): the letters of a name, never a URL's bytes.
-     */
-    fun linkPost(p: JSONObject, wall: String): String {
-        val long = "montana://wall/post/" + p.optString("id")
-        if (!p.has("n")) return long
-        val claimed = claimedName(wall) ?: return long
-        return "montana://wall/@" + claimed + "/" + p.optInt("n")
-    }
-    /** The nick a wall goes by in a link (iOS claimedName(of:), 1468-1471): after «@» in the name its owner gave themselves -- my own
-     * for my wall --, else the name this phone gave them. */
-    private fun claimedName(wall: String): String? {
-        val said = if (wall.isEmpty()) Prefs.userName else Book.chat(wall)?.name ?: ""
-        return claimedIn(said) ?: if (wall.isEmpty()) null else Book.chat(wall)?.pin?.takeIf { it.isNotEmpty() }
-    }
-    /** iOS claimedName(in:) 1472-1476: the word after the last «@», up to a space. */
-    private fun claimedIn(name: String): String? {
-        val at = name.lastIndexOf('@')
-        if (at < 0) return null
-        return name.substring(at + 1).takeWhile { !it.isWhitespace() }.takeIf { it.isNotEmpty() }
-    }
-    /** The post a short link names among the walls this phone holds -- mine first, then the others by their reference -- and the
-     * comment of that number in its chain (iOS find(name:number:comment:), 1477-1490). */
-    private fun shortTarget(name: String, n: Int, k: Int?): LinkTarget? {
-        val walls = listOf("") + synchronized(lock) { ensure(); pages.keys.sorted() }
-        for (w in walls) {
-            if (claimedName(w)?.equals(name, ignoreCase = true) != true) continue
-            val p = (if (w.isEmpty()) MyWall.posts() else posts(w).map { it.post }).firstOrNull { it.has("n") && it.optInt("n") == n } ?: continue
-            var cid: String? = null
-            if (k != null) {
-                val cs = p.optJSONArray("comments") ?: JSONArray()
-                val i = k - (p.optInt("commentCount") - cs.length()) - 1
-                if (i in 0 until cs.length()) cid = cs.optJSONObject(i)?.optString("id")
-            }
-            return LinkTarget(w, p.optString("id"), cid)
-        }
-        return null
-    }
+    /** THE LINK OF A POST (iOS 2360 linkPost(_:), decision 613: no @name in a link any more). */
+    fun linkPost(p: JSONObject): String = "montana://wall/post/" + p.optString("id")
     /** A WALL READ AS ITS OWNER SENT IT (iOS posts(on:), MontanaBoard.swift:723): every post of one person's own page, the
      * pinned first, then by the newest record of its chain -- its birth or its latest comment (iOS lastAt 1306), so a comment
      * of mine lifts its post here at once. */
@@ -829,9 +784,7 @@ object Board {
      * the post is mine, the owner's own, or -- a repost -- its first writer's, where this phone holds the post as itself.
      */
     fun writer(wall: String, p: JSONObject): String? {
-        // A WRITER OF THE TABLE is nobody this phone knows (iOS 18.10) -- unless this phone holds a pipe under the @name the post
-        // carries (iOS writer(of:on:) 2331-2345 at 2351, the author's word 14475): then the writer is that correspondent
-        if (WallGlobal.isRef(wall)) return reach(p, wall)
+        if (WallGlobal.isRef(wall)) return null   // a writer of the table is nobody this phone knows (iOS 18.10; decision 613)
         if (wall.isEmpty()) return MyWall.writerOf(p.optString("id")) ?: if (p.optBoolean("mine")) "" else null
         if (p.has("from")) return if (p.optBoolean("own")) wall else originalWriter(p.optString("id"), wall)
         if (p.optBoolean("mine")) return ""
@@ -843,59 +796,6 @@ object Board {
         MyWall.originalWriterOf(id)?.let { return it }
         val o = original(id, besides) ?: return null
         return writer(o.first, o.second)
-    }
-    /**
-     * ONE ROW OF THE TABLE, ONE WRITER (a deviation from iOS by the author's word 04.11.2026: a like on a post of a person whose chat this
-     * phone holds was refused, because that post came by the table and carried no @name): a row is its writer's alone, so a post of the row
-     * that a held wall carries as its owner's own -- never a repost, which keeps its original's id -- names the wall of them all. A row that
-     * borrows such an id gains nothing: the wall's owner ignores a word about a post not theirs. Null -- no such wall.
-     */
-    private fun rowRoad(wall: String): String? {
-        if (!WallGlobal.isRef(wall)) return null
-        val row = wall.removePrefix(WallGlobal.PREFIX)
-        val ids = WallGlobal.posts.filter { it.first == row }.map { it.second.optString("id") }.toSet()
-        val barred = PeerSafety.barred().toSet()
-        return synchronized(lock) {
-            ensure()
-            pages.entries.firstOrNull { e ->
-                val ps = e.value.optJSONArray("ps")
-                ps != null && e.key !in barred && !PeerSafety.isBlocked(e.key) && Book.secret(e.key) != null &&
-                    (0 until ps.length()).any { i -> ps.optJSONObject(i)?.let { q -> q.optBoolean("own") && !q.has("from") && q.optString("id") in ids } == true }
-            }?.key
-        }
-    }
-    /**
-     * THE @NAME A TABLE POST ANSWERS BY: the one its writer's phone laid (nm), else the one written in their signature. A DEVIATION FROM
-     * iOS BY THE AUTHOR'S WORD 04.11.2026: on that day none of the table's 225 posts carried nm, and a like on a post of someone with no
-     * chat went nowhere, while 192 of them were signed «Alik Montana @alikmontana». The signature proves no more than nm does: the name's
-     * plane resolves it to its real holder, who ignores a word about a post not theirs.
-     */
-    fun atName(p: JSONObject): String? {
-        p.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) }?.let { return it }
-        return signedName.find(p.optString("byName"))?.let { Names.normalize(it.groupValues[1]) }
-    }
-    private val signedName = Regex("""(?:^|\s)@([\p{L}\p{N}_.-]{1,32})(?=\s|$)""")
-    /**
-     * THE WRITER OF A TABLE POST, REACHED BY THEIR @NAME (iOS MTBoard.reach, 8b1932d3 (5) at 2351; the author's word 14475: «if there is
-     * no chat with the contact, the field to put reactions and likes does not appear on the Wall of Thoughts -- fix it»): a post of the
-     * table is held by no conversation, so it carries the @name its writer holds (nm), and the name is the road: a pipe this phone holds
-     * under that name answers at once -- one look at the name book, never a walk of the pipes. A row that claims another's name gains
-     * nothing: the name's plane resolves it to its real holder, who ignores a word about a post not theirs. Null -- no name, or no pipe.
-     */
-    fun reach(p: JSONObject, wall: String): String? {
-        rowRoad(wall)?.let { return it }
-        val n = atName(p) ?: return null
-        return Meeting.convs(n).firstOrNull { !PeerSafety.isBlocked(it) && it !in PeerSafety.barred() }
-    }
-    /** The same road, opened when none is held (iOS reachOpen): the one meeting door opens a conversation by the name as a search by
-     *  name does, the wall is asked by it, and the caller's word goes by it. Off the main thread: the plane of names is asked. */
-    fun reachOpen(p: JSONObject, wall: String): String? {
-        reach(p, wall)?.let { return it }
-        val n = atName(p) ?: run { Log.d("Montana", "wall_reach REFUSED no name"); return null }
-        val o = Meeting.meetName(n) as? Meeting.Outcome.Opened ?: run { Log.d("Montana", "wall_reach REFUSED name did not open"); return null }
-        Log.d("Montana", "wall_reach opened id=" + p.optString("id").take(10) + " conv=" + o.ref.take(10))
-        ask(o.ref)
-        return o.ref
     }
     /**
      * THE NAMES UNDER A POST'S LIKE AND ITS EYE (iOS MTBoard.people, 8b1932d3 (5) at 2351): on my own wall off the post's own
@@ -1619,10 +1519,6 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
                     addView(c.text(postWhen(at), 12f, MT.gray).also { t -> now.stamp = t }, lp())
                 }, lp(0, WRAP, 1f))
                 if (opens && w != null) pressable { openWriter(act, w) }
-                // A TABLE WRITER'S NAME LEADS TO THEIR PAGE BY THEIR @NAME (iOS MTBoardCell.header, 8b1932d3 (5) at 2351; the author's
-                // word 14475: «a tap on the user's name must lead to the publisher's profile page»): nobody this phone knows yet, but the
-                // post names them -- the tap opens the road
-                else if (table && w == null && Board.atName(p) != null) pressable { reached(act, it.wall, p) { r -> openWriter(act, r) } }
             }, lp(0, WRAP, 1f))
             // THE POST'S OWN MENU (iOS MTBoardCell menuItems, MontanaBoardViews.swift:404-441 at 2155): on every wall, while the post is
             // not on its way (postMenu)
@@ -1767,9 +1663,9 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
 
 /**
  * THE COUNTS OF A POST (iOS counters 445-487): like, comments, keepers, reposts; in the corner the eye with the views where the wall's owner
- * counts them. NO DOWNLOADS UNDER A POST (iOS 2358, the author's word 16165 p.3): the row ends with the eye alone. A POST OF THE TABLE ANSWERS THROUGH ITS WRITER'S @NAME (iOS counters, 8b1932d3 (5) at 2351; the
- * author's word 14475): its marks stand as on any post, and the first one taken opens the road (reached); the mark is drawn on the
- * table's row at once.
+ * counts them. NO DOWNLOADS UNDER A POST (iOS 2358, the author's word 16165 p.3): the row ends with the eye alone.
+ * A TABLE POST TAKES NO MARK (iOS 2360 counters, decision 613, the author's word 05.11.2026 «Да, как в iOS»): no like, no keeping, no repost;
+ * its comments and the eye stay.
  */
 private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openComments: () -> Unit): View = act.hstack {
     val c: Context = act
@@ -1788,33 +1684,21 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
         if (onHold != null) setOnLongClickListener { onHold(); true }
     }, lp(WRAP, dp(44)).apply { marginEnd = dp(14) })
     val liked = p.optBoolean("liked")
-    mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like,
-        onHold = { act.push { close -> wallPeoplePage(act, it.wall, id, likes = true, onClose = close) } }) {
-        if (table) {
-            val on = !liked
-            reached(act, it.wall, p) { r -> Board.like(r, p); WallGlobal.mark(id) { s -> if (on) s.put("liked", true) else s.remove("liked"); s.put("likes", maxOf(0, s.optInt("likes") + (if (on) 1 else -1))) } }
-        } else Board.like(it.wall, p)
-    }
+    if (!table) mark(if (liked) R.drawable.ic_heart_fill else R.drawable.ic_heart, p.optInt("likes"), if (liked) MT.red else MT.gray, R.string.wall_like,
+        onHold = { act.push { close -> wallPeoplePage(act, it.wall, id, likes = true, onClose = close) } }) { Board.like(it.wall, p) }
     // a repost counts its original's thread (iOS d71617c6, board.thread(of:on:)?.post.commentCount ?? 0)
     mark(R.drawable.ic_set_textbubble, Board.thread(it.wall, p)?.second?.optInt("commentCount") ?: 0, MT.gray, R.string.wall_comments, onTap = if (whole) null else openComments)
-    // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
-    mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
-        val on = !p.optBoolean("kept")
-        if (table) reached(act, it.wall, p) { r ->
-            Thread {
-                if (on) Board.keep(r, p) else Board.unkeep(r, p)
-                WallGlobal.mark(id) { s -> if (on) s.put("kept", true) else s.remove("kept"); s.put("keepers", maxOf(0, s.optInt("keepers") + (if (on) 1 else -1))) }
-            }.start()
+    if (!table) {
+        // THE POST'S PEERS ANSWER THE FINGER (iOS counters 452-454): a tap saves the post -- its files come here and stay -- or lets it go
+        mark(if (p.optBoolean("kept")) R.drawable.ic_tray_full_fill else R.drawable.ic_tray_down, p.optInt("keepers"), if (p.optBoolean("kept")) android.graphics.Color.WHITE else MT.gray, R.string.wall_keepers) {
+            val on = !p.optBoolean("kept")
+            Thread { if (!on) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
         }
-        else Thread { if (!on) Board.unkeep(it.wall, p) else Board.keep(it.wall, p) }.start()
+        // A REPOST FROM ITS MARK (iOS counters 455-457): on another's wall, of a post neither mine nor reposted yet
+        val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
+        mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
+            onTap = if (!reposts) null else ({ Thread { Board.repost(it.wall, p) }.start() }))
     }
-    // A REPOST FROM ITS MARK (iOS counters 455-457): on another's wall, of a post neither mine nor reposted yet; a post of the table
-    // by the road its writer's @name opens
-    val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
-    mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
-        onTap = if (!reposts) null else if (table) ({
-            reached(act, it.wall, p) { r -> Thread { Board.repost(r, p); if (MyWall.post(id) != null) WallGlobal.mark(id) { s -> if (!s.optBoolean("reposted")) { s.put("reposted", true); s.put("reposts", s.optInt("reposts") + 1) } } }.start() }
-        }) else ({ Thread { Board.repost(it.wall, p) }.start() }))
     spacer()
     if (p.has("views")) {
         addView(c.hstack {
@@ -1876,7 +1760,7 @@ private fun postMenu(act: MainActivity, anchor: View, wall: String, p: JSONObjec
 
 /**
  * A POST GOES OUT AS ITS SHORT LINK (iOS MTPostLinkItem, MontanaBoardViews.swift:2205-2232 at 2155): the platform's own share with the
- * link that opens the post inside Montana -- the wall's nick and the post's number where they are (Board.linkPost) --, titled by its
+ * link that opens the post inside Montana (Board.linkPost), titled by its
  * writer and the first of its words. The link goes as a person reads it (MTLinks.readable, 2223-2230): the letters of a name, never the
  * bytes of a URL -- this phone's share hands every door the one text.
  */
@@ -1884,7 +1768,7 @@ private fun sharePost(act: MainActivity, wall: String, p: JSONObject) {
     val words = p.optString("text").trim()
     val title = if (words.isEmpty()) p.optString("byName") else p.optString("byName") + " · " + words.take(160)   // USER-DATA: the writer's name and words
     val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
-        .putExtra(android.content.Intent.EXTRA_TEXT, Board.linkPost(p, wall)).putExtra(android.content.Intent.EXTRA_TITLE, title)
+        .putExtra(android.content.Intent.EXTRA_TEXT, Board.linkPost(p)).putExtra(android.content.Intent.EXTRA_TITLE, title)
     runCatching { act.startActivity(android.content.Intent.createChooser(send, null)) }
 }
 
@@ -1927,7 +1811,7 @@ fun wallChainPage(act: MainActivity, wall: String, id: String, onClose: () -> Un
                     val f = Board.chainFile(p)
                     act.runOnUiThread {
                         val send = android.content.Intent(android.content.Intent.ACTION_SEND).setType(if (f != null) "text/markdown" else "text/plain")
-                            .putExtra(android.content.Intent.EXTRA_TEXT, Board.linkPost(p, wall))
+                            .putExtra(android.content.Intent.EXTRA_TEXT, Board.linkPost(p))
                         if (f != null) send.putExtra(android.content.Intent.EXTRA_STREAM, Media.uri(c, f)).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         runCatching { act.startActivity(android.content.Intent.createChooser(send, null)) }
                     }
@@ -1942,23 +1826,6 @@ fun wallChainPage(act: MainActivity, wall: String, id: String, onClose: () -> Un
             addView(ScrollView(c).apply { isVerticalScrollBarEnabled = false; addView(body) }, lp(MATCH, 0, 1f))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
     }
-}
-
-/**
- * THE TABLE POST'S WORD GOES BY THE PIPE ITS WRITER'S @NAME OPENS (iOS MTBoardCell.reached, 8b1932d3 (5) at 2351): held already -- at
- * once; not held -- the meeting door opens one (Board.reachOpen), then the word goes; no name, or a name that did not answer -- the
- * person is told, and nothing is sent. `then` runs on the main thread.
- */
-private fun reached(act: MainActivity, wall: String, p: JSONObject, then: (String) -> Unit) {
-    Board.reach(p, wall)?.let { then(it); return }
-    Thread {
-        val r = Board.reachOpen(p, wall)
-        act.runOnUiThread {
-            if (r != null) then(r)
-            else android.app.AlertDialog.Builder(act).setTitle(R.string.wall_not_sent).setMessage(R.string.wall_reach_refused)
-                .setPositiveButton(android.R.string.ok, null).show()
-        }
-    }.start()
 }
 
 /**

@@ -70,16 +70,6 @@ object WallGlobal {
         return o.keys().asSequence().associateWith { o.optString(it) }.toMutableMap()
     }
 
-    /**
-     * A TABLE POST ANSWERED THROUGH ITS WRITER'S PIPE (iOS MTBoardGlobal.mark, 8b1932d3 (5) at 2351): the word left by the pipe the
-     * @name opened (Board.reachOpen); until the writer's page comes and takes the post over, the mark is drawn on the table's own row
-     * here, so the finger sees what it did.
-     */
-    fun mark(id: String, change: (JSONObject) -> Unit) {
-        synchronized(lock) { posts.firstOrNull { it.second.optString("id") == id }?.second?.let(change) } ?: return
-        Board.tableMoved()
-    }
-
     // ── the owner lays ──
     fun laySoon() = MainThread.post {
         layWork?.let { MainThread.cancel(it) }
@@ -204,7 +194,6 @@ object WallGlobal {
             for (k in listOf("mine", "liked", "kept", "reposted", "pinned", "from", "ln")) s.remove(k)   // a stranger's row names nobody who liked
             s.put("own", true).put("comments", JSONArray())
             // a name only as the layer spells one; anything else is no road (iOS fetch, 8b1932d3 (5) at 2351)
-            s.optString("nm").takeIf { it.isNotEmpty() }?.let { Names.normalize(it) }?.let { s.put("nm", it) } ?: s.remove("nm")
             s.put("byName", s.optString("byName").filter { !Character.isISOControl(it) && Character.getType(it) != Character.FORMAT.toInt() }.take(64))
             out.add(r to s)
         }
