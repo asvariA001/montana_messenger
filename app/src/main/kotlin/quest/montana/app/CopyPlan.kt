@@ -388,10 +388,12 @@ fun copyFilesPage(desk: CopyDesk, kind: CopyKind, close: () -> Unit): View {
     }
     fun drawBar() {
         val list = here()
-        select.visibility = if (choosing) View.GONE else View.VISIBLE
+        // Choosing serves only the bin, and the bin only a node that holds the files (iOS MTHomeShelf.bringing): with no node, no marks.
+        val bringing = HomeShelf.bringing
+        select.visibility = if (choosing || !bringing) View.GONE else View.VISIBLE
         select.alpha = if (list.isEmpty()) 0.4f else 1f
         select.isEnabled = list.isNotEmpty()
-        for (m in listOf(all, bin, done)) m.visibility = if (choosing) View.VISIBLE else View.GONE
+        for (m in listOf(all, bin, done)) m.visibility = if (choosing && bringing) View.VISIBLE else View.GONE
         all.setImageResource(if (list.isNotEmpty() && chosen.size == list.size) R.drawable.ic_set_check_circle else R.drawable.ic_check_circle_outline)
         bin.alpha = if (chosen.isEmpty()) 0.4f else 1f
     }
@@ -457,16 +459,18 @@ fun copyFilesPage(desk: CopyDesk, kind: CopyKind, close: () -> Unit): View {
                 // a hold: what iOS's swipes offer -- out of the copy (or back) from the left, off this phone from the right
                 setOnLongClickListener { v ->
                     if (choosing) return@setOnLongClickListener false
+                    val deletable = HomeShelf.bringing   // iOS: a file leaves this phone only on the word of a node that holds it (removeHeld)
+                    if (!deletable && !free(name)) return@setOnLongClickListener false
                     val menu = android.widget.PopupMenu(act, v, Gravity.END)
                     if (free(name)) menu.menu.add(0, 1, 0, if (inv.scope(desk.plan).takes(name)) R.string.cp_leave_out else R.string.cp_put_back)
-                    menu.menu.add(0, 2, 1, R.string.cp_remove_phone)
+                    if (deletable) menu.menu.add(0, 2, 1, R.string.cp_remove_phone)
                     menu.setOnMenuItemClickListener { item -> if (item.itemId == 1) flip(name) else askRemove(name); true }
                     menu.show()
                     true
                 }
             }.also { rowOf[name] = it }
         }
-        if (rows.isNotEmpty()) section(null, c.getString(R.string.cp_files_hint), *rows.toTypedArray())
+        if (rows.isNotEmpty()) section(null, if (HomeShelf.bringing) c.getString(R.string.cp_files_hint) else null, *rows.toTypedArray())   // the hint names the removal, which needs a node
         desk.on { drawBar() }
     }
     (bar.layoutParams as? android.widget.FrameLayout.LayoutParams)?.let { it.width = WRAP; bar.layoutParams = it }
