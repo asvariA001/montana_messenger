@@ -333,6 +333,12 @@ object CallScreen {
             gap(8)
             addView(capsule(R.string.call_decline, SysColor.red, Color.WHITE) { CallLine.declineAsk() }, lp(WRAP, dp(44)))
         }
+        // THE ASKER SEES THE ASK (iOS 2360): the same place the peer's plate stands, as long as the ask waits for a word back
+        val sentPlate = plate {
+            addView(c.icon(R.drawable.ic_peer_video, Color.WHITE, 18), lp(dp(18), dp(18)))
+            gap(8)
+            addView(c.text(c.getString(R.string.call_video_sent), 15f, Color.WHITE).apply { maxLines = 2; setPadding(0, dp(8), dp(6), dp(8)) }, lp(WRAP, WRAP))
+        }
         // MY CAMERA, OFFERED (iOS 6768-6788): their picture came while mine sleeps — «Turn on your video?», «Turn On», the close
         val turnPlate = plate {
             addView(c.text(c.getString(R.string.call_turn_on_video), 15f, Color.WHITE).apply { maxLines = 2 }, lp(WRAP, WRAP, 1f))
@@ -393,6 +399,7 @@ object CallScreen {
             addView(voiceHead, lp())
             addView(View(c), lp(MATCH, 0, 1f))
             addView(askPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
+            addView(sentPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
             addView(turnPlate, lp(WRAP, WRAP).apply { leftMargin = dp(16); rightMargin = dp(16); bottomMargin = dp(12) })
             addView(grid, lp(WRAP, WRAP))
             addView(stopShare, lp(dp(56), dp(56)))
@@ -467,11 +474,11 @@ object CallScreen {
             shade.visibility = if (!shown && !CallLine.peerSharing) View.VISIBLE else View.GONE
             // THE COVER (iOS applyCovers 5491-5495): held, held by the far side, or the witnessed frames stood
             // still -- the slot carrying their picture wears their blurred face instead of the stale frame.
-            val covered = pip && (CallLine.held || CallLine.heldByPeer || (CallLine.peerPaused && !CallLine.peerSharing))
+            val covered = pip && (CallLine.held || CallLine.heldByPeer || CallLine.peerCameraOff || (CallLine.peerPaused && !CallLine.peerSharing))
             remoteCoverBig.visibility = if (covered && !bigLocal) View.VISIBLE else View.GONE
             remoteCoverMini.visibility = if (covered && bigLocal && shown) View.VISIBLE else View.GONE
             // THE COVERS HAVE ONE OWNER (iOS applyCovers 5484-5497): mine while I hold, my camera is off or the system took it
-            val ownCovered = CallLine.video && (CallLine.held || !CallLine.camera || CallLine.selfPaused)
+            val ownCovered = CallLine.video && (CallLine.held || !CallLine.camera || CallLine.rests || CallLine.selfPaused)
             selfCoverBig.visibility = if (ownCovered && bigLocal) View.VISIBLE else View.GONE
             selfCoverMini.visibility = if (ownCovered && !bigLocal && shown) View.VISIBLE else View.GONE
             val said = "remote=" + (if (covered) 1 else 0) + " self=" + (if (ownCovered) 1 else 0)
@@ -540,13 +547,14 @@ object CallScreen {
             column.visibility = if (v && chromeHidden) View.INVISIBLE else View.VISIBLE
             val head = if (v && !screen) View.VISIBLE else View.INVISIBLE
             title.visibility = head   // the room stands always: its record mark is the voice call's too (iOS 8035-8037)
-            flip.visibility = if (v && !screen && CallLine.camera) View.VISIBLE else View.INVISIBLE
+            flip.visibility = if (v && !screen && CallLine.camera && !CallLine.rests) View.VISIBLE else View.INVISIBLE
             timeLine.visibility = if (v && !screen) View.VISIBLE else View.GONE
             events.visibility = timeLine.visibility
             voiceHead.visibility = if (v || mine) View.GONE else View.VISIBLE
             grid.visibility = if (screen) View.GONE else View.VISIBLE
             stopShare.visibility = if (mine) View.VISIBLE else View.GONE
             askPlate.visibility = if (CallLine.asked && !screen) View.VISIBLE else View.GONE
+            sentPlate.visibility = if (CallLine.asking && !CallLine.asked && !CallLine.video && !screen) View.VISIBLE else View.GONE
             turnPlate.visibility = if (CallLine.offerMine && v && !screen) View.VISIBLE else View.GONE
             page.keepScreenOn = v   // iOS applyScreenHold: a video call holds the screen awake
             sides()

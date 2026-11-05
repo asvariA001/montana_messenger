@@ -1262,7 +1262,7 @@ class Chat(val ref: String, var name: String, var perm: Boolean = false, var unr
         .put("pn", pin ?: "").put("nt", note)
         .put("ae", ans ?: "").put("am", ansMine).put("ar", ansMid ?: "").put("aat", ansAt)
         .put("msgs", JSONArray().apply { msgs.forEach { put(it.json()) } })
-    val last: Msg? get() = msgs.lastOrNull { !ChessLetter.isStep(it.text) }   // a game's step is the board's, never the list's record
+    val last: Msg? get() = msgs.lastOrNull { !ChessLetter.isStep(it.text) && !OldRecordings.hidden(it) }   // a game's step is the board's, never the list's record; an old call recording is nobody's (OldRecordings)
     /** Written by the two doors a reaction has, mine and theirs; an answer taken back leaves the row to the feed. */
     fun noteAnswer(e: String?, mine: Boolean, m: Msg, at: Long = System.currentTimeMillis()) {
         if (e.isNullOrEmpty()) { if (ansMid == m.mid) { ans = null; ansMid = null; ansAt = 0 }; return }
@@ -2665,9 +2665,6 @@ object Post {
         }
         val secret = (point?.let { listOf(it) } ?: MontanaCard.outstandingRoots()).firstNotNullOfOrNull { r ->
             MontanaCard.acceptAt(ct, r, opens)?.also { root = r }
-        } ?: Names.heldRoot()?.takeIf { mine -> point == null || point.contentEquals(mine) }?.let { mine ->
-            // a stranger who knocked at the name I hold (iOS openFirst 1206-1217): the name's own key, the same seal as the proof
-            Names.acceptFirst(ct, opens)?.also { root = mine }
         }
         val body = plain
         val card = root
@@ -2990,6 +2987,7 @@ object Post {
             Book.diedBefore(ref, mid) -> { Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — born before the conversation's funeral"); receipt(ref, sid) }
             else -> {
                 var isNew = false
+                val quiet = OldRecordings.notice(text)   // an old build's recording notice lands hidden: no count, no banner
                 if (lp != null) Log.d("Montana", "link card: rides the letter mid=" + mid.take(8))
                 Presence.noteSeen(ref, Marks.birthMs(mid), "letter")   // a person's own word stamps the moment it was written (iOS append)
                 // A LETTER CARRYING A SET'S LINK NAMES ITS GIVER (iOS ChatStore 4597-4601): the hand that passed it is whom it is asked of
@@ -3005,7 +3003,7 @@ object Post {
                     // in the sender's chat stands in the receiver's): a media row without its file takes the copy's manifest -- the sender
                     // re-uploaded under the same name -- and the assembly receipts when the file is whole; nothing erased, nothing doubled
                     if (had != null && text.startsWith(Marks.MEDIA) && had.text != text && had.file?.let { File(it).exists() } != true) {
-                        had.text = text; had.meta = null
+                        had.text = text; had.meta = null; Media.liftGone(mid)
                         Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
                     }
                     if (had == null && Book.isBuried(ref, mid)) Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed")
@@ -3015,7 +3013,7 @@ object Post {
                         // A LOCKED PHONE DOES NOT READ WHAT IT CANNOT SHOW (iOS placeRow, MontanaChatStore.swift:184 at 2155): a letter
                         // landing with the chat left open while the app itself is backgrounded used to be born read, and the icon never
                         // met it; the open chat alone is not enough, the app must stand before the person too (MTForeground.active).
-                        if (Book.openChat != ref || !Presence.shown) c.unread++
+                        if (!quiet && (Book.openChat != ref || !Presence.shown)) c.unread++
                         if (c.name.isEmpty() && name.isNotBlank()) c.name = name
                         isNew = true
                     }
@@ -3023,7 +3021,7 @@ object Post {
                 // A MEDIA LETTER IS ANSWERED ONLY ONCE ITS FILE IS ASSEMBLED (iOS: the receipt waits for the file).
                 if (text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text) else receipt(ref, sid)
                 if (isNew && Book.openChat == ref) markRead(ref)
-                if (isNew && Book.openChat != ref) Notify.letter(ref, text, mid = mid)
+                if (isNew && !quiet && Book.openChat != ref) Notify.letter(ref, text, mid = mid)
                 if (isNew) CoinSend.landed(ref, mid, text, qt)   // a coin letter is credited once by its wire name (iOS MTCoinSend)
                 if (isNew) takeEdit(ref, mid)?.let { applyEdit(ref, mid, it) }   // the words that outran the letter (iOS takePendingEdit)
             }

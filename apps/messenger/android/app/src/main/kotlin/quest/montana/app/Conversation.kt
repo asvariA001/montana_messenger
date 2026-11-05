@@ -502,7 +502,7 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                     // the ladder's dots left of the hour, only when the last word was mine; a letter that did not go, the red mark
                     // THE ROW READS A PLATE AS ITS LINE DOES (iOS ChatStore.ladderLetter, MTLadder): the last plate's slowest letter, so
                     // one pick never says two things at once — read on the feed's tail, where a plate stands whole
-                    val stage = if (!last.mine) last else feedRows(chat.msgs.takeLast(30).filter { !ChessLetter.isStep(it.text) }).lastOrNull()
+                    val stage = if (!last.mine) last else feedRows(chat.msgs.takeLast(30).filter { !ChessLetter.isStep(it.text) && !OldRecordings.hidden(it) }).lastOrNull()
                         ?.takeIf { r -> r.any { it.mid == last.mid } }?.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: last
                     addView(FrameLayout(c).apply {
                         addView(c.hstack {
@@ -881,7 +881,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // ── the feed ──
     // THE FIRST UNREAD AT THIS OPENING (iOS firstUnreadId, MontanaConversation 1225, 2661): the quiet «Unread messages» line stands
     // before it while the page does; read before the page marks the chat read
-    val firstUnread = Book.chat(ref)?.let { ch -> if (0 < ch.unread) ch.msgs.filter { !it.mine }.takeLast(ch.unread).firstOrNull()?.mid else null }
+    val firstUnread = Book.chat(ref)?.let { ch -> if (0 < ch.unread) ch.msgs.filter { !it.mine }.takeLast(ch.unread).firstOrNull { !OldRecordings.hidden(it) }?.mid else null }
     // THE ROWS ARE KEPT BY THEIR LETTER (iOS MTFeedListView.apply, MontanaMessageFeed 821-913 at 2155: the snapshot names each cell
     // by its letter's MID and reconfigures only a cell whose fingerprint moved): every child of the column is named -- a letter's row
     // by its first letter, a day's line and the unread line by the letter they stand before -- and carries the signature of what it
@@ -1007,8 +1007,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // switches -- the skin, the reply's pull, the «played» word of the rung, the automatic download a waiting file obeys
         fun signOf(row: List<Msg>): List<Any?> {
             val m = row[0]
-            val s = ArrayList<Any?>(10 * row.size + 12)
-            for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp) }
+            val s = ArrayList<Any?>(11 * row.size + 12)
+            for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp); s.add(x.file == null && x.text.startsWith(Marks.MEDIA) && Media.cargoGone(x.mid)) }
             s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
             s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
             s.add(if (channel) ChannelViews.views(m, ref) else -1)
@@ -1145,7 +1145,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         var lastDay = -1L
         // A MEDIA GROUP IS ONE ROW (iOS buildRows): its letters stand as one plate, chosen, forwarded and deleted together
         val asked = if (searching) searchFold(searchQuery.trim()) else ""
-        val rows = feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) }).toList()
+        val rows = feedRows(chat.msgs.filter { !ChessLetter.isStep(it.text) && !OldRecordings.hidden(it) }).toList()
             .let { all -> if (asked.isEmpty()) all else all.filter { r -> r.any { searchFold(searchWords(c, it)).contains(asked) } } }
         // A FOUND LETTER IS A WAY TO ITS PLACE (iOS searchJump: the row takes no tap of its own, the tap goes to the letter's place)
         fun searchHit(v: View, mid: String): View = FrameLayout(c).apply {

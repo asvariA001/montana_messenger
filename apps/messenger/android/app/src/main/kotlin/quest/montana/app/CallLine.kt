@@ -183,6 +183,11 @@ object CallLine {
     // MY OWN CAMERA WAS TAKEN BY THE SYSTEM (iOS CallUIModel.selfPaused 5482, noteSelfPicture 3900-3906): its own two words --
     // taken (disconnected, a fault) and given back (its first frame) -- never a guess from frames
     @Volatile var selfPaused = false
+    // MY CAMERA RESTS, THE PEER'S PICTURE STAYS (iOS cameraMutedByPerson, CallUIModel.cameraOff and peerCameraOff, 2360): each side
+    // turns off only its own camera; the video ends when the last live camera leaves
+    @Volatile var rests = false
+    @Volatile var peerCameraOff = false
+    @Volatile private var askedAt = 0L   // my last ask: a yes after the plate's 30 s still turns the call, within 120 s (iOS videoAskedAt, K2)
         private set
     // THE LIGHT BEFORE THE CALL'S NAME (iOS MTCallLight 5424-5435, CallUIModel.signal 5466): 2 green -- clean at the top
     // step, 1 yellow -- held below it, 0 red -- squeezed now; a break reddens it whatever the ladder says.
@@ -370,7 +375,7 @@ object CallLine {
             runCatching { replacing.remote?.dispose() }
             runCatching { replacing.pc.dispose() }
             runCatching { replacing.source.dispose() }
-            remoteLive = false; peerSharing = false; sniffed = false
+            remoteLive = false; peerSharing = false; sniffed = false; rests = false; peerCameraOff = false
             moved()
             return l
         }
@@ -652,7 +657,7 @@ object CallLine {
             l.remoteSet = true
             drain(l)
             // the offer decides whether the call goes on with video (iOS adoptVideoFromOffer, 3685-3686)
-            if (offer.contains("m=video")) { video = true; if (camera(l)) place(l) } else if (video) { video = false; remoteLive = false }
+            if (offer.contains("m=video")) { video = true; if (camera(l)) place(l) } else if (video) { video = false; remoteLive = false; if (rests) { runCatching { l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender?.setTrack(null, false) }; cameraOff(l) }; rests = false; peerCameraOff = false }
             moved()
             CallService.sync()
             l.pc.createAnswer(sdp(onMade = { d ->
@@ -754,6 +759,7 @@ object CallLine {
         held = false
         heldByPeer = false
         video = false; asking = false; joinPending = false; joinRound++; asked = false; offerMine = false; remoteLive = false; peerSharing = false; swapped = false
+        rests = false; peerCameraOff = false; askedAt = 0L
         front = true; sniffed = false; askRound++; sharing = false; peerPaused = false; selfPaused = false; cameraTold = false; peerShape = null
         peerRebuilds = false
         powerFloorNow = 0; powerSaving = false; signal = 2   // the counters and the lights belong to one call (iOS 3066-3072)
@@ -998,15 +1004,21 @@ object CallLine {
         if (sharing) return stopShare()   // «Video» ends the share; the camera comes back as it was (iOS 3139)
         // IN VIDEO WITHOUT MY CAMERA (iOS 214dc096, K4): the peer's picture came first -- the press joins my camera, never ends the video
         if (video && l.vtrack == null) { l.armedAt = 0L; work.execute { enableMine(l) }; return }
-        if (video) { work.execute { drop(l, aloud = true) }; return }
+        // MY PRESS RESTS MY CAMERA ONLY (iOS 2360, toggleVideo): the video ends at both only when the last live camera leaves
+        if (video) {
+            work.execute { if (rests) raise(l) else if (!peerCameraOff) rest(l) else drop(l, aloud = true) }
+            return
+        }
         // THE YES ALREADY GIVEN WAITS FOR THE ASKER'S PICTURE (iOS K1): a press between my consent and their offer asks nothing anew
         if (fresh(l)) { log("video: consent already given -- the camera joins with the offer"); return }
-        if (asking) return
+        // A PRESS WHILE ASKING ASKS AGAIN (iOS 2360): the first word may have gone through a door that did not deliver; the 30 s start anew
+        val again = asking
         asking = true
+        askedAt = System.currentTimeMillis()
         val round = ++askRound
         moved()
         work.execute { say(l, JSONArray().put(word(l, "call-video-ask"))) }
-        log("video: consent asked")
+        log(if (again) "video: consent asked again" else "video: consent asked")
         MainThread.later(30_000) { if (askRound == round && asking) { asking = false; moved(); log("video: consent timeout") } }
     }
 
@@ -1068,9 +1080,23 @@ object CallLine {
                 asking -> { askRound++; asking = false; log("video: asks crossed -- the callee yields"); acceptAsk() }
                 else -> { asked = true; log("video: consent asked by peer") }
             }
-            "call-video-ok" -> { askRound++; log("video: consent granted"); if (asking) { asking = false; upgrade(l) } }
-            "call-video-no" -> { askRound++; asking = false; log("video: consent declined") }
+            // A YES AFTER THE PLATE'S TIMEOUT STILL TURNS THE CALL (iOS 2360, K2): my ask lives 120 s; a yes without my ask is ignored
+            "call-video-ok" -> {
+                askRound++
+                log("video: consent granted")
+                val mine = asking || System.currentTimeMillis() - askedAt < 120_000L
+                asking = false; askedAt = 0L
+                if (!mine) log("video: consent granted without my ask -- ignored") else if (!video) upgrade(l)
+            }
+            "call-video-no" -> { askRound++; asking = false; askedAt = 0L; log("video: consent declined") }
             "call-video-end" -> drop(l, aloud = false)
+            // THEIR CAMERA RESTS (iOS 3281-3291): their picture wears their cover; if mine rests too, both sides reach the voice
+            "call-camera-off" -> if (video) {
+                peerCameraOff = true
+                log("video: peer's camera rests mine=" + (if (rests) "resting" else "live"))
+                if (rests) drop(l, aloud = false)
+            }
+            "call-camera-on" -> { peerCameraOff = false; log("video: peer's camera rises again") }
             "call-restart" -> restart(l, w)
             "call-restart-answer" -> restartAnswer(l, w)
             // their screen (iOS 2509-2543): it grows a voice call into a video one while it rides; its end says what the call was.
@@ -1484,7 +1510,7 @@ object CallLine {
         offerMine = false
         if (synchronized(gate) { line !== l } || l.connectedAt == 0L) return moved()
         val track = l.vtrack
-        if (track != null) { track.setEnabled(true); return moved() }
+        if (track != null) { if (rests) raise(l) else track.setEnabled(true); return moved() }
         video = true
         if (camera(l)) { place(l); reoffer(l) }
         moved()
@@ -1498,10 +1524,36 @@ object CallLine {
         if (aloud) say(l, JSONArray().put(word(l, "call-video-end")))
         runCatching { l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender?.setTrack(null, false) }
         cameraOff(l)
-        video = false; remoteLive = false; offerMine = false; swapped = false
+        video = false; remoteLive = false; offerMine = false; swapped = false; rests = false; peerCameraOff = false
         moved()
         CallService.sync()
         log("video: ended aloud=" + aloud)
+    }
+
+    /** My camera rests (iOS restMyCamera): the capturer stops, the track falls silent, the far side is told so its cover stands at once. */
+    private fun rest(l: Line) {
+        if (!video || rests || sharing) return
+        rests = true
+        l.camGen++   // a fault of the capturer stopped here raises nothing
+        val cam = l.cam
+        l.cam = null
+        runCatching { cam?.stopCapture() }
+        runCatching { cam?.dispose() }
+        runCatching { l.vtrack?.setEnabled(false) }
+        say(l, JSONArray().put(word(l, "call-camera-off")))
+        moved()
+        log("video: my camera rests, the peer's picture stays")
+    }
+
+    /** My camera rises again (iOS raiseMyCamera): into the same track through a fresh capturer. */
+    private fun raise(l: Line) {
+        if (!video || !rests) return
+        rests = false
+        runCatching { l.vtrack?.setEnabled(true) }
+        startCam(l)
+        say(l, JSONArray().put(word(l, "call-camera-on")))
+        moved()
+        log("video: my camera rises again")
     }
 
     /** Their first frame drawn (iOS remoteVideoArrived 5191): the call grows video; my fresh «yes» brings my camera, else it is offered. */

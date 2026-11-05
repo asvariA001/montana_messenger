@@ -451,7 +451,7 @@ object Media {
     /** Every media letter of theirs still without its file is asked for (once at a time), and «delivered» follows the file. */
     fun fetchPending(c: Context) {
         val auto = autoAllowed(c)
-        for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null) {
+        for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null && !OldRecordings.hidden(m)) {
             // a file that waits for a tap still has its manifest read: its small face, its kind and its group stand at once
             if (auto) fetch(c, ch.ref, m.mid, m.text) else if (m.meta == null) learn(ch.ref, m.mid, m.text)
         }
@@ -472,7 +472,7 @@ object Media {
         }.start()
     }
     private fun keepManifest(ref: String, mid: String, man: JSONObject) =
-        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { if (it.meta == null) it.meta = man.toString() } }
+        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { if (it.meta == null) { it.meta = man.toString(); OldRecordings.uncount(ch, it) } } }
 
     /**
      * AUTOMATIC DOWNLOAD FOR THE CONNECTION THE PHONE IS ON (iOS MontanaNet.autoDownloadAllowed): the mobile or the Wi-Fi switch of
@@ -489,8 +489,19 @@ object Media {
         // A FILE YOUR NODE KEEPS (iOS MTHomeKeep.want, 6f24f091): the cache cleared it, a look brings it back by the download
         // setting, else it waits for a tap as a letter's attachment does -- mine as well as theirs
         if (HomeKeep.kept(m.file)) { HomeKeep.want(c, m); return !autoAllowed(c) }
-        return !m.mine && m.file?.let { File(it).exists() } != true && !autoAllowed(c)
+        return !m.mine && m.file?.let { File(it).exists() } != true && (!autoAllowed(c) || cargoGone(m.mid))
     }
+    /**
+     * THE VERDICT ON A LOST CARGO OUTLIVES THE LAUNCH (iOS markPendingCargoGone, retryOneMedia): every store called a piece gone, so the
+     * automatic road stops asking and the row stops spinning: it waits for a tap as a letter's attachment does. Two doors lift the
+     * verdict, the hand (fetch with manual) and a fresh manifest from the sender (Post, rx_refill).
+     */
+    private const val GONE = "mediaCargoGone.v1"   // NOT-UI: a key's name
+    private fun goneMids(): MutableSet<String> = synchronized(GONE) { Prefs.str(GONE, "").split('\n').filterTo(LinkedHashSet()) { it.isNotEmpty() } }
+    fun cargoGone(mid: String): Boolean = mid in goneMids()
+    private fun markGone(mid: String) = synchronized(GONE) { Prefs.setStr(GONE, (goneMids() + mid).joinToString("\n")) }
+    fun liftGone(mid: String) = synchronized(GONE) { val all = goneMids(); if (all.remove(mid)) Prefs.setStr(GONE, all.joinToString("\n")) }
+
     /** The tap on a waiting attachment: its file is asked for now, whatever the switch (iOS: a tap starts the queued download). */
     fun tapped(c: Context, m: Msg) {
         if (HomeKeep.kept(m.file)) return HomeKeep.bring(c, m, force = true)   // iOS retryOneMedia: a file your node keeps comes back from it
@@ -500,9 +511,10 @@ object Media {
 
     fun fetch(c: Context, ref: String, mid: String, text: String, manual: Boolean = false, own: Boolean = false) {
         if (!manual && !autoAllowed(c)) { Log.d("Montana", "media: automatic download is off -- the attachment waits for a tap"); return }
+        if (manual) { liftGone(mid); Wire.forgetGone() } else if (cargoGone(mid)) return
         synchronized(inFlight) {
             val now = System.currentTimeMillis()
-            if ((lastTry[mid] ?: 0) > now - 60_000 || !inFlight.add(mid)) return
+            if ((!manual && (lastTry[mid] ?: 0) > now - 60_000) || !inFlight.add(mid)) return   // a hand does not wait out the minute
             lastTry[mid] = now
         }
         Thread {
@@ -510,6 +522,7 @@ object Media {
                 val man = manifest(text) ?: return@Thread
                 // THE MANIFEST LANDS BEFORE THE FILE: the row folds into its group and shows its small face while the pieces travel
                 keepManifest(ref, mid, man)
+                if (OldRecordings.caption(man)) return@Thread   // an old call recording is hidden: nothing is drawn, so nothing is fetched
                 val dest = file(c, mid, man.optString("e"))
                 // HONEST RECEPTION (iOS MontanaChatStore.swift:4800-4813): the ring at once, then every piece that came moves it
                 val size = man.optLong("sz")
@@ -518,7 +531,10 @@ object Media {
                     // THE ROW STAYS, THE SENDER IS TOLD (iOS MontanaChatStore 4635-4649, atom aeabdc576605): a cargo every store called
                     // gone is knowledge -- the bubble stands without its file and the sender hears it once; a silent store is no verdict
                     val chunks = man.optJSONArray("chunks")
-                    if (!own && !Groups.isKey(ref) && chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) Post.cargoLost(ref, mid)
+                    if (chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) {
+                        markGone(mid); Book.edit(ref) { }   // the row's spinner gives way to the tap's arrow
+                        if (!own && !Groups.isKey(ref)) Post.cargoLost(ref, mid)
+                    }
                     return@Thread
                 }
                 landed(c, ref, mid, man, dest, own)

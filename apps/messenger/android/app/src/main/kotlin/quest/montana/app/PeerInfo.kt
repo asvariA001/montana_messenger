@@ -419,7 +419,7 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
     // a post that did not change keeps its own cell where it stands: a mark does not shake the wall (PostCells)
     val wallCells = PostCells(act)
     drawPane = {
-        val msgs = select(tab, Book.chat(ref)?.msgs ?: emptyList(), group && !channel)   // a channel's films have their own pane
+        val msgs = select(tab, (Book.chat(ref)?.msgs ?: emptyList()).filter { !OldRecordings.hidden(it) }, group && !channel)   // a channel's films have their own pane
         if (tab == Tab.WALL) {
             val rows = mutableListOf<View>()
             fun row(v: View, top: Int = 10) { if (v.layoutParams == null) v.layoutParams = lp().apply { topMargin = c.dp(top) }; rows += v }

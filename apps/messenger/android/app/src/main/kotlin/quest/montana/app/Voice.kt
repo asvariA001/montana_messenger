@@ -370,7 +370,7 @@ object VoiceLength {
  *  MontanaMedia.swift:606-621 -- atoms 187adeae0742 and eb49f096614a). */
 private fun chatVoiceQueue(chat: Chat): List<Triple<String, String, Boolean>> = chat.msgs.mapNotNull { r ->
     val man = r.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(r.text)
-    if (man?.optString("k") != "aud") return@mapNotNull null
+    if (man?.optString("k") != "aud" || OldRecordings.caption(man)) return@mapNotNull null
     val f = r.file?.takeIf { File(it).exists() } ?: return@mapNotNull null
     Triple(f, if (r.mine) Prefs.userName.trim() else chat.shown, r.mine)
 }
@@ -483,7 +483,7 @@ private fun chatTracks(c: Context, chat: Chat): List<Pair<String, Track>> {
     val app = c.applicationContext
     return chat.msgs.toList().mapNotNull { r ->
         val man = Media.manifestOf(r)
-        if (!isTrackLetter(r, man) || man == null) return@mapNotNull null
+        if (!isTrackLetter(r, man) || man == null || OldRecordings.caption(man)) return@mapNotNull null
         val name = man.optString("n").ifEmpty { r.file?.let { File(it).name } ?: return@mapNotNull null }
         val uri = r.file?.let(::File)?.takeIf { it.exists() }?.let { android.net.Uri.fromFile(it) } ?: run {
             val dest = Media.file(app, r.mid, man.optString("e"))

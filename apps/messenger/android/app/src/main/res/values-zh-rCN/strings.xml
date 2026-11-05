@@ -401,6 +401,7 @@
     <string name="film_close">关闭</string>
     <string name="film_fold">画中画</string>
     <string name="call_video_ask">发起视频通话</string>
+    <string name="call_video_sent">视频请求已发送</string>
     <string name="call_turn_on_video">开启您的视频？</string>
     <string name="call_turn_on">开启</string>
     <string name="call_camera">相机</string>
@@ -556,8 +557,6 @@
     <string name="wall_views">浏览量</string>
     <string name="wall_likes">点赞</string>
     <string name="wall_nobody_yet">暂时没有人</string>
-    <string name="wall_not_sent">未发送</string>
-    <string name="wall_reach_refused">只能通过聊天联系作者，但无法打开聊天：对方未提供 @名称，或该名称没有回应。</string>
     <string name="wall_send">发送</string>
     <string name="wall_hide_person">隐藏此人</string>
     <string name="wall_save">保存</string>

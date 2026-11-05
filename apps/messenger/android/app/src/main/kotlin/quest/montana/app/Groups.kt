@@ -977,7 +977,7 @@ object Groups {
      */
     fun mentionsMe(words: String): Boolean {
         val low = words.lowercase()
-        return listOf(Prefs.userName, Names.heldName ?: "").map { it.trim().lowercase() }.filter { it.isNotEmpty() }.any { name ->
+        return listOf(Prefs.userName).map { it.trim().lowercase() }.filter { it.isNotEmpty() }.any { name ->
             var from = 0
             while (true) {
                 val at = low.indexOf("@$name", from)
@@ -2424,7 +2424,7 @@ object Groups {
         Book.edit(key) { c ->
             if (c.msgs.none { it.mid == id } && !Book.isBuried(key, id)) {   // a deleted letter's copy stays out (Book.bury)
                 c.msgs.add(Msg(id, words, false, at, qt = quote, qm = quoted, from = sp)); c.msgs.sortBy { it.at }
-                if (Book.openChat != key || !Presence.shown) c.unread++   // a locked phone reads nothing (iOS placeRow)
+                if (!OldRecordings.notice(words) && (Book.openChat != key || !Presence.shown)) c.unread++   // a locked phone reads nothing (iOS placeRow)
                 landed = true
             }
         }
@@ -2433,7 +2433,7 @@ object Groups {
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
         val past = w.optInt("hs") == 1 || w.optInt("sl") == 1   // the group's past handed to one just added (G.4), and a channel's silent post: no banner
-        if (landed && Book.openChat != key && !past) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
+        if (landed && Book.openChat != key && !past && !OldRecordings.notice(words)) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
             mentioned = g.kind == GROUP && mentionsMe(words))   // a mention rings through the mute (iOS presentGroup mentioned)
         if (landed && Book.openChat == key && g.kind == GROUP) readSoon(key)   // read before the eyes: the speaker hears it (B.13)
         // THE OWNER CARRIES IT ON (iOS heard, g.mine): to every other member, under the speaker's seat and the name they gave

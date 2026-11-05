@@ -94,7 +94,6 @@ class MainActivity : Activity() {
         render()
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
         Diary.start(this)   // the diary on disk and its shipper (iOS MontanaLog, MontanaDiagShip; 1340)
-        Thread { Names.agreesWithCanon }.start()   // the core's name derivations against the Canon's own values, said once in the diary (names_canon)
         Exits.witness(this)   // how the last run ended, said once (iOS run sentinel, 1336)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         // «Share → Montana» from another app, else an invitation's link
@@ -501,7 +500,7 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
-        sweepCallRecordings()   // NO CALL IS RECORDED (iOS 214dc096, the author's word 16428): what an earlier build left leaves this phone
+        sweepCallRecordings(hasSeed && termsAccepted)   // NO CALL IS RECORDED (iOS 214dc096, the author's word 16428): what an earlier build left leaves this phone
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
         Update.onLeast = { keepUpdateRequired(again = false) }; keepUpdateRequired()   // a build below the network's least sees the update banner
         Thread { Update.look(applicationContext) }.start()   // a newer build on the site rings its notice (Update)
@@ -509,7 +508,6 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { LiveDraft.sayLinkToAll() }.start()   // the daily link, preloaded to every correspondent (iOS ContentView.swift:472)
         if (hasSeed && termsAccepted) Thread { Book.healFacesFromCards() }.start()   // a faceless correspondent is read from their card at once (iOS MontanaChatStore.swift:1916, atom 796a76a34ae0)
         if (hasSeed && termsAccepted) Thread { MontanaCard.keepLiveCardsUp(applicationContext) }.start()   // the live cards turn and top up on every return (iOS MontanaApp.swift:297)
-        if (hasSeed && termsAccepted) Thread { NamePlane.keepInStep() }.start()   // the name renewed when due, its point listened at (iOS keepInStep)
         Thread { CoinBook.warm(); CoinSend.settle() }.start()
         // THE WALLS AT A RETURN (iOS ContentView.swift:474-477 at 2155): every wall never seen is asked (Board.sweep), and the owner carries
         // my wall to whoever speaks it -- at a return only while the presence is shown (the critic's N6)
@@ -787,9 +785,10 @@ object FilesFolder {
 
 /** NO CALL IS RECORDED (iOS ChatStore.sweepCallRecordings, 214dc096, the author's word 16428): the unfinished runs under CallRecordings,
  * the switch and the consent leave this phone; a recording already sent to a chat is that chat's letter and stays. */
-private fun sweepCallRecordings() {
+private fun sweepCallRecordings(book: Boolean) {
     Thread({
         runCatching { java.io.File(Book.ctx.filesDir, "CallRecordings").deleteRecursively() }
         for (key in listOf("callRecordingEnabled", "callRecordingConsent.v1")) Prefs.remove(key)   // NOT-UI: the retired keys' names
+        if (book) runCatching { OldRecordings.settle() }   // the old letters hidden from the feed leave the counters too
     }, "call-record-sweep").start()
 }

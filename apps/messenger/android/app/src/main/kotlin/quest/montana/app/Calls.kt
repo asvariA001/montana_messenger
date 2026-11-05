@@ -134,7 +134,7 @@ object Calls {
                 }
                 "call-hold", "call-resume" -> CallLine.peerHeld(ref, w.optString("e").ifEmpty { epoch }, ctrl == "call-hold")
                 // the picture and the descriptions in the middle of the call (iOS 2391-2543): the line owns them
-                "call-video-ask", "call-video-ok", "call-video-no", "call-video-end", "call-restart", "call-restart-answer",
+                "call-video-ask", "call-video-ok", "call-video-no", "call-video-end", "call-camera-off", "call-camera-on", "call-restart", "call-restart-answer",
                 "call-screen-on", "call-screen-off" -> CallLine.heard(ref, w.optString("e").ifEmpty { epoch }, ctrl, w)
                 // the caller's candidates (iOS 2368): one in «candidate», an old build's batch in «candidates»
                 "call-ice" -> {
