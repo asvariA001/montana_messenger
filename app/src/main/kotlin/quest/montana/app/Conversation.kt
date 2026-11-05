@@ -1007,8 +1007,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // switches -- the skin, the reply's pull, the «played» word of the rung, the automatic download a waiting file obeys
         fun signOf(row: List<Msg>): List<Any?> {
             val m = row[0]
-            val s = ArrayList<Any?>(10 * row.size + 12)
-            for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp) }
+            val s = ArrayList<Any?>(11 * row.size + 12)
+            for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp); s.add(x.file == null && x.text.startsWith(Marks.MEDIA) && Media.cargoGone(x.mid)) }
             s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
             s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
             s.add(if (channel) ChannelViews.views(m, ref) else -1)

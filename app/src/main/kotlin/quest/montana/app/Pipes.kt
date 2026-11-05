@@ -3003,7 +3003,7 @@ object Post {
                     // in the sender's chat stands in the receiver's): a media row without its file takes the copy's manifest -- the sender
                     // re-uploaded under the same name -- and the assembly receipts when the file is whole; nothing erased, nothing doubled
                     if (had != null && text.startsWith(Marks.MEDIA) && had.text != text && had.file?.let { File(it).exists() } != true) {
-                        had.text = text; had.meta = null
+                        had.text = text; had.meta = null; Media.liftGone(mid)
                         Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
                     }
                     if (had == null && Book.isBuried(ref, mid)) Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed")
