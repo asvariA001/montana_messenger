@@ -979,7 +979,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
             val chats = snap.map { it.first }.filter { fold(it.shown + " " + it.name).contains(w) }   // a person is found as they are seen, and by their own word (iOS shownName)
             val contacts = kept.filter { fold(it.shown + " " + it.name).contains(w) }
             // the words of a person only: a word of the wire is never read as theirs (the marker first), a voice or a file has no words to find
-            val found = snap.flatMap { (ch, msgs) -> msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) }.map { ch to it } }
+            val found = snap.flatMap { (ch, msgs) -> msgs.filter { !Marks.isService(it.text) && fold(it.text).contains(w) && !OldRecordings.hidden(it) }.map { ch to it } }
                 .sortedByDescending { it.second.at }.take(60)
             post { if (q == asked) drawHits(chats, contacts, found) }
         }.start()

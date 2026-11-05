@@ -451,7 +451,7 @@ object Media {
     /** Every media letter of theirs still without its file is asked for (once at a time), and «delivered» follows the file. */
     fun fetchPending(c: Context) {
         val auto = autoAllowed(c)
-        for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null) {
+        for (ch in Book.all()) for (m in ch.msgs) if (!m.mine && m.text.startsWith(Marks.MEDIA) && m.file == null && !OldRecordings.hidden(m)) {
             // a file that waits for a tap still has its manifest read: its small face, its kind and its group stand at once
             if (auto) fetch(c, ch.ref, m.mid, m.text) else if (m.meta == null) learn(ch.ref, m.mid, m.text)
         }
@@ -472,7 +472,7 @@ object Media {
         }.start()
     }
     private fun keepManifest(ref: String, mid: String, man: JSONObject) =
-        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { if (it.meta == null) it.meta = man.toString() } }
+        Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { if (it.meta == null) { it.meta = man.toString(); OldRecordings.uncount(ch, it) } } }
 
     /**
      * AUTOMATIC DOWNLOAD FOR THE CONNECTION THE PHONE IS ON (iOS MontanaNet.autoDownloadAllowed): the mobile or the Wi-Fi switch of
@@ -510,6 +510,7 @@ object Media {
                 val man = manifest(text) ?: return@Thread
                 // THE MANIFEST LANDS BEFORE THE FILE: the row folds into its group and shows its small face while the pieces travel
                 keepManifest(ref, mid, man)
+                if (OldRecordings.caption(man)) return@Thread   // an old call recording is hidden: nothing is drawn, so nothing is fetched
                 val dest = file(c, mid, man.optString("e"))
                 // HONEST RECEPTION (iOS MontanaChatStore.swift:4800-4813): the ring at once, then every piece that came moves it
                 val size = man.optLong("sz")

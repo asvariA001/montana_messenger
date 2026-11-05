@@ -29,7 +29,7 @@ fun chatRows(): List<Chat> = listedChats().filter { !Groups.isKey(it.ref) }
 fun archivedChats(): List<Chat> = Book.listed().filter { stands(it) && ChatMarks.isArchived(it.ref) }
 
 /** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once). */
-private fun stands(c: Chat) = c.msgs.isNotEmpty() || Groups.isKey(c.ref)
+private fun stands(c: Chat) = c.msgs.any { !OldRecordings.hidden(it) } || Groups.isKey(c.ref)
 
 /**
  * THE LIST'S WORK, MEASURED (iOS MTListWork, MontanaChatsList.swift:2094-2120 at 2155; atom 4cbf30023edb): the chats list lives
