@@ -2509,7 +2509,9 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
             }
         }, lp(dp(44), dp(44)))
     } else if (thread0 != null) c.text(c.getString(R.string.wall_only_writers), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }
-    else View(c)
+    // THE PAGE STOOD BLACK: a bare View asked to wrap takes all the height it is offered, so the empty foot ate the column and left the
+    // thread's scroll no height, its words drawn and unseen. A Space asks for nothing.
+    else android.widget.Space(c)
     val bar = FrameLayout(c).apply {
         addView(c.icon(R.drawable.ic_close, android.graphics.Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
             FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(8) })
