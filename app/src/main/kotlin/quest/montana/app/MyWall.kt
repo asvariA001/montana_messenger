@@ -486,9 +486,6 @@ object MyWall {
             if (face != null) x.put("face", face) else x.remove("face")
             for (k in listOf("mine", "pinned", "liked", "kept", "reposted", "ln")) x.remove(k)   // the table names nobody who liked
             x.put("own", true).put("comments", JSONArray()).put("commentCount", 0)
-            // THE @NAME I HOLD RIDES WITH MY POST (iOS publicDrafts, 8b1932d3 (5), the author's word 14475): the name is public already --
-            // anyone searches it and opens a chat by it -- so a reader of the table with no pipe to me reaches me by the same door. A
-            // lapsed name is not laid (heldName).
             val ms = x.optJSONArray("media") ?: JSONArray()
             var i = ms.length() - 1
             while (0 <= i && budget < x.toString().toByteArray().size) { ms.optJSONObject(i)?.remove("thumb"); i-- }
