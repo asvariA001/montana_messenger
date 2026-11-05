@@ -2434,7 +2434,8 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         val cell = thread?.let { (w, post) -> cells.cell(Board.Item(w, post), whole = true) }
         for (i in body.childCount - 1 downTo 0) if (body.getChildAt(i) !== cell) body.removeViewAt(i)
         val (tw, p) = thread ?: run {
-            if (Board.post(wall, id) != null) body.addView(c.text(c.getString(R.string.wall_under_original), 15f, MT.gray).apply { setPadding(0, dp(16), 0, 0) }, lp())
+            // iOS MTBoardComments: with no thread the words stand whatever the reason; a post of the table is on no page, and the page stood black
+            body.addView(c.text(c.getString(R.string.wall_under_original), 15f, MT.gray).apply { setPadding(0, dp(16), 0, 0) }, lp())
             return
         }
         if (cell != null && cell.parent == null) body.addView(cell, lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
