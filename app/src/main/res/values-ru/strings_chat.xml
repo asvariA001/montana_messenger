@@ -16,7 +16,8 @@
     <string name="channel_letters">Сообщения</string>
     <string name="new_message">Новое сообщение</string>
     <string name="voice_message">🎤 Голосовое сообщение</string>
-    <string name="long_letter">Длинное сообщение</string>
+    <string name="long_letter">Новое сообщение</string>
+    <string name="message_unavailable">Сообщение недоступно</string>
     <string name="photo_or_video">Фото или видео</string>
     <string name="file_word">Файл</string>
     <string name="open_word">Открыть</string>
