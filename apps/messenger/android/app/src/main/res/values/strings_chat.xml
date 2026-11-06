@@ -16,7 +16,8 @@
     <string name="channel_letters">Messages</string>
     <string name="new_message">New message</string>
     <string name="voice_message">🎤 Voice message</string>
-    <string name="long_letter">Long message</string>
+    <string name="long_letter">New message</string>
+    <string name="message_unavailable">Message unavailable</string>
     <string name="photo_or_video">Photo or video</string>
     <string name="file_word">File</string>
     <string name="open_word">Open</string>

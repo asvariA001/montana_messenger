@@ -2745,6 +2745,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 val room = when {
                     Stickers.bare(m) -> 0
                     Calls.info(m.text) != null -> 9
+                    m.text.startsWith(Marks.LONG) -> 8   // iOS lostLetterBubble 12 and 8
                     kindPlace == SPEAKER_INSIDE -> 6
                     kindPlace == SPEAKER_ABOVE -> 8
                     else -> 0
@@ -2801,6 +2802,15 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     setLinkTextColor(BubbleStyle.text(mine))
                 }   // USER-DATA: the letter
+                // A LONG LETTER WHOSE WORDS NEVER CAME (iOS lostLetterBubble, MontanaBubble.swift 1761-1772): a row keeps its reference here
+                // only when the reference can never open (Pipes.fetchLong ""), so iOS's waiting wheel has no row on Android: it is said once
+                // and for good, the mark and the words at 0.8 of the bubble's ink, never the reference and never the list's «New message».
+                if (m.text.startsWith(Marks.LONG)) words.apply {
+                    val ink = (BubbleStyle.text(mine) and 0x00FFFFFF) or (0xCC shl 24)
+                    text = c.getString(R.string.message_unavailable); setTextColor(ink)
+                    compoundDrawablePadding = dp(8)
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(c.getDrawable(R.drawable.ic_letter_lost)?.mutate()?.apply { setTint(ink) }, null, null, null)
+                }
                 var onOpen: () -> Unit = {}
                 val fold = c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.hstack {
