@@ -511,8 +511,8 @@
     <string name="chess_no_correspondents">未找到联系人</string>
     <string name="chess_ask_new">开始新对局？</string>
     <string name="chess_invite_failed">无法发送邀请</string>
-    <string name="chess_accept">接受</string>
-    <string name="chess_decline">拒绝</string>
+    <string name="chess_accept">接受对局</string>
+    <string name="chess_decline">拒绝对局</string>
     <string name="wall_comments">评论</string>
     <string name="wall_draft">草稿</string>   <!-- iOS MTBoardDraftCell «Draft» -->
     <string name="wall_write_comment">写评论</string>
