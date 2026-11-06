@@ -2745,9 +2745,13 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         // small bubble of its own above it, the time stands under it in the same dark capsule as on a picture
         val bare = Stickers.bare(m)
         val darkMeta = onPlate || (bare && !edge)
+        // THE FILTER IS READ FIRST (iOS kinds, MontanaBubble.swift 814): one fold over a letter of any kind, a card, a coin and a place
+        // included; a plate reads its caption, every other letter its own text (iOS filterFolds)
+        val folds = if (1 < members.size || m.text.startsWith(Marks.MEDIA)) ContentFilter.plateFolds(m, members) else ContentFilter.folded(m)
         addView(c.vstack(Gravity.END) {
             background = if (Stickers.bare(m)) null else BubbleStyle.drawable(context, mine)   // a sticker stands without a bubble
             if (Groups.isKey(chat.ref) && Groups.talks(chat.ref)) minimumWidth = dp(210)   // a post over its comments' footer (iOS MontanaBubble 506-541)
+            var openTop = 0; var openBottom = 0
             if (edge) {
                 setPadding(0, 0, 0, 0)
                 outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -2765,8 +2769,10 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     kindPlace == SPEAKER_ABOVE -> 8
                     else -> 0
                 }
-                if (room == 0) setPadding(dp(12), dp(7), dp(12), dp(6)) else setPadding(dp(12), dp(room), dp(12), dp(room))
+                openTop = if (room == 0) 7 else room; openBottom = if (room == 0) 6 else room
+                if (folds) setPadding(dp(12), dp(8), dp(12), dp(8)) else setPadding(dp(12), dp(openTop), dp(12), dp(openBottom))   // iOS the fold's own 12 and 8
             }
+            val bodyAt = childCount   // the speaker's line and the quote stand inside iOS's kinds: the fold hides them too
             if (who != null && place == SPEAKER_INSIDE) {
                 val line = speakerHead(c, who, m.from)
                 // the role stands at the bubble's far edge (iOS Spacer in speakerHeadLine): the line fills the bubble, and the bubble holds the line's own room
@@ -2790,8 +2796,6 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(if (bare) 2 else 4) })   // over the bare glyphs the stack's own 2 (iOS 870)
             }
             val call = Calls.info(m.text) != null
-            val plateFolds = (1 < members.size || m.text.startsWith(Marks.MEDIA)) && ContentFilter.plateFolds(m, members)
-            val bodyAt = childCount
             var foldOpens: ((() -> Unit) -> Unit)? = null   // the folded letter stands without its time (iOS the fold's Button has no metaLine); the tap gives it back
             if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
             else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this, chat)
@@ -2816,31 +2820,6 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 compoundDrawablePadding = dp(8)
                 setCompoundDrawablesRelativeWithIntrinsicBounds(c.getDrawable(R.drawable.ic_letter_lost)?.mutate()?.apply { setTint(ink) }, null, null, null)
             }, lp(WRAP, WRAP))
-            // THE FILTER (iOS MontanaBubble 672-691): a letter of theirs with a word of the list stands folded; the tap unfolds it
-            else if (ContentFilter.folded(m)) {
-                // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTMessageText.swift:227-252, MTLinkedText.updateUIView, atom
-                // 20c5cef6f490): the web's own finder and a Montana link alike, underlined in the bubble's own ink (iOS
-                // MontanaShapes.swift:524).
-                val words = c.text(linkedWords(letterWords(c, m.text)) { u -> (c as? MainActivity)?.openLink(u.toString()) }, 16f * MontanaTextSize.system, BubbleStyle.text(mine)).apply {
-                    maxWidth = wordsMax; setTextIsSelectable(false); visibility = View.GONE
-                    movementMethod = android.text.method.LinkMovementMethod.getInstance()
-                    setLinkTextColor(BubbleStyle.text(mine))
-                    if (selectable) takesSelection(letterWords(c, m.text))
-                }   // USER-DATA: the letter
-                var onOpen: () -> Unit = {}
-                val fold = c.vstack(Gravity.NO_GRAVITY) {
-                    addView(c.hstack {
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(c.icon(R.drawable.ic_set_eye_slash, BubbleStyle.text(mine), 16), lp(dp(16), dp(16)).apply { marginEnd = dp(6) })
-                        addView(c.text(c.getString(R.string.filter_hidden), 16f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
-                    }, lp(WRAP, WRAP))
-                    addView(c.text(c.getString(R.string.filter_tap), 12f, BubbleStyle.text(mine)).apply { alpha = 0.7f }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
-                    pressable { ContentFilter.open(m.mid); visibility = View.GONE; words.visibility = View.VISIBLE; onOpen() }
-                }
-                addView(fold, lp(WRAP, WRAP))
-                addView(words, lp(WRAP, WRAP))
-                foldOpens = { f -> onOpen = f }
-            }
             // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTMessageText.swift:227-252, MTLinkedText.updateUIView, atom
             // 20c5cef6f490): the web's own finder and a Montana link alike, underlined in the bubble's own ink (iOS
             // MontanaShapes.swift:524).
@@ -2852,22 +2831,6 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 setLinkTextColor(BubbleStyle.text(mine))
                 if (selectable) takesSelection(letterWords(c, m.text))
             }, lp(WRAP, WRAP).apply { if (who != null && place == SPEAKER_INSIDE) gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name it keeps the bubble's leading edge (iOS VStack .leading)
-            // THE FILTER FOLDS A PLATE OF PICTURES TOO (iOS filterFolds, read before the plate's branch): the plate stands hidden under the
-            // same fold, and the person's own tap shows it whole
-            if (plateFolds) {
-                val body = (bodyAt until childCount).map { getChildAt(it) }
-                body.forEach { it.visibility = View.GONE }
-                addView(c.vstack(Gravity.NO_GRAVITY) {
-                    setPadding(dp(12), dp(8), dp(12), dp(8))
-                    addView(c.hstack {
-                        gravity = Gravity.CENTER_VERTICAL
-                        addView(c.icon(R.drawable.ic_set_eye_slash, BubbleStyle.text(mine), 16), lp(dp(16), dp(16)).apply { marginEnd = dp(6) })
-                        addView(c.text(c.getString(R.string.filter_hidden), 16f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
-                    }, lp(WRAP, WRAP))
-                    addView(c.text(c.getString(R.string.filter_tap), 12f, BubbleStyle.text(mine)).apply { alpha = 0.7f }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
-                    pressable { ContentFilter.open(m.mid); visibility = View.GONE; body.forEach { it.visibility = View.VISIBLE } }
-                }, bodyAt, lp(WRAP, WRAP))
-            }
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine, wordsMax), lp(WRAP, WRAP)) }
             // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
@@ -2884,6 +2847,29 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // and its pills, where the person opened them; the glyph that opens them stands after the stamp's pill (below)
             val voiceFile = if (voice && VoiceText.canRead(c)) m.file?.takeIf { java.io.File(it).exists() } else null
             if (voiceFile != null) addView(voiceWordsView(c, voiceFile, mine, bubbleCeiling(c, chat.ref)), lp(WRAP, WRAP).apply { topMargin = dp(6); if (!mine) gravity = Gravity.START })
+            // THE FOLD (iOS MontanaBubble 815-835, MTFilterFold): nothing of the letter is read by surprise, its speaker, quote and link card
+            // included; the person's own tap gives it back whole, with its time and the bubble's own room
+            if (folds) {
+                val body = (bodyAt until childCount).map { getChildAt(it) }
+                body.forEach { it.visibility = View.GONE }
+                val bubble = this
+                var onOpen: () -> Unit = {}
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    if (edge) setPadding(dp(12), dp(8), dp(12), dp(8))
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(c.icon(R.drawable.ic_set_eye_slash, BubbleStyle.text(mine), 16), lp(dp(16), dp(16)).apply { marginEnd = dp(6) })
+                        addView(c.text(c.getString(R.string.filter_hidden), 16f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
+                    }, lp(WRAP, WRAP))
+                    addView(c.text(c.getString(R.string.filter_tap), 12f, BubbleStyle.text(mine)).apply { alpha = 0.7f }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
+                    pressable {
+                        ContentFilter.open(m.mid); visibility = View.GONE; body.forEach { it.visibility = View.VISIBLE }
+                        if (!edge) bubble.setPadding(dp(12), dp(openTop), dp(12), dp(openBottom))
+                        onOpen()
+                    }
+                }, bodyAt, lp(WRAP, WRAP))
+                foldOpens = { f -> onOpen = f }
+            }
             if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 if (darkMeta) {

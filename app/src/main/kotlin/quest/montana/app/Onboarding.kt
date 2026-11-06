@@ -372,4 +372,4 @@ fun versionFooter(c: Context): String =
     "Android ${versionName(c)} · SSOT ${MtBindings.nativeAbiVersion()}"
 
 /** The privacy policy on the site (iOS MontanaSafety.privacy). */
-const val PRIVACY_URL = "https://montana.quest/privacy/"
+const val PRIVACY_URL = "https://montana.xxx/privacy/"
