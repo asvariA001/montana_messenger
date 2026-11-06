@@ -326,12 +326,15 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
                     else {
                         c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
                         lateinit var close: () -> Unit
-                        close = act.overlay(frameCropPage(act, image, f.frame ?: WallFiles.ownFrame(image.width, image.height)) { kept ->
+                        val crop = frameCropPage(act, image, f.frame ?: WallFiles.ownFrame(image.width, image.height)) { kept ->
                             close()
                             framing = false
                             android.util.Log.i("Montana", "post_frame " + (if (kept == null) "left" else "set"))
                             if (kept != null) { f.frame = kept; drawTaken(); lay() }
-                        })
+                        }
+                        close = act.overlay(crop)
+                        // the keys are on their way down: the page stands on the system's bar alone, not on the height the keys held (seen on A1, 852)
+                        act.window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.let { b -> crop.setPadding(crop.paddingLeft, crop.paddingTop, crop.paddingRight, b.bottom) }
                     }
                 }
             }.start()
