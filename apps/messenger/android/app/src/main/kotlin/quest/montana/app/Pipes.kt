@@ -1544,15 +1544,25 @@ object Book {
         chat(MONTANA)?.msgs?.firstOrNull { Release.of(it.text)?.build == build }?.let { row ->
             // the room's own row stands with no changes: the network's word of the same build fills them in, with or without languages
             val bare = Release.of(row.text)?.notes.isNullOrEmpty() && notes.length() > 0
-            if (bare || l10n != null && l10n.length() > 0 && Release.languages(row.text)?.toString() != l10n.toString()) edit(MONTANA) { c -> c.msgs.find { it.mid == row.mid }?.text = text }
+            if (bare || l10n != null && l10n.length() > 0 && Release.languages(row.text)?.toString() != l10n.toString()) edit(MONTANA) { c -> c.msgs.find { it.mid == row.mid }?.text = text; if (notes.length() > 0) dropSilent(c, build) }
             return false
         }
         open(MONTANA, MONTANA_TITLE, true)
         edit(MONTANA) { c ->
+            if (notes.length() > 0) dropSilent(c, build)
             c.msgs.add(Msg(Marks.mintMid(), text, false, System.currentTimeMillis(), state = 2))
             if (openChat != MONTANA || !Presence.shown) c.unread++
         }
         return true
+    }
+    /**
+     * A ROW WITH NOTHING TO SAY LEAVES WHEN A NEWER BUILD SPEAKS (the author's word 04.11: a build does not stand in the room with no
+     * words; 837 stood empty on A1). The site names only its newest build, so such a row would never fill in. This goes past iOS.
+     */
+    private fun dropSilent(c: Chat, build: Long) {
+        val silent = { m: Msg -> Release.of(m.text)?.let { it.notes.isEmpty() && it.build < build } == true }
+        c.unread -= c.msgs.takeLast(c.unread).count(silent)
+        c.msgs.removeAll(silent)
     }
     /**
      * THE MONTANA ROOM STANDS FOR EVERYONE (iOS ChatStore.standMontanaRoom, ada594f9, the author's word 16402): born only by the
