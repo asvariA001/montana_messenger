@@ -156,6 +156,7 @@ object MusicPlayer {
     // system took for a while plays on from its place when the sound comes back; never one the person paused, never under a call.
     // A loss for good (another player took over) stays a pause. A navigator's word only lowers the track: the platform does that itself.
     private var takenBySystem = false
+    private var endedInPause = false
     private fun focusMoved(kind: Int) {
         when (kind) {
             AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
@@ -191,7 +192,7 @@ object MusicPlayer {
         // MTPlayPlaces.keep, the author's word 26.09).
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
         queue = list; index = i
-        takenBySystem = false
+        takenBySystem = false; endedInPause = false
         release()
         val t = current ?: return
         takeFocus(a)
@@ -204,6 +205,9 @@ object MusicPlayer {
             setOnCompletionListener {
                 if (mp !== it) return@setOnCompletionListener
                 android.util.Log.i("Montana", "music_end i=" + (index + 1) + " " + clock(it))   // iOS finished(), 545acb26: an end told from a stop
+                // A PAUSE IN THE TRACK'S LAST MOMENT STAYS A PAUSE: the platform still reports the end, and the next track started over
+                // the very sound that took ours (seen on A1 under a ringing timer). The next one waits for the resume.
+                if (!playing) { endedInPause = true; return@setOnCompletionListener }
                 val nx = sounding(a, index + 1, 1)
                 if (nx != null) play(a, queue, nx) else { playing = false; seek(0.0); changed() }
             }
@@ -232,6 +236,11 @@ object MusicPlayer {
         if (CallSound.refused("music")) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=1 call=1"); return }   // iOS MontanaMedia 482
         if (app?.let { takeFocus(it) } == false) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=0 call=0"); return }
         takenBySystem = false
+        if (endedInPause) {
+            endedInPause = false
+            val a = app; val nx = a?.let { sounding(it, index + 1, 1) }
+            if (a != null && nx != null) { play(a, queue, nx); return }
+        }
         p.start(); playing = true; tick(); changed()
     }
     fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); changed() }
@@ -247,7 +256,7 @@ object MusicPlayer {
     fun stop() {
         // iOS VoicePlayer.release:526 at 2155, MTPlayPlaces.keep, 26.09
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
-        takenBySystem = false
+        takenBySystem = false; endedInPause = false
         release(); dropFocus(); queue = emptyList(); index = -1; changed()
     }
 
