@@ -1725,9 +1725,14 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
             // post's owner and to nobody else (Board.countsViews, the critic of 14486)
             if (Board.countsViews(wall)) {
                 tag = EYE_REACH
-                setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
-                // a tap goes on to the post, as iOS's long press lets it: a view that takes holds takes the taps with them
-                if (!whole) setOnClickListener { openComments() }
+                // A TAP OPENS THEM TOO, past iOS's hold alone (the author's word 06.11.2026: three builds of a wider hold failed under her
+                // finger; the phone files a flat finger by the edge as a palm and cancels it): on my own post the eye answers the plain touch.
+                val readers = { how: String ->
+                    Log.i("Montana", "wall_eye how=$how")
+                    act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }
+                }
+                setOnLongClickListener { readers("hold"); true }
+                setOnClickListener { readers("tap") }
             }
         }, lp(WRAP, WRAP))
     }
