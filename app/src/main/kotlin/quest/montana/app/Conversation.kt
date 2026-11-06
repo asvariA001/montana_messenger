@@ -2737,14 +2737,15 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             if (isForwardQuote(m.qt)) addView(c.text(forwardedFrom(m.qt)?.let { c.getString(R.string.ld_forwarded_from, it) } ?: c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)).apply { singleLineEllipsis() }, lp(WRAP, WRAP).apply { bottomMargin = dp(3) })   // USER-DATA: the channel's name
             else if (m.qt != null) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
-                // in a group the quoted letter's speaker wears their own colour (iOS quoteTint)
-                val quoteInk = if (!mine && whose != null && !whose.mine && Groups.isKey(chat.ref) && whose.from != null) Groups.tint(whose.from) else BubbleStyle.text(mine)
+                // THE QUOTE (iOS replyQuote, MontanaBubble.swift:1816; taken from PR #43, Conversation.kt): a bar of 3, white at 0.6 on mine, the speaker's
+                // tint on theirs in a group, the accent elsewhere; the author 12 bold; one line of the words at 12
+                val authorInk = if (!mine && whose?.from != null && !whose.mine && Groups.isKey(chat.ref)) Groups.tint(whose.from) else Color.WHITE
                 addView(c.hstack {
                     if (bare) { background = BubbleStyle.drawable(context, mine); setPadding(dp(10), dp(6), dp(10), dp(6)) }
-                    addView(View(c).apply { setBackgroundColor(quoteInk) }, lp(dp(2), MATCH).apply { marginEnd = dp(6) })
+                    addView(View(c).apply { setBackgroundColor(if (mine) MT.withAlpha(Color.WHITE, 0.6f) else authorInk) }, lp(dp(3), MATCH).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
-                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 13f, quoteInk, bold = true))
-                        addView(c.text(m.qt ?: "", 13f, BubbleStyle.time(mine)).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = dp(240) })   // USER-DATA
+                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 12f, authorInk, bold = true).apply { singleLineEllipsis(); maxWidth = wordsMax - dp(9) })
+                        addView(c.text(m.qt ?: "", 12f, if (mine) MT.withAlpha(Color.WHITE, 0.85f) else MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = wordsMax - dp(9) })   // USER-DATA
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
             }
