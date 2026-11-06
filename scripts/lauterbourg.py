@@ -154,11 +154,11 @@ print(shown["build"])
 """
 
 
-def renote(notes, ru):
+def renote(notes, ru, zh):
     """The words of the build the site already serves, written anew: no build, no number, the same bytes. A phone takes them on its next
     look, because Book.appendRelease rewrites a row of that build whose languages differ."""
     latest = json.loads(fetch(SITE["url"] + "latest.json"))
-    word = dict(build=latest["build"], notes=notes, l={"en": notes, "ru": ru})
+    word = dict(build=latest["build"], notes=notes, l={"en": notes, "ru": ru, "zh": zh})
     for host in SITE["hosts"]:
         there = remote(host, "RECORD = %r" % json.dumps(word, ensure_ascii=False) + chr(10) + RENOTE, [SITE["dir"]])
         if there.returncode or there.stdout.strip() != str(latest["build"]):
@@ -186,18 +186,21 @@ def main():
     ap.add_argument("--bundle", action="store_true")
     ap.add_argument("--note", action="append", default=[], help="a line of what changed (English); default: the commit's subject")
     ap.add_argument("--note-ru", action="append", default=[], help="the same line in Russian")
-    ap.add_argument("--renote", action="store_true", help="only write --note and --note-ru into the build the site serves")
+    ap.add_argument("--note-zh", action="append", default=[], help="the same line in Chinese")
+    ap.add_argument("--renote", action="store_true", help="only write --note, --note-ru and --note-zh into the build the site serves")
     a = ap.parse_args()
     # NO BUILD REACHES PEOPLE WITHOUT ITS WORDS (the author's word 04.11.2026): 826 went out with the subject's one word «Calls» in the
     # Montana room. Whoever lays a build says what changed for people, in both languages, before anything is built.
-    if not a.no_site and not (a.note and a.note_ru):
-        raise SystemExit("say what changed for people: --note and --note-ru, one line a change")
+    if not a.no_site and not (a.note and a.note_ru and a.note_zh):
+        raise SystemExit("say what changed for people: --note, --note-ru and --note-zh, one line a change")
+    if a.note_ru and not len(a.note) == len(a.note_ru) == len(a.note_zh):
+        raise SystemExit("each language says the same lines: --note, --note-ru and --note-zh differ in number")
     if a.renote:
-        return renote(a.note, a.note_ru)
+        return renote(a.note, a.note_ru, a.note_zh)
     record = build(a.ref)
     record["notes"] = a.note or subject_note(record["commit"])
     if a.note_ru:
-        record["l"] = {"en": record["notes"], "ru": a.note_ru}
+        record["l"] = {"en": record["notes"], "ru": a.note_ru, "zh": a.note_zh}   # the key is the phone's language, Release.of
     local = bring(record)
     if a.bundle:
         bring_bundle(record)

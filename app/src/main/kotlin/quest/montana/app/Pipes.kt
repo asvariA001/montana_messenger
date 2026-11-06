@@ -1549,6 +1549,13 @@ object Book {
         }
         open(MONTANA, MONTANA_TITLE, true)
         edit(MONTANA) { c ->
+            // A ROW WITH NOTHING TO SAY LEAVES WHEN A NEWER BUILD SPEAKS (the author's word 04.11: a build does not stand in the room with no
+            // words; 837 stood empty on A1). The site names only its newest build, so such a row would never fill in. This goes past iOS.
+            if (notes.length() > 0) {
+                val silent = { m: Msg -> Release.of(m.text)?.let { it.notes.isEmpty() && it.build < build } == true }
+                c.unread -= c.msgs.takeLast(c.unread).count(silent)
+                c.msgs.removeAll(silent)
+            }
             c.msgs.add(Msg(Marks.mintMid(), text, false, System.currentTimeMillis(), state = 2))
             if (openChat != MONTANA || !Presence.shown) c.unread++
         }

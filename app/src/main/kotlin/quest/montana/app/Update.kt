@@ -398,8 +398,14 @@ object Release {
             Log.d("Montana", "release tap build=" + i.build)
             (c as? Activity)?.let { Update.take(it) }
         }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = c.dp(3) })
-        // the scroll is as wide as its head: a column that wraps would measure each point once at its own width and keep that height
-        into.addView(col, LinearLayout.LayoutParams(c.dp(250), WRAP))
+        // THE SCROLL IS AS WIDE AS ITS WORDS, UP TO FOUR FIFTHS OF THE WINDOW (iOS bubbleCeiling, MontanaBubble.swift:596): a whole sentence
+        // in a fixed 250 dp ran to eight lines. The width is counted here and given exactly: a column that wraps would measure each
+        // point once at its own width and keep that height.
+        fun wide(t: String, size: Float, bold: Boolean = false) = kotlin.math.ceil(c.text(t, size, Color.WHITE, bold = bold).paint.measureText(t)).toInt()
+        val head = c.dp(50) + maxOf(wide(title(c, i), 17f, true), wide(Book.MONTANA_TITLE, 13f))
+        val words = c.dp(14) + (i.notes.maxOfOrNull { wide(it, 15f) } ?: 0)
+        val ceiling = (c.dp(c.resources.configuration.screenWidthDp) * 0.8f).toInt() - c.dp(28)
+        into.addView(col, LinearLayout.LayoutParams(minOf(ceiling, maxOf(head, words)), WRAP))
     }
 }
 
