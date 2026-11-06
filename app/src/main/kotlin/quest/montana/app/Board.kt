@@ -1462,6 +1462,22 @@ private fun wallLink(act: MainActivity, wall: String): View = act.hstack {
     pressable { openWriter(act, wall) }
 }
 
+/**
+ * THE POST'S WORDS OPEN THE POST (iOS MTPostText onOpen, onOpenWords): a text with links takes every touch for itself, so a tap on the words
+ * opened nothing, with the keys up or down, and only the fold's line and the cell's edges answered. A link still opens its link.
+ */
+private class PostWords(private val open: () -> Unit) : android.text.method.LinkMovementMethod() {
+    override fun onTouchEvent(w: android.widget.TextView, b: android.text.Spannable, e: android.view.MotionEvent): Boolean {
+        val l = w.layout
+        if (l != null && e.actionMasked == android.view.MotionEvent.ACTION_UP && e.eventTime - e.downTime < android.view.ViewConfiguration.getLongPressTimeout()) {
+            val line = l.getLineForVertical(e.y.toInt() - w.totalPaddingTop + w.scrollY)
+            val at = l.getOffsetForHorizontal(line, e.x - w.totalPaddingLeft + w.scrollX)
+            if (b.getSpans(at, at, android.text.style.ClickableSpan::class.java).isEmpty()) open()
+        }
+        return super.onTouchEvent(w, b, e)
+    }
+}
+
 fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
@@ -1539,7 +1555,7 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
             gap(10)
             val shown = c.text(linkedWords(words) { u -> act.openLink(u.toString()) }, 16f).apply {
                 setTextIsSelectable(false)
-                movementMethod = android.text.method.LinkMovementMethod.getInstance()
+                movementMethod = if (whole || sending) android.text.method.LinkMovementMethod.getInstance() else PostWords(openComments)
                 setLinkTextColor(MT.blue)
             }
             addView(shown, lp())
