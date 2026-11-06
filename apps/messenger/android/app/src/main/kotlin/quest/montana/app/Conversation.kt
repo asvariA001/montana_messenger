@@ -2739,7 +2739,18 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(18).toFloat())
                 }
                 clipToOutline = true
-            } else setPadding(dp(12), dp(if (kindPlace == SPEAKER_INSIDE) 6 else 7), dp(12), dp(6))   // a bubble of words: 12 and 6 (iOS textBubble; PR #43 Conversation.kt)
+            } else {
+                // EACH KIND OF LETTER KEEPS ITS OWN ROOM (iOS MontanaBubble): words 6 (textBubble; PR #43 Conversation.kt), a call 9 (callBubble),
+                // a file, a voice and our own plates 8; a bare sticker keeps the time's line under it
+                val room = when {
+                    Stickers.bare(m) -> 0
+                    Calls.info(m.text) != null -> 9
+                    kindPlace == SPEAKER_INSIDE -> 6
+                    kindPlace == SPEAKER_ABOVE -> 8
+                    else -> 0
+                }
+                if (room == 0) setPadding(dp(12), dp(7), dp(12), dp(6)) else setPadding(dp(12), dp(room), dp(12), dp(room))
+            }
             if (who != null && place == SPEAKER_INSIDE) {
                 val line = speakerHead(c, who, m.from)
                 // the role stands at the bubble's far edge (iOS Spacer in speakerHeadLine): the line fills the bubble, and the bubble holds the line's own room
@@ -2817,7 +2828,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 val body = (bodyAt until childCount).map { getChildAt(it) }
                 body.forEach { it.visibility = View.GONE }
                 addView(c.vstack(Gravity.NO_GRAVITY) {
-                    setPadding(dp(12), dp(7), dp(12), dp(6))
+                    setPadding(dp(12), dp(8), dp(12), dp(8))
                     addView(c.hstack {
                         gravity = Gravity.CENTER_VERTICAL
                         addView(c.icon(R.drawable.ic_set_eye_slash, BubbleStyle.text(mine), 16), lp(dp(16), dp(16)).apply { marginEnd = dp(6) })
