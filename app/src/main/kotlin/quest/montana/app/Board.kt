@@ -1539,7 +1539,7 @@ fun LinearLayout.postMedia(act: MainActivity, item: Board.Item, whole: Boolean, 
                 clipToOutline = true
                 addView(tile, FrameLayout.LayoutParams(MATCH, MATCH))
                 if (clip != null) addView(clip, FrameLayout.LayoutParams(MATCH, MATCH))
-                else addView(c.icon(R.drawable.ic_play_circle_fill, Color.WHITE, 30).apply { alpha = 0.9f }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+                else addView(c.icon(R.drawable.ic_play_circle_fill, android.graphics.Color.WHITE, 30).apply { alpha = 0.9f }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
             })
             // A TILE'S TOUCH OPENS ITS FILE (iOS MTBoardMediaView.tile; openTile); a post being written gives it to its page
             if (onTile != null) tile.pressable { onTile(i) }
