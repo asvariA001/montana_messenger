@@ -1647,11 +1647,12 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         addView(counts, lp())
         // THE EYE REACHES THE PLATE'S CORNER (the author's word 06.11.2026, her finger recorded on A1): a finger aimed at the eye lay 1-14 px
         // under its row and 11 px right of it, on the plate's own padding, so the post took the touch and the hold never came. The plate
-        // hands that corner to the eye; laid again after every layout, for a mark draws the row anew.
+        // hands the right half of its foot to the eye (her word: no finger hits so small a dot); laid again after every layout, for a mark
+        // draws the row anew.
         addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
             val eye = counts.findViewWithTag<View>(EYE_REACH)
             v.touchDelegate = eye?.let { e ->
-                android.view.TouchDelegate(android.graphics.Rect(counts.left + e.left - dp(16), counts.top + e.top, v.width, v.height), e)
+                android.view.TouchDelegate(android.graphics.Rect(v.width / 2, counts.top + e.top - dp(12), v.width, v.height), e)
             }
         }
         now.counts = { next ->
