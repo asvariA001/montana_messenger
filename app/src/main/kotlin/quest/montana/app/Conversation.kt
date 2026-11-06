@@ -2771,11 +2771,12 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                         addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 12f, authorInk, bold = true).apply { singleLineEllipsis(); maxWidth = wordsMax - dp(9) })
                         addView(c.text(m.qt ?: "", 12f, if (mine) MT.withAlpha(Color.WHITE, 0.85f) else MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = wordsMax - dp(9) })   // USER-DATA
                     })
-                }, lp(WRAP, WRAP).apply { bottomMargin = dp(4) })
+                }, lp(WRAP, WRAP).apply { bottomMargin = dp(if (bare) 2 else 4) })   // over the bare glyphs the stack's own 2 (iOS 870)
             }
             val call = Calls.info(m.text) != null
             val plateFolds = (1 < members.size || m.text.startsWith(Marks.MEDIA)) && ContentFilter.plateFolds(m, members)
             val bodyAt = childCount
+            var foldOpens: ((() -> Unit) -> Unit)? = null   // the folded letter stands without its time (iOS the fold's Button has no metaLine); the tap gives it back
             if (1 < members.size) albumBody(c, members, this)   // the plate of a media group (Album.kt)
             else if (Stickers.body(c, m, this)) Unit else if (m.text.startsWith(Marks.MEDIA)) mediaBody(c, m, this, chat)
             else if (call) Calls.body(c, m, this)   // a call's row carries its moment inside, as iOS callBubble
@@ -2800,6 +2801,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     setLinkTextColor(BubbleStyle.text(mine))
                 }   // USER-DATA: the letter
+                var onOpen: () -> Unit = {}
                 val fold = c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.hstack {
                         gravity = Gravity.CENTER_VERTICAL
@@ -2807,10 +2809,11 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                         addView(c.text(c.getString(R.string.filter_hidden), 16f, BubbleStyle.text(mine)), lp(WRAP, WRAP))
                     }, lp(WRAP, WRAP))
                     addView(c.text(c.getString(R.string.filter_tap), 12f, BubbleStyle.text(mine)).apply { alpha = 0.7f }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
-                    pressable { ContentFilter.open(m.mid); visibility = View.GONE; words.visibility = View.VISIBLE }
+                    pressable { ContentFilter.open(m.mid); visibility = View.GONE; words.visibility = View.VISIBLE; onOpen() }
                 }
                 addView(fold, lp(WRAP, WRAP))
                 addView(words, lp(WRAP, WRAP))
+                foldOpens = { f -> onOpen = f }
             }
             // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTMessageText.swift:227-252, MTLinkedText.updateUIView, atom
             // 20c5cef6f490): the web's own finder and a Montana link alike, underlined in the bubble's own ink (iOS
@@ -2898,7 +2901,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
                 if (voiceFile != null) addView(voiceTextGlyph(c, voiceFile) { voiceHints(c, chat) }, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
-            }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
+            }.also { row -> foldOpens?.let { hold -> row.visibility = View.GONE; hold { row.visibility = View.VISIBLE } } }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
             if (edge) edgeLay(this, onPlate)
         }, lp(WRAP, WRAP))
         // A POST'S COMMENTS (iOS MontanaBubble 506-541, the reference's «Leave a Comment»): under the post a plate of the bubble's own
