@@ -39,6 +39,7 @@ object OldRecordings {
 
     /** Read on every row of a feed: only a letter that carries a caption at all is parsed. */
     fun hidden(m: Msg): Boolean {
+        if (Retired.letter(m.text)) return true   // a secret letter of an older build (iOS mtRetiredLetter): no screen shows it
         if (!m.text.startsWith(Marks.MEDIA)) return notice(m.text)
         if ((m.meta ?: m.text).contains("\"cap\"").not()) return false
         return caption(Media.manifestOf(m))
