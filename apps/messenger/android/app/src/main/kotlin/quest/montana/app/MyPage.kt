@@ -127,21 +127,27 @@ fun writeFace(act: MainActivity, wall: String = ""): View = act.hstack {
 
 /** The post as the wall will draw it, from a draft's words (iOS MTBoardDraft.seen): my name, my face on another's wall, the moment it
  *  was begun, every count at nothing. */
-fun draftPost(wall: String, at: Double, text: String): org.json.JSONObject {
+fun draftPost(wall: String, at: Double, text: String, files: List<MyWall.Attachment> = emptyList()): org.json.JSONObject {
     val name = Prefs.userName.trim()
     return org.json.JSONObject().put("id", "").put("author", "").put("byName", name).put("byGlyph", name.take(1).uppercase())
-        .put("at", at).put("text", text).put("media", org.json.JSONArray()).put("pinned", false)
+        .put("at", at).put("text", text).put("media", draftMedia(files)).put("pinned", false)
         .put("keepers", org.json.JSONArray().put("")).put("likes", org.json.JSONArray()).put("downloads", org.json.JSONArray())
         .put("reposts", org.json.JSONArray()).put("comments", org.json.JSONArray())
         // on my own wall the post is the owner's (own): it wears my face as my published posts do
         .put("own", wall.isEmpty()).apply { if (wall.isNotEmpty()) Board.myFace()?.let { put("face", it) } }
 }
 
+/** The files of a post being written as the post will carry them (iOS MTBoardDraft.seen). */
+private fun draftMedia(files: List<MyWall.Attachment>) = org.json.JSONArray().apply {
+    for (f in files) put(org.json.JSONObject().put("kind", f.kind).put("name", f.name).put("ext", f.ext).put("size", f.file.length())
+        .put("key", "").put("chunks", org.json.JSONArray()).apply { f.dur?.let { put("dur", it) }; f.frame?.let { put("fr", it) } })
+}
+
 /**
  * A POST NOT YET PUBLISHED, ON ITS WALL (iOS MTBoardDraftCell, MontanaBoardViews.swift:1716-1755 at 2336; the author's word 25.09:
  * «the wall keeps even a draft not published»): a plate naming it a draft -- the artwork at 36 and «Draft», its trash throwing the draft
  * away with its files -- over the post as it will stand; a touch on the plate or the post opens the page that writes it, where it was
- * left. Null while the wall holds no draft. The post's pictures are not drawn in the cell yet (as on the new post's page).
+ * left. Null while the wall holds no draft.
  */
 fun draftCell(act: MainActivity, wall: String = ""): View? {
     val d = MyWall.draft(wall) ?: return null
@@ -166,7 +172,7 @@ fun draftCell(act: MainActivity, wall: String = ""): View? {
         gap(8)
         // the whole post is the button: nothing inside it answers by itself
         addView(FrameLayout(c).apply {
-            addView(postCell(act, Board.Item(wall, draftPost(wall, d.at, d.text)), onItsWall = true, sending = true), FrameLayout.LayoutParams(MATCH, WRAP))
+            addView(postCell(act, Board.Item(wall, draftPost(wall, d.at, d.text, d.files)), onItsWall = true, sending = true, sources = d.files.map { f -> f.file }), FrameLayout.LayoutParams(MATCH, WRAP))
             addView(View(c).apply { pressable { open() } }, FrameLayout.LayoutParams(MATCH, MATCH))
         }, lp())
     }
@@ -207,6 +213,8 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         held?.let { setText(it.text) }   // USER-DATA: my draft's own words
     }
     val barSlot = FrameLayout(c)
+    val tiles = FrameLayout(c).apply { visibility = View.GONE }
+    lateinit var openFrame: (MyWall.Attachment) -> Unit
     val picks = c.plate {}
     val taken = c.plate {}
     val failedLine = c.text(c.getString(R.string.wall_could_not_post), 15f, MT.red).apply { setPadding(dp(16), dp(12), dp(16), dp(12)); visibility = View.GONE }
@@ -231,25 +239,49 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         closed = true
         onClose()
     }
+    // THE FILES STAND IN THE POST AS IT WILL BE PUBLISHED (iOS MTBoardCell's draft, 0ba63ede): the tiles in their frames from the files
+    // themselves, a touch on a picture opens its frame; a post on its way keeps what is drawn, its files have left for the store
+    fun drawTiles() {
+        if (sending != null) return
+        tiles.removeAllViews()
+        tiles.visibility = if (files.isEmpty()) View.GONE else View.VISIBLE
+        if (files.isEmpty()) return
+        val shown = files.toList()
+        tiles.addView(c.vstack(Gravity.NO_GRAVITY) {
+            postMedia(act, Board.Item(wall, draftPost(wall, at, "", shown)), true, true, shown.map { f -> f.file }) { i ->
+                shown.getOrNull(i)?.takeIf { f -> sending == null && (f.kind == "img" || f.kind == "vid") }?.let(openFrame)
+            }
+        }, FrameLayout.LayoutParams(MATCH, WRAP))
+    }
     fun drawTaken() {
+        drawTiles()
         taken.removeAllViews()
         for (f in files) taken.addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
             minimumHeight = dp(56)
             setPadding(dp(16), dp(6), dp(4), dp(6))
             val visual = f.kind == "img" || f.kind == "vid"
-            addView(if (visual) ImageView(c).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                background = c.rounded(MT.hairline, 8); outlineProvider = ViewOutlineProvider.BACKGROUND; clipToOutline = true
-                Thread { Media.preview(c, f.file, f.kind, 132)?.let { b -> MainThread.post { setImageBitmap(b) } } }.start()
-            } else FrameLayout(c).apply {
-                background = c.rounded(Color.rgb(41, 41, 41), 8)
-                addView(c.icon(if (f.kind == "aud") R.drawable.ic_music_note else R.drawable.ic_compose_doc, MT.gray, 20), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
-            }, lp(dp(44), dp(44)))
-            gap(12)
-            addView(c.vstack(Gravity.NO_GRAVITY) {
-                addView(c.text(f.name, 17f).apply { singleLineEllipsis() }, lp())   // USER-DATA: the file's own name
-                addView(c.text(Formatter.formatShortFileSize(c, f.file.length()), 12f, MT.gray), lp())
+            // a touch on a picture's row opens its frame, as a touch on its tile does (iOS attached)
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(if (visual) ImageView(c).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    background = c.rounded(MT.hairline, 8); outlineProvider = ViewOutlineProvider.BACKGROUND; clipToOutline = true
+                    Thread { WallFiles.drawn(c, f.file, f.kind, f.frame, 132, 132)?.let { b -> MainThread.post { setImageBitmap(b) } } }.start()
+                } else FrameLayout(c).apply {
+                    background = c.rounded(Color.rgb(41, 41, 41), 8)
+                    addView(c.icon(if (f.kind == "aud") R.drawable.ic_music_note else R.drawable.ic_compose_doc, MT.gray, 20), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+                }, lp(dp(44), dp(44)))
+                gap(12)
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.text(f.name, 17f).apply { singleLineEllipsis() }, lp())   // USER-DATA: the file's own name
+                    addView(c.text(Formatter.formatShortFileSize(c, f.file.length()), 12f, MT.gray), lp())
+                }, lp(0, WRAP, 1f))
+                if (visual) {
+                    gap(8)
+                    addView(c.icon(R.drawable.ic_crop, MT.gray, 20), lp(dp(20), dp(20)))
+                    pressable { if (sending == null) openFrame(f) }
+                }
             }, lp(0, WRAP, 1f))
             if (sending == null) addView(c.icon(R.drawable.ic_cancel, MT.gray, 22).apply {
                 setPadding(dp(11), dp(11), dp(11), dp(11))
@@ -271,7 +303,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         Thread {
             var got = 0
             for (u in uris) {
-                val a = WallFiles.take(c, u)
+                val a = WallFiles.take(c, u)?.also { x -> WallFiles.dress(c, x) }
                 if (a != null) got++
                 MainThread.post {
                     taking--
@@ -281,6 +313,32 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
             }
             android.util.Log.i("Montana", "post_files picked=${uris.size} staged=$got")
         }.start()
+    }
+    // THE PICTURE'S FRAME (iOS MTBoardComposer.frame, 0ba63ede): the picture upright, as large as the page draws it, under the one crop
+    var framing = false
+    openFrame = { f ->
+        if (!framing) {
+            framing = true
+            Thread {
+                val image = Media.preview(c, f.file, f.kind, 2048)
+                MainThread.post {
+                    if (image == null || closed || image.width <= 0 || image.height <= 0) framing = false
+                    else {
+                        c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).hideSoftInputFromWindow(field.windowToken, 0)
+                        lateinit var close: () -> Unit
+                        val crop = frameCropPage(act, image, f.frame ?: WallFiles.ownFrame(image.width, image.height)) { kept ->
+                            close()
+                            framing = false
+                            android.util.Log.i("Montana", "post_frame " + (if (kept == null) "left" else "set"))
+                            if (kept != null) { f.frame = kept; drawTaken(); lay() }
+                        }
+                        close = act.overlay(crop)
+                        // the keys are on their way down: the page stands on the system's bar alone, not on the height the keys held (seen on A1, 852)
+                        act.window.decorView.rootWindowInsets?.getInsets(android.view.WindowInsets.Type.systemBars())?.let { b -> crop.setPadding(crop.paddingLeft, crop.paddingTop, crop.paddingRight, b.bottom) }
+                    }
+                }
+            }.start()
+        }
     }
     fun showBar() {
         barSlot.removeAllViews()
@@ -338,7 +396,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         // THE NEW POST'S PAGE IS THE POST ONE TO ONE (iOS MTBoardComposer's MTBoardCell with its draft, 0ba63ede, 24.09): my face,
         // my name and the moment it was begun as the wall will draw them, the words a field where the post's words stand, at the
         // wall's own width; a touch anywhere on the post gives the field the keys again (24.09)
-        addView(postCell(act, Board.Item(wall, draftPost(wall, at, "")), whole = true, onItsWall = true, sending = true, field = field).apply {
+        addView(postCell(act, Board.Item(wall, draftPost(wall, at, "")), whole = true, onItsWall = true, sending = true, field = field, tiles = tiles).apply {
             setOnClickListener { if (sending == null && !field.hasFocus()) { field.requestFocus(); c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(field, 0) } }
         }, lp().apply { topMargin = dp(12) })
         addView(picks, lp().apply { topMargin = dp(16) })
@@ -346,6 +404,10 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         addView(failedLine, lp().apply { topMargin = dp(16) })
     }
     drawTaken()
+    // a draft from before the frames: its pictures take their own, off the main thread
+    files.filter { f -> f.frame == null && (f.kind == "img" || f.kind == "vid") }.takeIf { bare -> bare.isNotEmpty() }?.let { bare ->
+        Thread { for (f in bare) WallFiles.dress(c, f); MainThread.post { if (!closed) { drawTaken(); lay() } } }.start()
+    }
     // WHAT ANOTHER APP HANDED IN STANDS ON THE PAGE ALREADY TAKEN (iOS MTBoard.laySheet 1974-1991: the words joined, the files held to
     // what a post takes, then MTBoardComposer.reopen 2054-2058): the words to change, more files to pick, the check to post
     // joined to the draft the wall already holds (iOS MTBoard.laySheet: «joins the words and the files to the draft my wall already holds»)

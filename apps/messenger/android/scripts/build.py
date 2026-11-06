@@ -132,7 +132,7 @@ def core(p):
 
 def entry(name, how):
     # a fixed moment and mode in each entry, not the file's own: one commit makes one APK, byte for byte, whoever builds
-    # it (a build as anna differed from root's only in these)
+    # it (a build as another user differed from root's only in these)
     e = zipfile.ZipInfo(name, date_time=FIXED_MOMENT)
     e.compress_type = how
     e.external_attr = 0x81A40000   # a regular file, rw-r--r--
