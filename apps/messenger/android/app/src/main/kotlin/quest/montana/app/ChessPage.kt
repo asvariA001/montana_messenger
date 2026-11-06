@@ -683,8 +683,8 @@ fun Context.chessPlate(act: MainActivity?, ref: String, m: Msg, letter: ChessLet
         addView(ImageView(context).apply { setImageResource(R.drawable.chess_wn) }, lp(dp(40), dp(40)))
         gap(10)
         addView(vstack(Gravity.NO_GRAVITY) {
-            addView(text(getString(R.string.chess_title), 16f, BubbleStyle.text(mine), bold = true))
-            addView(text(ChessWords.seat(context, letter, mine), 13f, BubbleStyle.time(mine)))
+            addView(text(getString(R.string.chess_title), 17f, BubbleStyle.text(mine), bold = true))   // iOS .headline
+            addView(text(ChessWords.seat(context, letter, mine), 15f, BubbleStyle.text(mine)).apply { setPadding(0, dp(3), 0, 0) })   // iOS .subheadline in the bubble's ink, 3 under the title
         }, lp(WRAP, WRAP))
     }, lp(WRAP, WRAP))
     if (act != null) {
@@ -696,7 +696,7 @@ fun Context.chessPlate(act: MainActivity?, ref: String, m: Msg, letter: ChessLet
                 pressable { if (ChessSend.join(act, ref, game) != null) act.push { back -> chessBoardPage(act, ref, game, true, back) } }
             }, lp(WRAP, WRAP).apply { marginEnd = dp(8) })
             addView(text(getString(R.string.chess_decline), 15f, Color.WHITE, bold = true, center = true).apply {
-                background = rounded(Color.rgb(140, 30, 40), 18); setPadding(dp(16), dp(8), dp(16), dp(8)); minHeight = dp(44); gravity = Gravity.CENTER
+                background = rounded(Color.rgb(128, 0, 33), 18); setPadding(dp(16), dp(8), dp(16), dp(8)); minHeight = dp(44); gravity = Gravity.CENTER
                 pressable {
                     val now = ChessSend.state(ref, game)
                     now?.action(ChessLetter.DECLINE, ChessSend.now())?.let { ChessSend.send(act, ref, it) }
