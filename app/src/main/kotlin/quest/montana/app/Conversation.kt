@@ -2691,9 +2691,17 @@ private fun voiceHints(c: Context, chat: Chat): List<String> {
     return VoiceText.hints(listOf(Prefs.userName, chat.shown) + speakers, chat.msgs.map { it.text })
 }
 
+/** HOW WIDE A BUBBLE MAY GROW (iOS bubbleCeiling, MontanaBubble.swift:596; the measure taken from PR #43, Conversation.kt wordsMax): four
+ *  fifths of the window, a channel's post the window but the round's room. The bubble's own padding stands inside this measure. */
+internal fun bubbleCeiling(c: Context, ref: String = ""): Int {
+    val window = c.dp(c.resources.configuration.screenWidthDp)
+    return if (Groups.isKey(ref) && Groups.isChannel(ref)) window - c.dp(61) else (window * 0.8f).toInt()
+}
+
 private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
+    val wordsMax = bubbleCeiling(c, chat.ref) - c.dp(24)   // the words' measure inside the bubble's padding of 12 on each side
     // THE SPEAKER AT THE HEAD OF THEIR RUN (iOS speakerPlace, MTSpeakerHead -- the reference's group feed): once a run, in the colour
     // every phone gives them; inside a bubble of words, over a file, a voice, a round note and our own plates, nowhere over a picture
     val place = if (head) speakerPlace(c, m, members) else SPEAKER_NONE
@@ -2763,7 +2771,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 // 20c5cef6f490): the web's own finder and a Montana link alike, underlined in the bubble's own ink (iOS
                 // MontanaShapes.swift:524).
                 val words = c.text(linkedWords(letterWords(c, m.text)) { u -> (c as? MainActivity)?.openLink(u.toString()) }, 16f * MontanaTextSize.system, BubbleStyle.text(mine)).apply {
-                    maxWidth = dp(260); setTextIsSelectable(false); visibility = View.GONE
+                    maxWidth = wordsMax; setTextIsSelectable(false); visibility = View.GONE
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     setLinkTextColor(BubbleStyle.text(mine))
                 }   // USER-DATA: the letter
@@ -2785,7 +2793,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // THE SYSTEM'S TEXT SIZE REACHES ONLY THE LETTER'S OWN WORDS (iOS montanaTextScale/letterFont, the author's
             // word 11.09): every other size in the app stays pinned (pinnedText, Ui.kt), the bubble's own text does not.
             else addView(c.text(linkedWords(letterWords(c, m.text)) { u -> (c as? MainActivity)?.openLink(u.toString()) }, 16f * MontanaTextSize.system, BubbleStyle.text(mine)).apply {
-                maxWidth = dp(260); setTextIsSelectable(false)
+                maxWidth = wordsMax; setTextIsSelectable(false)
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(BubbleStyle.text(mine))
             }, lp(WRAP, WRAP).apply { if (who != null && place == SPEAKER_INSIDE) gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name it keeps the bubble's leading edge (iOS VStack .leading)
@@ -2806,7 +2814,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 }, bodyAt, lp(WRAP, WRAP))
             }
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
-            LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine), lp(WRAP, WRAP)) }
+            LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine, wordsMax), lp(WRAP, WRAP)) }
             // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
             // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
@@ -2820,7 +2828,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             // THE VOICE'S WORDS UNDER ITS CAPSULE (iOS voiceTranscript, b2fe4814 at 2315): read on this phone, between the capsule
             // and its pills, where the person opened them; the glyph that opens them stands after the stamp's pill (below)
             val voiceFile = if (voice && VoiceText.canRead(c)) m.file?.takeIf { java.io.File(it).exists() } else null
-            if (voiceFile != null) addView(voiceWordsView(c, voiceFile, mine), lp(WRAP, WRAP).apply { topMargin = dp(6); if (!mine) gravity = Gravity.START })
+            if (voiceFile != null) addView(voiceWordsView(c, voiceFile, mine, bubbleCeiling(c, chat.ref)), lp(WRAP, WRAP).apply { topMargin = dp(6); if (!mine) gravity = Gravity.START })
             if (!call) addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 if (darkMeta) {

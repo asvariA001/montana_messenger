@@ -491,7 +491,7 @@ private fun View.roundedCorners(c: Context, radiusDp: Int) {
  * one letter cannot take the whole screen. A tap opens the link — the site is read only now, by the one who chose to
  * open it.
  */
-fun linkCardView(c: Context, card: LinkCard, mine: Boolean): View {
+fun linkCardView(c: Context, card: LinkCard, mine: Boolean, room: Int): View {
     val pic = card.i?.let { b64 -> runCatching { Base64.decode(b64, Base64.NO_WRAP) }.getOrNull()?.let { BitmapFactory.decodeByteArray(it, 0, it.size) } }
     val wide = card.wide && pic != null
     val accent = if (mine) Color.WHITE else BubbleStyle.text(false)   // iOS MontanaNativeBubble.link(mine:)
@@ -516,7 +516,7 @@ fun linkCardView(c: Context, card: LinkCard, mine: Boolean): View {
         addView(top, lp())
         if (pic != null && wide) {
             val ratio = ((card.w ?: 4).toFloat() / maxOf(card.h ?: 3, 1).toFloat()).coerceIn(0.75f, 3.0f)
-            val colWidth = c.dp(260) - c.dp(3) - c.dp(6)
+            val colWidth = room - c.dp(3) - c.dp(6)
             addView(ImageView(c).apply {
                 setImageBitmap(pic); scaleType = ImageView.ScaleType.FIT_CENTER
                 roundedCorners(c, 4)
@@ -527,7 +527,7 @@ fun linkCardView(c: Context, card: LinkCard, mine: Boolean): View {
         gravity = Gravity.TOP
         setPadding(0, c.dp(3), 0, 0)
         addView(View(c).apply { setBackgroundColor(accent) }, lp(c.dp(3), MATCH).apply { marginEnd = c.dp(6) })
-        addView(col, lp(c.dp(260) - c.dp(3) - c.dp(6), WRAP))
+        addView(col, lp(room - c.dp(3) - c.dp(6), WRAP))   // the card runs the bubble's whole measure (iOS linkCard, maxWidth .infinity)
         pressable { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(card.u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
     }
 }

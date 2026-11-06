@@ -248,9 +248,9 @@ object VoiceText {
 
 /** The voice's words under its capsule, in the letter's own fill; what the recogniser could not do, said in a word (iOS
  *  voiceTranscript). It follows the one owner: shown while its voice stands open and the reading is over. */
-fun voiceWordsView(c: Context, file: String, mine: Boolean): android.view.View = android.widget.TextView(c).apply {
+fun voiceWordsView(c: Context, file: String, mine: Boolean, ceiling: Int): android.view.View = android.widget.TextView(c).apply {
     textSize = 15f
-    maxWidth = c.dp(260)
+    maxWidth = ceiling   // its own plate under the capsule, in the bubble's column (iOS bubbleCeiling)
     setPadding(c.dp(12), c.dp(8), c.dp(12), c.dp(8))
     background = BubbleStyle.plate(c, mine, 16)
     val ink = BubbleStyle.text(mine)
