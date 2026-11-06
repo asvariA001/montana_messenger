@@ -588,6 +588,7 @@
     <string name="wall_publishing">Публикуется</string>
     <string name="wall_could_not_post">Не удалось опубликовать</string>
     <string name="wall_remove">Убрать</string>
+    <string name="wall_frame_original">Оригинал</string>
     <string name="wall_publish">Опубликовать</string>
     <string name="wall_share_of">%1$d%% · %2$s из %3$s</string>
     <string name="wall_who_write_mine">Кто может писать на моей стене</string>

@@ -593,6 +593,7 @@
     <string name="wall_publishing">Publishing</string>
     <string name="wall_could_not_post">Could not post</string>
     <string name="wall_remove">Remove</string>
+    <string name="wall_frame_original">Original</string>
     <string name="wall_publish">Publish</string>
     <string name="wall_share_of">%1$d%% · %2$s of %3$s</string>
     <string name="wall_who_write_mine">Who can write on my wall</string>

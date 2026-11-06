@@ -121,7 +121,8 @@ object MyWall {
         val d = draftsHeld().optJSONObject(wall) ?: return null
         val fs = d.optJSONArray("files") ?: JSONArray()
         val files = (0 until fs.length()).mapNotNull { i -> fs.optJSONObject(i) }.map { f ->
-            Attachment(File(f.optString("path")), f.optString("kind"), f.optString("name"), f.optString("ext"))
+            Attachment(File(f.optString("path")), f.optString("kind"), f.optString("name"), f.optString("ext"),
+                f.optJSONObject("fr"), f.optDouble("dur", 0.0).takeIf { it > 0 })
         }.filter { it.file.exists() }
         Draft(d.optString("text"), files, d.optDouble("at", System.currentTimeMillis() / 1000.0))
     }
@@ -131,7 +132,9 @@ object MyWall {
         if (text.isBlank() && files.isEmpty()) { dropDraft(wall, "emptied"); return@synchronized }
         val born = !draftsHeld().has(wall)
         val fs = JSONArray()
-        for (f in files) fs.put(JSONObject().put("path", f.file.path).put("kind", f.kind).put("name", f.name).put("ext", f.ext))
+        for (f in files) fs.put(JSONObject().put("path", f.file.path).put("kind", f.kind).put("name", f.name).put("ext", f.ext).apply {
+            f.frame?.let { put("fr", it) }; f.dur?.let { put("dur", it) }
+        })
         draftsHeld().put(wall, JSONObject().put("text", text).put("files", fs).put("at", at))
         saveDrafts()
         if (born) Log.i("Montana", "post_draft born wall=" + (if (wall.isEmpty()) "mine" else "theirs"))
@@ -540,7 +543,8 @@ object MyWall {
         (0 until (cs?.length() ?: 0)).mapNotNull { cs?.optJSONObject(it) }.firstOrNull { it.optString("id") == cid && it.has("ref") }?.optString("ref")
     }
     // ── a post on its way: its files on the node, then the post (iOS begin, publish, lay 1764-1932) ──
-    class Attachment(val file: File, val kind: String, val name: String, val ext: String)
+    /** A file of a post being written; a picture's frame (iOS MTBoardDraftFile.fr) and a track's or a film's length ride with it. */
+    class Attachment(val file: File, val kind: String, val name: String, val ext: String, var frame: JSONObject? = null, var dur: Double? = null)
     /** A post on its way as its bar reads it (iOS MTBoardOutgoing 282-298): the bytes the node confirmed of all its files, and the wall
      * it goes to -- "" my own. */
     class Going(val id: String, val post: JSONObject, val total: Long, val done: Long, val failed: Boolean, val wall: String = "") {
@@ -585,7 +589,7 @@ object MyWall {
             val m = JSONObject().put("kind", a.kind).put("name", a.name.take(120)).put("ext", a.ext).put("size", f.length())
                 .put("key", "").put("chunks", JSONArray())
             if (a.kind == "img" || a.kind == "vid") {
-                val fr = Media.preview(Book.ctx, f, a.kind, 256)?.let { b -> WallFiles.ownFrame(b.width, b.height) }
+                val fr = a.frame ?: Media.preview(Book.ctx, f, a.kind, 256)?.let { b -> WallFiles.ownFrame(b.width, b.height) }
                 fr?.let { m.put("fr", it) }
                 WallFiles.poster(Book.ctx, f, a.kind, fr)?.let { m.put("thumb", it) }
             }

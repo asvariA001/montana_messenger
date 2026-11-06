@@ -1116,13 +1116,49 @@ private class WallClip(c: Context) : android.view.TextureView(c), android.view.T
     override fun onSurfaceTextureUpdated(st: android.graphics.SurfaceTexture) {}
 }
 
-/** A picture of a post: its width the post's, its height by the frame's shape (iOS MTBoardFrame.held: 9:16 up to 16:9). */
-private class WallTile(c: Context, private val shape: Float) : ImageView(c) {
+/**
+ * THE PICTURES OF A POST STAND IN THEIR OWN SHAPES (iOS MTBoardMosaic, 0ba63ede): an odd one across the whole width, then two by two,
+ * each row filling the width at one height.
+ */
+class WallMosaic(c: Context, private val shapes: List<Float>) : android.view.ViewGroup(c) {
+    private val space = c.dp(4)
+    private val frames = List(shapes.size) { android.graphics.Rect() }
+    companion object {
+        fun rows(n: Int): List<List<Int>> {
+            val out = ArrayList<List<Int>>()
+            var i = 0
+            if (n % 2 == 1) { out.add(listOf(0)); i = 1 }
+            while (i + 1 < n) { out.add(listOf(i, i + 1)); i += 2 }
+            return out
+        }
+    }
+    private fun lay(width: Int): Int {
+        var y = 0
+        for (row in rows(shapes.size)) {
+            val sum = row.fold(0f) { a, i -> a + maxOf(0.1f, shapes[i]) }
+            val h = maxOf(1, ((width - space * (row.size - 1)) / sum).toInt())
+            var x = 0
+            for ((k, i) in row.withIndex()) {
+                val w = if (k == row.size - 1) width - x else Math.round(h * maxOf(0.1f, shapes[i]))
+                frames[i].set(x, y, x + maxOf(1, w), y + h)
+                x += w + space
+            }
+            y += h + space
+        }
+        return maxOf(0, y - space)
+    }
     override fun onMeasure(w: Int, h: Int) {
-        val wd = MeasureSpec.getSize(w)
-        setMeasuredDimension(wd, (wd / shape.coerceIn(9f / 16f, 16f / 9f)).toInt())
+        val width = MeasureSpec.getSize(w)
+        val height = lay(width)
+        for (i in 0 until minOf(childCount, frames.size)) getChildAt(i).measure(
+            MeasureSpec.makeMeasureSpec(frames[i].width(), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(frames[i].height(), MeasureSpec.EXACTLY))
+        setMeasuredDimension(width, height)
+    }
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        for (i in 0 until minOf(childCount, frames.size)) frames[i].let { f -> getChildAt(i).layout(f.left, f.top, f.right, f.bottom) }
     }
 }
+
 
 private fun poster(b64: String?): Bitmap? = b64?.takeIf { it.isNotEmpty() }?.let {
     runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull()?.let { d -> BitmapFactory.decodeByteArray(d, 0, d.size) }
@@ -1463,6 +1499,85 @@ private fun wallLink(act: MainActivity, wall: String): View = act.hstack {
 }
 
 /**
+ * THE FILES OF A POST (iOS MTBoardMediaView, 0ba63ede): pictures and films as tiles of one mosaic, each in its frame, then tracks and files
+ * as rows. Being written (sources: the files in hand, by the post's order) a tile draws the file itself and a film stands still under its
+ * mark; onTile takes the tile's touch, and the rows answer nothing (iOS allowsHitTesting(onTile == nil)).
+ */
+fun LinearLayout.postMedia(act: MainActivity, item: Board.Item, whole: Boolean, onItsWall: Boolean, sources: List<File>? = null, onTile: ((Int) -> Unit)? = null) {
+    val c: Context = act
+    val p = item.post
+    val media = p.optJSONArray("media") ?: JSONArray()
+    val visual = (0 until media.length()).filter { k -> media.optJSONObject(k)?.optString("kind").let { w -> w == "img" || w == "vid" } }
+    if (visual.isNotEmpty()) {
+        // THE SHAPE FROM THE FRAME, ELSE FROM THE POSTER'S HEADER ALONE (iOS MTBoardMediaView.shape, MTBoardPoster.shape), held to what a post takes
+        val shapes = visual.map { i ->
+            val m = media.getJSONObject(i)
+            WallFiles.held(m.optJSONObject("fr")?.optDouble("a", 0.0)?.takeIf { s -> s > 0 } ?: WallPoster.shape(m.optString("thumb"))?.toDouble() ?: 1.0).toFloat()
+        }
+        val rows = WallMosaic.rows(visual.size)
+        val screen = c.resources.displayMetrics.widthPixels
+        val mosaic = WallMosaic(c, shapes)
+        for ((k, i) in visual.withIndex()) {
+            val m = media.getJSONObject(i)
+            val kind = m.optString("kind")
+            val thumb = m.optString("thumb")
+            val fr = m.optJSONObject("fr")
+            val posterHeld = WallPoster.kept(thumb)
+            var sharp = false
+            val tile = ImageView(c).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                background = c.rounded(MT.hairline, 10)
+                outlineProvider = ViewOutlineProvider.BACKGROUND
+                clipToOutline = true
+                posterHeld?.let { b -> setImageBitmap(b) }
+            }
+            // A FILM'S TILE PLAYS BY ITSELF (iOS MTBoardClip): the clip stands over the poster, the touch goes through to the tile
+            val clip = if (kind == "vid" && sources == null) WallClip(c) else null
+            mosaic.addView(if (clip == null && kind != "vid") tile else FrameLayout(c).apply {
+                background = c.rounded(MT.hairline, 10)
+                outlineProvider = ViewOutlineProvider.BACKGROUND
+                clipToOutline = true
+                addView(tile, FrameLayout.LayoutParams(MATCH, MATCH))
+                if (clip != null) addView(clip, FrameLayout.LayoutParams(MATCH, MATCH))
+                else addView(c.icon(R.drawable.ic_play_circle_fill, Color.WHITE, 30).apply { alpha = 0.9f }, FrameLayout.LayoutParams(dp(30), dp(30), Gravity.CENTER))
+            })
+            // A TILE'S TOUCH OPENS ITS FILE (iOS MTBoardMediaView.tile; openTile); a post being written gives it to its page
+            if (onTile != null) tile.pressable { onTile(i) }
+            else if (sources == null) tile.pressable { openTile(act, item.wall, p, i, !onItsWall, whole) }
+            // THE SHARP PICTURE, ELSE THE POSTER DECODED OFF THE MAIN THREAD, ELSE THE TILE'S GREY (iOS MTBoardPicture); the file is cut to the
+            // post's frame at the tile's own pixels, and what was drawn sharp stands sharp on the first frame of the next drawing (its cache)
+            if (posterHeld == null) WallPoster.decode(thumb) { b -> if (!sharp) tile.setImageBitmap(b) }
+            val pw = if (rows.first { r -> k in r }.size == 1) screen else screen * 3 / 4
+            val ph = maxOf(1, (pw / shapes[k]).toInt())
+            fun sharpen(f: File) {
+                val key = f.path + "#" + (fr?.let { o -> listOf("x", "y", "w", "h").joinToString(",") { n -> "%.4f".format(java.util.Locale.ROOT, o.optDouble(n)) } } ?: "whole") + "#" + pw
+                val held = wallSharp.get(key)
+                if (held != null) { sharp = true; tile.setImageBitmap(held) }
+                else Thread { WallFiles.drawn(c, f, kind, fr, pw, ph)?.let { b -> wallSharp.put(key, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
+            }
+            if (sources != null) sources.getOrNull(i)?.let { f -> sharpen(f) }
+            else {
+                Board.bring(m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) }
+                clip?.stream = { Board.stream(item.wall, m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) } }
+            }
+        }
+        gap(10)
+        addView(mosaic, lp())
+    }
+    // THE TRACKS AND THE FILES AS ROWS, UNDER THE PICTURES (iOS MTBoardMediaView): a track in the one player's face, any other file as its row
+    for (i in 0 until media.length()) {
+        val m = media.optJSONObject(i) ?: continue
+        val kind = m.optString("kind")
+        if (kind == "img" || kind == "vid") continue
+        gap(8)
+        val row = if (kind == "aud") trackRow(act, item.wall, p, i, m, !onItsWall) else fileRow(act, item.wall, p, i, m)
+        addView(if (sources == null) row else object : FrameLayout(c) {
+            override fun onInterceptTouchEvent(e: android.view.MotionEvent) = true
+        }.apply { addView(row, FrameLayout.LayoutParams(MATCH, WRAP)) }, lp())
+    }
+}
+
+/**
  * THE POST'S WORDS OPEN THE POST (iOS MTPostText onOpen, onOpenWords): a text with links takes every touch for itself, so a tap on the words
  * opened nothing, with the keys up or down, and only the fold's line and the cell's edges answered. A link still opens its link.
  */
@@ -1478,7 +1593,7 @@ private class PostWords(private val open: () -> Unit) : android.text.method.Link
     }
 }
 
-fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
+fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null, sources: List<File>? = null, tiles: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
@@ -1605,57 +1720,9 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         // A LINK THE POST'S WRITER READ RIDES WITH THE POST (iOS MTWallLink, MontanaBoardViews.swift:544 at 2155, atom 5a84afb1f68f):
         // the picture its writer's own read brought, the site and the title under it.
         if (field == null) LinkCard.parse(p.optString("lp"))?.let { card -> gap(10); addView(wallLinkView(act, card), lp()) }
-        val media = p.optJSONArray("media") ?: JSONArray()
-        for (i in 0 until media.length()) {
-            val m = media.optJSONObject(i) ?: continue
-            val kind = m.optString("kind")
-            if (kind != "img" && kind != "vid") continue
-            val thumb = m.optString("thumb")
-            val fr = m.optJSONObject("fr")
-            // THE SHAPE FROM THE FRAME, ELSE FROM THE POSTER'S HEADER ALONE (iOS MTBoardPoster.shape, MontanaBoard.swift:2277-2287 at 2155)
-            val shape = fr?.optDouble("a", 0.0)?.toFloat()?.takeIf { s -> s > 0f } ?: WallPoster.shape(thumb) ?: 1f
-            gap(10)
-            val posterHeld = WallPoster.kept(thumb)
-            var sharp = false
-            val tile = WallTile(c, shape).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                background = c.rounded(MT.hairline, 12)
-                outlineProvider = ViewOutlineProvider.BACKGROUND
-                clipToOutline = true
-                posterHeld?.let { b -> setImageBitmap(b) }
-            }
-            // A FILM'S TILE PLAYS BY ITSELF (iOS MTBoardClip): the clip stands over the poster, the touch goes through to the tile
-            val clip = if (kind == "vid" && field == null) WallClip(c) else null
-            if (clip == null) addView(tile, lp())
-            else addView(FrameLayout(c).apply {
-                background = c.rounded(MT.hairline, 12)
-                outlineProvider = ViewOutlineProvider.BACKGROUND
-                clipToOutline = true
-                addView(tile, FrameLayout.LayoutParams(MATCH, WRAP))
-                addView(clip, FrameLayout.LayoutParams(MATCH, MATCH))
-            }, lp())
-            // A TILE'S TOUCH OPENS ITS FILE (iOS MTBoardMediaView.tile, MontanaBoardViews.swift:695-716 at 2155; openTile)
-            if (field == null) tile.pressable { openTile(act, it.wall, p, i, !onItsWall, whole) }   // the editor's tiles answer nothing (iOS onTile: { _ in }, 2090)
-            // THE SHARP PICTURE, ELSE THE POSTER DECODED OFF THE MAIN THREAD, ELSE THE TILE'S GREY (iOS MTBoardPicture, MontanaBoardViews.swift:
-            // 926-941 at 2155); what was drawn sharp stands sharp on the first frame of the next drawing (iOS MTBoardPicture.cache 944-948)
-            if (posterHeld == null) WallPoster.decode(thumb) { b -> if (!sharp) tile.setImageBitmap(b) }
-            fun sharpen(f: File) {
-                val held = wallSharp.get(f.path)
-                if (held != null) { sharp = true; tile.setImageBitmap(held) }
-                else Thread { Media.preview(c, f, kind, 1600)?.let { b -> wallSharp.put(f.path, b); MainThread.post { sharp = true; tile.setImageBitmap(b) } } }.start()
-            }
-            Board.bring(m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) }
-            clip?.stream = { Board.stream(it.wall, m, p.optString("id"), i) { f -> clip?.file = f; sharpen(f) } }
-        }
-        // THE TRACKS AND THE FILES AS ROWS, UNDER THE PICTURES (iOS MTBoardMediaView, MontanaBoardViews.swift:657-667, 718-720 at 2155):
-        // a track in the one player's face, any other file as its row
-        for (i in 0 until media.length()) {
-            val m = media.optJSONObject(i) ?: continue
-            val kind = m.optString("kind")
-            if (kind == "img" || kind == "vid") continue
-            gap(8)
-            addView(if (kind == "aud") trackRow(act, it.wall, p, i, m, !onItsWall) else fileRow(act, it.wall, p, i, m), lp())
-        }
+        postMedia(act, it, whole, onItsWall, sources)
+        // the page that writes a post lays its files here (iOS MTBoardComposer: the cell draws them; the page redraws them alone, the field stays)
+        tiles?.let { t -> addView(t, lp()) }
         // THE COUNTS (iOS counters 445-487), a row of their own: a mark draws this row again and nothing above it (PostCells)
         if (sending) return@vstack
         gap(4)

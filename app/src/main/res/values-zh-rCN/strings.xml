@@ -588,6 +588,7 @@
     <string name="wall_publishing">正在发布</string>
     <string name="wall_could_not_post">发布失败</string>
     <string name="wall_remove">移除</string>
+    <string name="wall_frame_original">原始</string>
     <string name="wall_publish">发布</string>
     <string name="wall_share_of">%1$d%% · %2$s / %3$s</string>
     <string name="wall_who_write_mine">谁可以在我的留言墙上发帖</string>
