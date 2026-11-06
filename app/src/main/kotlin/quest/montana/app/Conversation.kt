@@ -2704,11 +2704,12 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
     val wordsMax = bubbleCeiling(c, chat.ref) - c.dp(24)   // the words' measure inside the bubble's padding of 12 on each side
     // THE SPEAKER AT THE HEAD OF THEIR RUN (iOS speakerPlace, MTSpeakerHead -- the reference's group feed): once a run, in the colour
     // every phone gives them; inside a bubble of words, over a file, a voice, a round note and our own plates, nowhere over a picture
-    val place = if (head) speakerPlace(c, m, members) else SPEAKER_NONE
+    val kindPlace = speakerPlace(c, m, members)
+    val place = if (head) kindPlace else SPEAKER_NONE
     val who = if (place != SPEAKER_NONE) Groups.speakerLine(c, m, chat.ref) else null
     addView(c.vstack(if (mine) Gravity.END else Gravity.START) {
         if (who != null && place == SPEAKER_ABOVE) addView(c.text(who, 12f, Groups.tint(m.from ?: ""), bold = true).apply {   // USER-DATA: the speaker's name
-            singleLineEllipsis(); setPadding(c.dp(8), c.dp(6), 0, c.dp(2))
+            singleLineEllipsis(); setPadding(c.dp(6), c.dp(6), c.dp(6), c.dp(2))
         }, lp(WRAP, WRAP))
         // THE FORWARD MARK, ONE PLACE FOR EVERY KIND OF LETTER (iOS isForwarded, MontanaBubble.swift:604-617, the author's word 16.09; taken from PR #43,
         // Conversation.kt): the arrow and the word in the caption's grey ABOVE the bubble, the channel's name on a post it forwards
@@ -2738,8 +2739,15 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(18).toFloat())
                 }
                 clipToOutline = true
-            } else setPadding(dp(12), dp(7), dp(12), dp(6))
-            if (who != null && place == SPEAKER_INSIDE) addView(speakerHead(c, who, m.from), lp(WRAP, WRAP).apply { gravity = Gravity.START; bottomMargin = dp(2) })   // the name widens the bubble, never cut by its words
+            } else setPadding(dp(12), dp(if (kindPlace == SPEAKER_INSIDE) 6 else 7), dp(12), dp(6))   // a bubble of words: 12 and 6 (iOS textBubble; PR #43 Conversation.kt)
+            if (who != null && place == SPEAKER_INSIDE) {
+                val line = speakerHead(c, who, m.from)
+                // the role stands at the bubble's far edge (iOS Spacer in speakerHeadLine): the line fills the bubble, and the bubble holds the line's own room
+                if (Groups.roleOf(m.from) != 0) {
+                    minimumWidth = maxOf(minimumWidth, minOf(line.minimumWidth + dp(24), bubbleCeiling(c, chat.ref)))
+                    addView(line, lp(MATCH, WRAP).apply { bottomMargin = dp(2) })
+                } else addView(line, lp(WRAP, WRAP).apply { gravity = Gravity.START; bottomMargin = dp(2) })
+            }   // the name widens the bubble, never cut by its words
             if (m.qt != null && !isForwardQuote(m.qt)) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
                 // THE QUOTE (iOS replyQuote, MontanaBubble.swift:1816; taken from PR #43, Conversation.kt): a bar of 3, white at 0.6 on mine, the speaker's
@@ -2975,22 +2983,26 @@ private fun speakerPlace(c: Context, m: Msg, members: List<Msg>): Int = when {
 }
 /**
  * THE SPEAKER'S LINE INSIDE A GROUP'S BUBBLE (iOS speakerHeadLine): the name semibold at fourteen seventeenths of the letter in the
- * speaker's colour, the role's word a point smaller at its right on a capsule of its own colour -- owner in violet, admin in green.
+ * speaker's colour, the role's word or the title the owner gave a point smaller at the bubble's far edge on a capsule of its own colour --
+ * owner in violet, admin in green. With a role the line's minimumWidth says the room it needs, for the bubble to hold.
  */
 private fun speakerHead(c: Context, who: String, ref: String?): View = c.hstack {
     gravity = Gravity.CENTER_VERTICAL
     val size = Math.floor(16.0 * MontanaTextSize.system * 14 / 17).toFloat()
-    addView(c.text(who, size, Groups.tint(ref ?: "")).apply {   // USER-DATA: the speaker's name
-        singleLineEllipsis(); typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
-    }, lp(WRAP, WRAP))
     val role = Groups.roleOf(ref)
+    val name = c.text(who, size, Groups.tint(ref ?: "")).apply {   // USER-DATA: the speaker's name
+        singleLineEllipsis(); typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+    }
+    addView(name, if (role != 0) LinearLayout.LayoutParams(0, WRAP, 1f) else lp(WRAP, WRAP))
     if (role != 0) {
         val tone = if (role == 1) Color.rgb(0x95, 0x6a, 0xc8) else Color.rgb(0x49, 0xa3, 0x55)
-        addView(c.text(c.getString(if (role == 1) R.string.gp_owner else R.string.gp_admin), size - 1, tone).apply {
+        val word = Groups.rankOf(ref) ?: c.getString(if (role == 1) R.string.gp_owner else R.string.gp_admin)   // USER-DATA: the owner's custom title
+        addView(c.text(word, size - 1, tone).apply {
+            singleLineEllipsis()
             gravity = Gravity.CENTER
             setPadding(c.dp(5), 0, c.dp(5), 0)
             background = c.rounded(Color.argb(51, Color.red(tone), Color.green(tone), Color.blue(tone)), 100)
-        }, lp(WRAP, c.dp(17)).apply { marginStart = c.dp(8) })
+        }.also { chip -> minimumWidth = (name.paint.measureText(who) + chip.paint.measureText(word)).toInt() + c.dp(19) }, lp(WRAP, c.dp(17)).apply { marginStart = c.dp(8) })
     }
 }
 /**

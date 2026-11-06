@@ -389,6 +389,12 @@ object Groups {
         val g = state(key(parts[0])) ?: return 0
         return if (parts[1] == OWNER_SEAT) 1 else if (parts[1] in g.admins) 2 else 0
     }
+    /** The custom title the owner gave a speaker with a role (iOS MTSpeakerHead.rank, G.6), worn instead of the role's own word. */
+    fun rankOf(ref: String?): String? {
+        if (roleOf(ref) == 0) return null
+        val parts = ref!!.removePrefix(SPEAKER_HEAD).split("/", limit = 2)
+        return rank(key(parts[0]), parts[1])
+    }
     /** The faces' one palette (iOS MontanaAvatar.paletteHex). */
     private val TINTS = intArrayOf(0xFF007AFF.toInt(), 0xFF34C759.toInt(), 0xFFFF9500.toInt(), 0xFFAF52DE.toInt(),
         0xFFFF2D55.toInt(), 0xFFFF3B30.toInt(), 0xFF30B0C7.toInt(), 0xFFD99E38.toInt())
