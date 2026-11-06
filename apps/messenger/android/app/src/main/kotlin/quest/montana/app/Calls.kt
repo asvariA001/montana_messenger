@@ -18,6 +18,7 @@ import android.os.Build
 import android.util.Base64
 import android.util.Log
 import android.view.Gravity
+import android.view.View
 import android.widget.LinearLayout
 import org.json.JSONArray
 import org.json.JSONObject
@@ -704,7 +705,7 @@ object Calls {
         else -> R.string.call_voice
     })
 
-    /** iOS MessageBubble.callBubble: the glyph, red when missed; the kind; under it the arrow, how it went and the moment. */
+    /** iOS MessageBubble.callBubble: the glyph, red when missed; the kind; under it the arrow, how it went and the stamp: the moment, the seal, the failed mark. */
     fun body(c: Context, m: Msg, into: LinearLayout) {
         val i = info(m.text) ?: return
         val ink = BubbleStyle.text(m.mine)
@@ -715,18 +716,53 @@ object Calls {
             else -> c.getString(R.string.call_failed)
         }
         val time = android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at))
+        val metaInk = BubbleStyle.time(m.mine)
         into.addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(36)   // iOS rowPlate 54 with the bubble's 9 above and below: one height with the voice capsule
             addView(c.icon(if (i.video) R.drawable.ic_peer_video else R.drawable.ic_peer_phone, accent, 18), lp(dp(18), dp(18)).apply { marginEnd = dp(10) })
             addView(c.vstack(Gravity.NO_GRAVITY) {
                 addView(c.text(c.getString(if (i.video) R.string.call_video else R.string.call_voice), 15f, ink, bold = true), lp(WRAP, WRAP))
-                addView(c.hstack {
+                val duration = c.hstack {
                     gravity = Gravity.CENTER_VERTICAL
                     addView(c.icon(if (i.incoming) R.drawable.ic_call_received else R.drawable.ic_call_made, accent, 10), lp(dp(10), dp(10)).apply { marginEnd = dp(4) })
-                    addView(c.text(how + " · " + time, 12f, BubbleStyle.time(m.mine)), lp(WRAP, WRAP))
-                }, lp(WRAP, WRAP).apply { topMargin = dp(2) })
+                    addView(c.text(how, 12f, MT.withAlpha(ink, 0.85f)), lp(WRAP, WRAP))
+                }
+                val dot = c.text("·", 12f, MT.withAlpha(ink, 0.65f))
+                val stamp = c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(c.text(time, 11f, metaInk), lp(WRAP, WRAP))
+                    // the letter's gematria right of the time, as on every other letter (iOS metaLine's seal, PR #43 sealMarks)
+                    LetterSeal.gematria(m.mid)?.let { g ->
+                        addView(c.text(" · $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" })   // USER-DATA: the letter's gematria
+                    }
+                    if (m.mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
+                }
+                addView(CallStamp(c, duration, dot, stamp), lp(WRAP, WRAP).apply { topMargin = dp(2) })
             }, lp(WRAP, WRAP))
         }, lp(WRAP, WRAP))
+    }
+
+    /** iOS callBubble's ViewThatFits: how it went, the dot and the stamp in one line while they fit; else the stamp under it, with no dot. */
+    private class CallStamp(c: Context, duration: View, private val dot: View, private val stamp: View) : LinearLayout(c) {
+        init {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(duration, LayoutParams(WRAP, WRAP))
+            addView(dot, LayoutParams(WRAP, WRAP).apply { marginStart = c.dp(4); marginEnd = c.dp(4) })   // the dot goes with its room when the stamp moves under
+            addView(stamp, LayoutParams(WRAP, WRAP))
+        }
+        override fun onMeasure(w: Int, h: Int) {
+            lay(true)
+            super.onMeasure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), h)
+            if (MeasureSpec.getMode(w) != MeasureSpec.UNSPECIFIED && measuredWidth > MeasureSpec.getSize(w)) lay(false)
+            super.onMeasure(w, h)
+        }
+        private fun lay(line: Boolean) {
+            orientation = if (line) HORIZONTAL else VERTICAL
+            gravity = if (line) Gravity.CENTER_VERTICAL else Gravity.START
+            dot.visibility = if (line) VISIBLE else GONE
+            (stamp.layoutParams as LayoutParams).topMargin = if (line) 0 else context.dp(2)
+        }
     }
 
     // ── the ring on the screen (iOS: CallKit's incoming call; here the call's own notification) ──
