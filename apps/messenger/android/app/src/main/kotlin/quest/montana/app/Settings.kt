@@ -259,7 +259,7 @@ fun languagePage(act: MainActivity, onBack: () -> Unit): View {
 fun supportPage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
     val mail = "contact@montana.quest"   // iOS MontanaSafety.contactMail
-    val site = "https://montana.quest"   // iOS MontanaSafety.site
+    val site = "https://montana.xxx"   // iOS MontanaSafety.site (MTEditionMontana.site, decision 711)
     fun write(subject: Int) {
         val i = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$mail")).putExtra(Intent.EXTRA_SUBJECT, c.getString(subject))
         try { act.startActivity(i) } catch (_: ActivityNotFoundException) {
