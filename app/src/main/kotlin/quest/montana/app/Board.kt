@@ -1645,6 +1645,15 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         gap(4)
         var counts = postCounts(act, it, whole, openComments)
         addView(counts, lp())
+        // THE EYE REACHES THE PLATE'S CORNER (the author's word 06.11.2026, her finger recorded on A1): a finger aimed at the eye lay 1-14 px
+        // under its row and 11 px right of it, on the plate's own padding, so the post took the touch and the hold never came. The plate
+        // hands that corner to the eye; laid again after every layout, for a mark draws the row anew.
+        addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val eye = counts.findViewWithTag<View>(EYE_REACH)
+            v.touchDelegate = eye?.let { e ->
+                android.view.TouchDelegate(android.graphics.Rect(counts.left + e.left - dp(16), counts.top + e.top, v.width, v.height), e)
+            }
+        }
         now.counts = { next ->
             val at = indexOfChild(counts)
             counts = postCounts(act, next, whole, openComments)
@@ -1666,6 +1675,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
  * A TABLE POST TAKES NO MARK (iOS 2360 counters, decision 613, the author's word 05.11.2026 "yes, as in iOS"): no like, no keeping, no repost;
  * its comments and the eye stay.
  */
+private const val EYE_REACH = "eye"   // NOT-UI: the tag the plate finds its eye by
+
 private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openComments: () -> Unit): View = act.hstack {
     val c: Context = act
     val p = it.post
@@ -1712,6 +1723,7 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
             // WHO SAW IT, on a hold (iOS 8b1932d3 (5), the author's word 14475) -- on my own posts alone: a reader is named to the
             // post's owner and to nobody else (Board.countsViews, the critic of 14486)
             if (Board.countsViews(wall)) {
+                tag = EYE_REACH
                 setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
                 // a tap goes on to the post, as iOS's long press lets it: a view that takes holds takes the taps with them
                 if (!whole) setOnClickListener { openComments() }
