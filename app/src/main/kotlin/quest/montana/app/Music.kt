@@ -142,13 +142,35 @@ object MusicPlayer {
     private fun clock(p: MediaPlayer) = if (prepared) runCatching { "at=" + p.currentPosition / 1000 + "s of=" + p.duration / 1000 + "s" }.getOrDefault("at=-1s of=-1s") else "at=-1s of=-1s"
 
     private var focus: AudioFocusRequest? = null
-    private fun takeFocus(c: Context) {
+    /** True when the system gave the sound; under another app's call it does not (iOS MontanaAudioSession.wake's ready). */
+    private fun takeFocus(c: Context): Boolean {
         val am = c.getSystemService(AudioManager::class.java)
         focus?.let { am.abandonAudioFocusRequest(it) }
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            .setOnAudioFocusChangeListener { if (it == AudioManager.AUDIOFOCUS_LOSS || it == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pause() }
-            .build().also { am.requestAudioFocus(it) }
+            .setOnAudioFocusChangeListener { focusMoved(it) }
+            .build()
+        return am.requestAudioFocus(focus!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+    // THE SYSTEM TAKES THE SOUND AND GIVES IT BACK (iOS da6d7683, the author's word 05.11: in the car the music dropped). A track the
+    // system took for a while plays on from its place when the sound comes back; never one the person paused, never under a call.
+    // A loss for good (another player took over) stays a pause. A navigator's word only lowers the track: the platform does that itself.
+    private var takenBySystem = false
+    private fun focusMoved(kind: Int) {
+        when (kind) {
+            AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                val was = playing
+                android.util.Log.i("Montana", "music_interrupt began paused=" + (if (was) 0 else 1))
+                if (was) pause()
+                takenBySystem = was && kind == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT && !Calls.busy()
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                val again = takenBySystem && !playing && !Calls.busy()
+                android.util.Log.i("Montana", "music_interrupt ended resume=1 taken=" + (if (takenBySystem) 1 else 0) + " plays=" + (if (again) 1 else 0))
+                takenBySystem = false
+                if (again) resume()
+            }
+        }
     }
     private fun dropFocus() {
         val f = focus ?: return; focus = null
@@ -169,6 +191,7 @@ object MusicPlayer {
         // MTPlayPlaces.keep, the author's word 26.09).
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
         queue = list; index = i
+        takenBySystem = false
         release()
         val t = current ?: return
         takeFocus(a)
@@ -198,14 +221,17 @@ object MusicPlayer {
 
     fun toggle() { if (playing) pause() else resume() }
     fun pause() {
+        takenBySystem = false
         // iOS VoicePlayer.pause:444 at 2155, MTPlayPlaces.keep, 26.09
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
         mp?.takeIf { prepared }?.pause(); playing = false; changed()
     }
     fun resume() {
         val p = mp?.takeIf { prepared } ?: return
-        if (CallSound.refused("music")) return   // iOS MontanaMedia 482
-        app?.let { takeFocus(it) }
+        // A RESUME THAT WOULD NOT PLAY IS SAID TOO (iOS fa901ee6)
+        if (CallSound.refused("music")) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=1 call=1"); return }   // iOS MontanaMedia 482
+        if (app?.let { takeFocus(it) } == false) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=0 call=0"); return }
+        takenBySystem = false
         p.start(); playing = true; tick(); changed()
     }
     fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); changed() }
@@ -221,6 +247,7 @@ object MusicPlayer {
     fun stop() {
         // iOS VoicePlayer.release:526 at 2155, MTPlayPlaces.keep, 26.09
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
+        takenBySystem = false
         release(); dropFocus(); queue = emptyList(); index = -1; changed()
     }
 
