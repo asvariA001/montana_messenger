@@ -731,7 +731,7 @@ object Card {
         // The records sealed in the same JSON on both phones (iOS SeedScope.dataKeys 6132-6133): the peers' read marks (ChatStore
         // notePeerRead 2872-2879), the name held in the network (MontanaNames.swift 113-132), the permanent link, its keys and the
         // day's cards (MontanaFirstContact.swift 626-868)
-        val records = listOf("peerReadMap" to Post.PeerRead.carried(), "mt.name" to Names.record()) +
+        val records = listOf("peerReadMap" to Post.PeerRead.carried(), "mt.name" to DeviceVault.get("mt.name")) +
             MontanaCard.RECORDS.map { it to MontanaCard.record(it) }
         for ((k, v) in records) if (v == null) out.remove("d:$k") else out.put("d:$k", b64(v))
         // What each correspondent said of themselves (iOS MTPeerAbout, MontanaE2E.swift 74-125: one sealed map of conversation to bio,
@@ -896,7 +896,7 @@ object Card {
             { face?.let { SelfFace.set(c, it) } },
             { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } },
             { readMarks?.let { Post.PeerRead.lay(it) } },
-            { nameRecord?.let { Names.lay(it) } },
+            { nameRecord?.let { DeviceVault.set("mt.name", it) } },   // iOS keeps the key in SeedScope.dataKeys at 2361: a copy carries it unread
             { for ((k, d) in cards) MontanaCard.lay(k, d) },
             { about?.let { PeerAbout.lay(it) } },
             { links?.let { PeerLinks.lay(it, born ?: emptyMap()) } },

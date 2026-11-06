@@ -275,6 +275,8 @@ class MainActivity : Activity() {
         show(page)
         MontanaBackupID.retire(this)   // the words no longer ride the Google Account; a record a build before wrote leaves it (iOS e69c9b6d)
         AppIcon.primary(this)   // one icon, no variants (iOS 68bbc2d1)
+        Meeting.forgetClaimedNames()
+        Retired.forget()   // the vault of the Passwords leaves the phone at launch (iOS SeedScope.forgetRetired)
         Prefs.remove("chatSpringBounce", "chatSpringDuration")   // one spring for everyone: the values a person set before leave (iOS b9e68f7f, MTRetired)
         if (hasSeed && termsAccepted && !showWelcome) askWhatIsUnasked()
         // THE DAILY ROAD to the person's own node, a little after the first screen stands (iOS tickSoon).

@@ -1645,6 +1645,16 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         gap(4)
         var counts = postCounts(act, it, whole, openComments)
         addView(counts, lp())
+        // THE EYE REACHES THE PLATE'S CORNER (the author's word 06.11.2026, her finger recorded on A1): a finger aimed at the eye lay 1-14 px
+        // under its row and 11 px right of it, on the plate's own padding, so the post took the touch and the hold never came. The plate
+        // hands the right half of its foot to the eye (her word: no finger hits so small a dot); laid again after every layout, for a mark
+        // draws the row anew.
+        addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val eye = counts.findViewWithTag<View>(EYE_REACH)
+            v.touchDelegate = eye?.let { e ->
+                android.view.TouchDelegate(android.graphics.Rect(v.width / 2, counts.top + e.top - dp(12), v.width, v.height), e)
+            }
+        }
         now.counts = { next ->
             val at = indexOfChild(counts)
             counts = postCounts(act, next, whole, openComments)
@@ -1666,6 +1676,8 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
  * A TABLE POST TAKES NO MARK (iOS 2360 counters, decision 613, the author's word 05.11.2026 "yes, as in iOS"): no like, no keeping, no repost;
  * its comments and the eye stay.
  */
+private const val EYE_REACH = "eye"   // NOT-UI: the tag the plate finds its eye by
+
 private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openComments: () -> Unit): View = act.hstack {
     val c: Context = act
     val p = it.post
@@ -1701,14 +1713,27 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
     spacer()
     if (p.has("views")) {
         addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
+            // THE EYE'S REACH: the glyph and its digits are 27 wide, a finger laid beside them fell through to the post and the hold never
+            // came (the author's word 05.11.2026: she could not see who saw her post). The glyph stays in the corner, the reach grows left.
+            gravity = Gravity.CENTER_VERTICAL or Gravity.END
             minimumHeight = dp(44)
+            minimumWidth = dp(64)
             contentDescription = c.getString(R.string.wall_views)
             addView(c.icon(R.drawable.ic_set_eye, MT.gray, 16)); gap(4)
             addView(c.text(p.optInt("views").toString(), 13f, MT.gray, bold = true))
             // WHO SAW IT, on a hold (iOS 8b1932d3 (5), the author's word 14475) -- on my own posts alone: a reader is named to the
             // post's owner and to nobody else (Board.countsViews, the critic of 14486)
-            if (Board.countsViews(wall)) setOnLongClickListener { act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }; true }
+            if (Board.countsViews(wall)) {
+                tag = EYE_REACH
+                // A TAP OPENS THEM TOO, past iOS's hold alone (the author's word 06.11.2026: three builds of a wider hold failed under her
+                // finger; the phone files a flat finger by the edge as a palm and cancels it): on my own post the eye answers the plain touch.
+                val readers = { how: String ->
+                    Log.i("Montana", "wall_eye how=$how")
+                    act.push { close -> wallPeoplePage(act, wall, id, likes = false, onClose = close) }
+                }
+                setOnLongClickListener { readers("hold"); true }
+                setOnClickListener { readers("tap") }
+            }
         }, lp(WRAP, WRAP))
     }
 }
@@ -2434,7 +2459,8 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
         val cell = thread?.let { (w, post) -> cells.cell(Board.Item(w, post), whole = true) }
         for (i in body.childCount - 1 downTo 0) if (body.getChildAt(i) !== cell) body.removeViewAt(i)
         val (tw, p) = thread ?: run {
-            if (Board.post(wall, id) != null) body.addView(c.text(c.getString(R.string.wall_under_original), 15f, MT.gray).apply { setPadding(0, dp(16), 0, 0) }, lp())
+            // iOS MTBoardComments: with no thread the words stand whatever the reason; a post of the table is on no page, and the page stood black
+            body.addView(c.text(c.getString(R.string.wall_under_original), 15f, MT.gray).apply { setPadding(0, dp(16), 0, 0) }, lp())
             return
         }
         if (cell != null && cell.parent == null) body.addView(cell, lp().apply { setMargins(0, c.dp(6), 0, c.dp(10)) })
@@ -2501,7 +2527,9 @@ fun wallCommentsPage(act: MainActivity, wall: String, id: String, onClose: () ->
             }
         }, lp(dp(44), dp(44)))
     } else if (thread0 != null) c.text(c.getString(R.string.wall_only_writers), 13f, MT.gray, center = true).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }
-    else View(c)
+    // THE PAGE STOOD BLACK: a bare View asked to wrap takes all the height it is offered, so the empty foot ate the column and left the
+    // thread's scroll no height, its words drawn and unseen. A Space asks for nothing.
+    else android.widget.Space(c)
     val bar = FrameLayout(c).apply {
         addView(c.icon(R.drawable.ic_close, android.graphics.Color.WHITE).apply { setPadding(dp(10), dp(10), dp(10), dp(10)); pressable(onClose) },
             FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = c.dp(8) })

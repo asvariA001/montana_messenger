@@ -50,6 +50,14 @@ object MusicFolders {
 
     private fun lent(): List<Uri> = Prefs.str(KEY, "").split('\n').filter { it.isNotEmpty() }.map(Uri::parse)
 
+    /** The folders this phone still holds leave for, as authority and tree id: a track's own uri is compared by them, never as a string. */
+    fun held(c: Context): Set<Pair<String?, String>> = c.contentResolver.persistedUriPermissions
+        .filter { it.isReadPermission && DocumentsContract.isTreeUri(it.uri) }
+        .map { it.uri.authority to DocumentsContract.getTreeDocumentId(it.uri) }.toSet()
+    /** A lent track whose folder lost its leave (iOS MTMusicFolders.closed, 6e2b29ca): the page holds none, a queue made before may. */
+    fun closed(t: Track, held: Set<Pair<String?, String>>) =
+        DocumentsContract.isTreeUri(t.uri) && (t.uri.authority to DocumentsContract.getTreeDocumentId(t.uri)) !in held
+
     fun lend(act: MainActivity, tree: Uri) {
         try { act.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) {}
         val all = lent().filter { it != tree } + tree
@@ -122,16 +130,48 @@ object MusicPlayer {
     private fun said() { listeners.toList().forEach { it() }; Playing.changed() }
     private fun changed() { said(); app?.let { MusicService.sync(it) } }
     val current: Track? get() = queue.getOrNull(index)
-    var refused: (() -> Unit)? = null
+    var refused: ((Int) -> Unit)? = null
+    /** The nearest track from `from` that can sound, past the tracks of a folder that did not open (iOS nextIndex, prev at 6e2b29ca). */
+    private fun sounding(c: Context, from: Int, step: Int): Int? {
+        val held = MusicFolders.held(c)
+        var i = from
+        while (i in queue.indices) { if (!MusicFolders.closed(queue[i], held)) return i; i += step }
+        return null
+    }
+    /** Where the player stands, for the diary; a player in error may not answer. */
+    private fun clock(p: MediaPlayer) = if (prepared) runCatching { "at=" + p.currentPosition / 1000 + "s of=" + p.duration / 1000 + "s" }.getOrDefault("at=-1s of=-1s") else "at=-1s of=-1s"
 
     private var focus: AudioFocusRequest? = null
-    private fun takeFocus(c: Context) {
+    /** True when the system gave the sound; under another app's call it does not (iOS MontanaAudioSession.wake's ready). */
+    private fun takeFocus(c: Context): Boolean {
         val am = c.getSystemService(AudioManager::class.java)
         focus?.let { am.abandonAudioFocusRequest(it) }
         focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build())
-            .setOnAudioFocusChangeListener { if (it == AudioManager.AUDIOFOCUS_LOSS || it == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT) pause() }
-            .build().also { am.requestAudioFocus(it) }
+            .setOnAudioFocusChangeListener { focusMoved(it) }
+            .build()
+        return am.requestAudioFocus(focus!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+    }
+    // THE SYSTEM TAKES THE SOUND AND GIVES IT BACK (iOS da6d7683, the author's word 05.11: in the car the music dropped). A track the
+    // system took for a while plays on from its place when the sound comes back; never one the person paused, never under a call.
+    // A loss for good (another player took over) stays a pause. A navigator's word only lowers the track: the platform does that itself.
+    private var takenBySystem = false
+    private var endedInPause = false
+    private fun focusMoved(kind: Int) {
+        when (kind) {
+            AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                val was = playing
+                android.util.Log.i("Montana", "music_interrupt began paused=" + (if (was) 0 else 1))
+                if (was) pause()
+                takenBySystem = was && kind == AudioManager.AUDIOFOCUS_LOSS_TRANSIENT && !Calls.busy()
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                val again = takenBySystem && !playing && !Calls.busy()
+                android.util.Log.i("Montana", "music_interrupt ended resume=1 taken=" + (if (takenBySystem) 1 else 0) + " plays=" + (if (again) 1 else 0))
+                takenBySystem = false
+                if (again) resume()
+            }
+        }
     }
     private fun dropFocus() {
         val f = focus ?: return; focus = null
@@ -142,10 +182,17 @@ object MusicPlayer {
         if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
         val a = c.applicationContext
         app = a
+        // A TRACK OF A FOLDER THAT DID NOT OPEN IS SAID, NOT SWALLOWED (iOS MontanaMedia at 6e2b29ca, the author's word 17206)
+        if (list.getOrNull(i)?.let { MusicFolders.closed(it, MusicFolders.held(a)) } == true) {
+            android.util.Log.i("Montana", "play_refused voice=0 lent=1 closed=1")
+            refused?.invoke(R.string.track_folder_closed)
+            return
+        }
         // THE TRACK IN HAND KEEPS ITS MOMENT BEFORE THE NEXT ONE TAKES THE PLAYER (iOS VoicePlayer.toggle:386 at 2155,
         // MTPlayPlaces.keep, the author's word 26.09).
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
         queue = list; index = i
+        takenBySystem = false; endedInPause = false
         release()
         val t = current ?: return
         takeFocus(a)
@@ -155,37 +202,61 @@ object MusicPlayer {
             setWakeMode(a, PowerManager.PARTIAL_WAKE_LOCK)
             // A LONG LISTEN GOES ON WHERE IT STOPPED (iOS VoicePlayer.toggle:411-414 at 2155, MTPlayPlaces.at, 26.09).
             setOnPreparedListener { if (mp !== it) return@setOnPreparedListener; prepared = true; PlayPlaces.at(t.file, it.duration / 1000.0, false)?.let { at -> runCatching { it.seekTo((at * 1000).toInt()) } }; it.start(); playing = true; tick(); changed() }
-            setOnCompletionListener { if (mp !== it) return@setOnCompletionListener; if (index + 1 < queue.size) play(a, queue, index + 1) else { playing = false; seek(0.0); changed() } }
-            setOnErrorListener { p, _, _ -> if (mp !== p) return@setOnErrorListener true; playing = false; changed(); refused?.invoke(); true }
-            try { setDataSource(a, t.uri); prepareAsync() } catch (_: Exception) { refused?.invoke() }
+            setOnCompletionListener {
+                if (mp !== it) return@setOnCompletionListener
+                android.util.Log.i("Montana", "music_end i=" + (index + 1) + " " + clock(it))   // iOS finished(), 545acb26: an end told from a stop
+                // A PAUSE IN THE TRACK'S LAST MOMENT STAYS A PAUSE: the platform still reports the end, and the next track started over
+                // the very sound that took ours (seen on A1 under a ringing timer). The next one waits for the resume.
+                if (!playing) { endedInPause = true; return@setOnCompletionListener }
+                val nx = sounding(a, index + 1, 1)
+                if (nx != null) play(a, queue, nx) else { playing = false; seek(0.0); changed() }
+            }
+            setOnErrorListener { p, what, extra ->
+                if (mp !== p) return@setOnErrorListener true
+                // A SOUND THAT BROKE IS NOT AN END (iOS 59793b5f): the platform gives one word for both, so both lines are written
+                android.util.Log.w("Montana", "sound_end broken " + clock(p))
+                android.util.Log.w("Montana", "sound_decode error=" + what + " extra=" + extra + " " + clock(p))
+                playing = false; changed(); refused?.invoke(R.string.track_refused); true
+            }
+            try { setDataSource(a, t.uri); prepareAsync() } catch (_: Exception) { refused?.invoke(R.string.track_refused) }
         }
         changed()
     }
 
     fun toggle() { if (playing) pause() else resume() }
     fun pause() {
+        takenBySystem = false
         // iOS VoicePlayer.pause:444 at 2155, MTPlayPlaces.keep, 26.09
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
         mp?.takeIf { prepared }?.pause(); playing = false; changed()
     }
     fun resume() {
         val p = mp?.takeIf { prepared } ?: return
-        if (CallSound.refused("music")) return   // iOS MontanaMedia 482
-        app?.let { takeFocus(it) }
+        // A RESUME THAT WOULD NOT PLAY IS SAID TOO (iOS fa901ee6)
+        if (CallSound.refused("music")) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=1 call=1"); return }   // iOS MontanaMedia 482
+        if (app?.let { takeFocus(it) } == false) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=0 call=0"); return }
+        takenBySystem = false
+        if (endedInPause) {
+            endedInPause = false
+            val a = app; val nx = a?.let { sounding(it, index + 1, 1) }
+            if (a != null && nx != null) { play(a, queue, nx); return }
+        }
         p.start(); playing = true; tick(); changed()
     }
     fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); changed() }
     /** Forward turns the page even on the last track — the first follows (iOS next). */
-    fun next() { val a = app ?: return; if (queue.isEmpty()) return; play(a, queue, if (index + 1 < queue.size) index + 1 else 0) }
+    fun next() { val a = app ?: return; if (queue.isEmpty()) return; play(a, queue, sounding(a, index + 1, 1) ?: sounding(a, 0, 1) ?: 0) }
     /** Back: past three seconds the track starts over, before them the one above plays (iOS prev). */
     fun prev() {
         val a = app ?: return
-        if (positionMs > 3000 || index <= 0) seek(0.0) else play(a, queue, index - 1)
+        val back = if (positionMs > 3000 || index <= 0) null else sounding(a, index - 1, -1)
+        if (back == null) seek(0.0) else play(a, queue, back)
     }
     /** The bar's cross: the track stops and the bar leaves (iOS MontanaPlayerBar close). */
     fun stop() {
         // iOS VoicePlayer.release:526 at 2155, MTPlayPlaces.keep, 26.09
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
+        takenBySystem = false; endedInPause = false
         release(); dropFocus(); queue = emptyList(); index = -1; changed()
     }
 
@@ -530,7 +601,7 @@ class MusicPage(private val act: MainActivity) {
         MusicFolders.listeners += { if (view.isAttachedToWindow || view.parent != null) fill() }
         MusicPlayer.listeners += { ringChanged() }
         // a track refused while the app is away (the next one, from the shade) is only not played: no window without a page
-        MusicPlayer.refused = { if (!act.isFinishing && !act.isDestroyed) AlertDialog.Builder(act).setMessage(R.string.track_refused).setPositiveButton(R.string.ok, null).show() }
+        MusicPlayer.refused = { word -> if (!act.isFinishing && !act.isDestroyed) AlertDialog.Builder(act).setMessage(word).setPositiveButton(R.string.ok, null).show() }
         fill()
     }
 

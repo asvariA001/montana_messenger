@@ -147,8 +147,8 @@ object MontanaSeed {
         NodeIdentity.forget()   // a machine's value outliving the person would join the two for anyone listening (iOS MontanaOverlayKey.forget)
         NodeKem.forget()
         Channels.forget()
-        Names.forget()   // the name's record and its blinding factor are the person's: they leave with the seed (iOS SeedScope)
-        Names.wipeBook()
+        DeviceVault.delete("mt.name")   // the name's record and its blinding factor are the person's: they leave with the seed (iOS SeedScope)
+        Meeting.forgetClaimedNames()
         LetterAuthor.forget()   // the author's key is the person's: it leaves with the words
         PersonChain.forget()   // the person's seconds and their level leave with the words
         Twin.forget()   // the seed's own pipe's queue and its memory are the person's (iOS SeedScope: mt.twin.asked, mt.twin.mirrored)

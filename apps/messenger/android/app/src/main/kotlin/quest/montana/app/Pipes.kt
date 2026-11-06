@@ -1146,7 +1146,7 @@ object Marks {
     const val CALL = "\u200B\u200BCL:"   // + {v, inc, dur, miss}: a call's row, laid by each phone for itself (iOS callMark), never sent
     const val RELEASE = "\u200B\u200BRL:"   // + {b, v, n, u, l}: a new build's word in the Montana room (iOS releaseMark), local, never sent
     /** A word of the wire, not a row of the feed. */
-    fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣")
+    fun isService(t: String) = t.startsWith("​") || t.startsWith("⁣") || Retired.letter(t)
     /**
      * A WORD OF THE WIRE NEVER RINGS (iOS isSilentLetter, isControlMarker): receipts, typing, drafts, the profile (name, face,
      * words, card, ground), deletions, edits, pins, presence, the set's and the wall's words ride a silent push — no banner on
@@ -1937,7 +1937,7 @@ object Book {
         FloorGuard.wipe(); Archive.forgetPurge()   // the clock guard and the purge's mark are this seat's, as the book (iOS SeedScope.seatKeys)
         File(ctx.filesDir, "faces").deleteRecursively()
         DeviceVault.delete(Post.OUTBOX)
-        Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); PasswordVault.wipe()
+        Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); Retired.forget()
         CoinBook.setAside()   // the book of a person forgotten leaves with them (iOS MTCoinPlace.setAside)
         // NOTHING OF THE PERSON OUTLIVES THEM ON THIS PHONE BUT WHAT THE WORDS ALONE REOPEN (iOS SeedScope.forget; the absolute privacy,
         // 29.07): the history was sealed under the words before they left (Archive.sealForForget, iOS sealForForget) and stays in

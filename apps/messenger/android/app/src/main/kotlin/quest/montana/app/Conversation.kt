@@ -51,8 +51,8 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     ChessLetter.parse(t) != null -> ChessLetter.MARK + c.getString(R.string.chess_title)
     // a coin letter: the coin and the number (iOS MTRowLetter.coinCount)
     CoinLetter.parse(t) != null -> CoinLetter.preview(c, t) ?: t
-    // a shared secret's every preview names no title and no content (iOS MTRowLetter.preview)
-    SecretLetter.isOne(t) -> "\uD83D\uDD11 " + c.getString(R.string.pw_shared)
+    // a letter of a retired kind names nothing in a list (iOS MTRowLetter.preview, MTRetired.letter)
+    Retired.letter(t) -> ""
     else -> t
 }
 /** A query and a letter's words folded alike (iOS .caseInsensitive, .diacriticInsensitive): the accents off, one case. */
@@ -2755,8 +2755,6 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (ChessSend.letterOf(m)?.kind == ChessLetter.INVITE) addView(c.chessPlate(c as? MainActivity, chat.ref, m, ChessSend.letterOf(m)!!, mine), lp(WRAP, WRAP))
             // A COIN LETTER (iOS MTCoinLetter's bubble): our coin, the signed number, which way the coins went
             else if (CoinSend.coinOf(m) != null) addView(c.coinPlate(m, CoinSend.coinOf(m)!!, mine, c as? MainActivity, chat.ref), lp(WRAP, WRAP))
-            // A SECRET SHARED FROM PASSWORDS (iOS MTSecretLetter): the key and the title; the receiver's tap saves it
-            else if (SecretLetter.isOne(m.text)) addView(c.secretPlate(c as? MainActivity, SecretLetter.parse(m.text), mine), lp(WRAP, WRAP))
             // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
             else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
             // THE FILTER (iOS MontanaBubble 672-691): a letter of theirs with a word of the list stands folded; the tap unfolds it
@@ -2957,7 +2955,7 @@ private const val SPEAKER_INSIDE = 2
 private fun speakerPlace(c: Context, m: Msg, members: List<Msg>): Int = when {
     1 < members.size || edgePlate(m) -> SPEAKER_NONE
     m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null
-        || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null || SecretLetter.isOne(m.text) -> SPEAKER_ABOVE
+        || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null -> SPEAKER_ABOVE
     m.qt == null && PlaceLetter.parse(c, m.text) != null -> SPEAKER_NONE
     else -> SPEAKER_INSIDE
 }
