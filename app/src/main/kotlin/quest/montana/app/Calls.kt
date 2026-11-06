@@ -748,7 +748,7 @@ object Calls {
         init {
             gravity = Gravity.CENTER_VERTICAL
             addView(duration, LayoutParams(WRAP, WRAP))
-            addView(dot, LayoutParams(WRAP, WRAP).apply { marginStart = c.dp(4) })
+            addView(dot, LayoutParams(WRAP, WRAP).apply { marginStart = c.dp(4); marginEnd = c.dp(4) })   // the dot goes with its room when the stamp moves under
             addView(stamp, LayoutParams(WRAP, WRAP))
         }
         override fun onMeasure(w: Int, h: Int) {
@@ -761,7 +761,7 @@ object Calls {
             orientation = if (line) HORIZONTAL else VERTICAL
             gravity = if (line) Gravity.CENTER_VERTICAL else Gravity.START
             dot.visibility = if (line) VISIBLE else GONE
-            (stamp.layoutParams as LayoutParams).apply { marginStart = if (line) context.dp(4) else 0; topMargin = if (line) 0 else context.dp(2) }
+            (stamp.layoutParams as LayoutParams).topMargin = if (line) 0 else context.dp(2)
         }
     }
 
