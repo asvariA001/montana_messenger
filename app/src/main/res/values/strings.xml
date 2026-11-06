@@ -517,8 +517,8 @@
     <string name="chess_no_correspondents">No correspondents found</string>
     <string name="chess_ask_new">Start a new game?</string>
     <string name="chess_invite_failed">Invitation could not be sent</string>
-    <string name="chess_accept">Accept</string>
-    <string name="chess_decline">Decline</string>
+    <string name="chess_accept">Accept the game</string>
+    <string name="chess_decline">Decline the game</string>
     <string name="wall_comments">Comments</string>
     <string name="wall_write_comment">Write a comment</string>
     <string name="wall_no_comments">No comments yet</string>

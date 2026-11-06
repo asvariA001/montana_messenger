@@ -687,22 +687,28 @@ fun Context.chessPlate(act: MainActivity?, ref: String, m: Msg, letter: ChessLet
             addView(text(ChessWords.seat(context, letter, mine), 15f, BubbleStyle.text(mine)).apply { setPadding(0, dp(3), 0, 0) })   // iOS .subheadline in the bubble's ink, 3 under the title
         }, lp(WRAP, WRAP))
     }, lp(WRAP, WRAP))
+    // THE ANSWER STANDS ON THE INVITATION (iOS MontanaBubble.swift 754-758, MTChessScreen status 1187): both phones read one replay, so both
+    // bubbles say it; none while the invitation waits. Six under the head, as the bubble's spacing
+    ChessSend.state(ref, letter.game)?.takeIf { it.status != ChessGame.Status.INVITED }?.let { g ->
+        addView(text(ChessWords.status(context, g), 15f, BubbleStyle.text(mine), bold = true).apply { setPadding(0, dp(6), 0, 0) }, lp(WRAP, WRAP))
+    }
     if (act != null) {
         val game = letter.game
+        // THE TWO BUTTONS SHARE THE BUBBLE'S WHOLE WIDTH (iOS maxWidth .infinity, one line each, 8 between)
         if (!mine && ChessSend.awaitsMe(ref, game)) addView(hstack {
-            setPadding(0, dp(8), 0, 0)
+            setPadding(0, dp(6), 0, 0)
             addView(text(getString(R.string.chess_accept), 15f, Color.WHITE, bold = true, center = true).apply {
-                background = rounded(MT.blue, 18); setPadding(dp(16), dp(8), dp(16), dp(8)); minHeight = dp(44); gravity = Gravity.CENTER
+                background = rounded(MT.blue, 18); setPadding(dp(8), dp(8), dp(8), dp(8)); minHeight = dp(44); gravity = Gravity.CENTER; singleLineEllipsis()
                 pressable { if (ChessSend.join(act, ref, game) != null) act.push { back -> chessBoardPage(act, ref, game, true, back) } }
-            }, lp(WRAP, WRAP).apply { marginEnd = dp(8) })
+            }, lp(0, WRAP, 1f).apply { marginEnd = dp(8) })
             addView(text(getString(R.string.chess_decline), 15f, Color.WHITE, bold = true, center = true).apply {
-                background = rounded(Color.rgb(128, 0, 33), 18); setPadding(dp(16), dp(8), dp(16), dp(8)); minHeight = dp(44); gravity = Gravity.CENTER
+                background = rounded(Color.rgb(128, 0, 33), 18); setPadding(dp(8), dp(8), dp(8), dp(8)); minHeight = dp(44); gravity = Gravity.CENTER; singleLineEllipsis()
                 pressable {
                     val now = ChessSend.state(ref, game)
                     now?.action(ChessLetter.DECLINE, ChessSend.now())?.let { ChessSend.send(act, ref, it) }
                 }
-            }, lp(WRAP, WRAP))
-        }, lp(WRAP, WRAP))
+            }, lp(0, WRAP, 1f))
+        }, lp(bubbleCeiling(context, ref) - dp(24), WRAP))
         pressable { act.push { back -> chessBoardPage(act, ref, game, true, back) } }
     }
 }

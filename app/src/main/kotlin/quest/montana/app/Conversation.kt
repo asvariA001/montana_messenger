@@ -2698,7 +2698,22 @@ internal fun bubbleCeiling(c: Context, ref: String = ""): Int {
     return if (Groups.isKey(ref) && Groups.isChannel(ref)) window - c.dp(61) else (window * 0.8f).toInt()
 }
 
-private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true): ReplySwipe = ReplySwipe(c).apply {
+/** IN THE MENU THE WORDS BELONG TO THE FINGER (iOS MTMessageText, MontanaBubble.swift 721-727, textIsSelectable): a person takes a PART
+ *  of them with the system's own knobs and menu. In the feed the hold is the menu's, so only the menu's copy of the bubble asks for
+ *  this. No link is found here (iOS dataDetectorTypes = []); knobs and highlight wear iOS's tint, white 0.92 at 0.55. */
+private fun TextView.takesSelection(words: String) {
+    text = words
+    setTextIsSelectable(true)
+    val tint = Color.argb(140, 235, 235, 235)
+    highlightColor = tint
+    if (android.os.Build.VERSION.SDK_INT >= 29) {
+        textSelectHandle?.mutate()?.let { it.setTint(tint); setTextSelectHandle(it) }
+        textSelectHandleLeft?.mutate()?.let { it.setTint(tint); setTextSelectHandleLeft(it) }
+        textSelectHandleRight?.mutate()?.let { it.setTint(tint); setTextSelectHandleRight(it) }
+    }
+}
+
+private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true, selectable: Boolean = false): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
     val wordsMax = bubbleCeiling(c, chat.ref) - c.dp(24)   // the words' measure inside the bubble's padding of 12 on each side
@@ -2792,6 +2807,15 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (CoinSend.coinOf(m) != null) addView(c.coinPlate(m, CoinSend.coinOf(m)!!, mine, c as? MainActivity, chat.ref), lp(WRAP, WRAP))
             // A PLACE LETTER (iOS MTPlaceLetter.parse → the map plate): the pin, the name and the spot instead of the link's words
             else if (PlaceLetter.parse(c, m.text) != null) addView(c.placePlate(PlaceLetter.parse(c, m.text)!!, mine), lp(WRAP, WRAP))
+            // A LONG LETTER WHOSE WORDS NEVER CAME (iOS lostLetterBubble, MontanaBubble.swift 1761-1772): a row keeps its reference here
+            // only when the reference can never open (Pipes.fetchLong ""), so iOS's waiting wheel has no row on Android: it is said once
+            // and for good, the mark and the words at 0.8 of the bubble's ink, never the reference and never the list's «New message».
+            else if (m.text.startsWith(Marks.LONG)) addView(c.text(c.getString(R.string.message_unavailable), 16f * MontanaTextSize.system, BubbleStyle.text(mine)).apply {
+                val ink = (BubbleStyle.text(mine) and 0x00FFFFFF) or (0xCC shl 24)
+                maxWidth = wordsMax; setTextColor(ink)
+                compoundDrawablePadding = dp(8)
+                setCompoundDrawablesRelativeWithIntrinsicBounds(c.getDrawable(R.drawable.ic_letter_lost)?.mutate()?.apply { setTint(ink) }, null, null, null)
+            }, lp(WRAP, WRAP))
             // THE FILTER (iOS MontanaBubble 672-691): a letter of theirs with a word of the list stands folded; the tap unfolds it
             else if (ContentFilter.folded(m)) {
                 // EVERY MONTANA LINK OPENS AT A TOUCH (iOS MTMessageText.swift:227-252, MTLinkedText.updateUIView, atom
@@ -2801,16 +2825,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     maxWidth = wordsMax; setTextIsSelectable(false); visibility = View.GONE
                     movementMethod = android.text.method.LinkMovementMethod.getInstance()
                     setLinkTextColor(BubbleStyle.text(mine))
+                    if (selectable) takesSelection(letterWords(c, m.text))
                 }   // USER-DATA: the letter
-                // A LONG LETTER WHOSE WORDS NEVER CAME (iOS lostLetterBubble, MontanaBubble.swift 1761-1772): a row keeps its reference here
-                // only when the reference can never open (Pipes.fetchLong ""), so iOS's waiting wheel has no row on Android: it is said once
-                // and for good, the mark and the words at 0.8 of the bubble's ink, never the reference and never the list's «New message».
-                if (m.text.startsWith(Marks.LONG)) words.apply {
-                    val ink = (BubbleStyle.text(mine) and 0x00FFFFFF) or (0xCC shl 24)
-                    text = c.getString(R.string.message_unavailable); setTextColor(ink)
-                    compoundDrawablePadding = dp(8)
-                    setCompoundDrawablesRelativeWithIntrinsicBounds(c.getDrawable(R.drawable.ic_letter_lost)?.mutate()?.apply { setTint(ink) }, null, null, null)
-                }
                 var onOpen: () -> Unit = {}
                 val fold = c.vstack(Gravity.NO_GRAVITY) {
                     addView(c.hstack {
@@ -2834,6 +2850,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 maxWidth = wordsMax; setTextIsSelectable(false)
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(BubbleStyle.text(mine))
+                if (selectable) takesSelection(letterWords(c, m.text))
             }, lp(WRAP, WRAP).apply { if (who != null && place == SPEAKER_INSIDE) gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name it keeps the bubble's leading edge (iOS VStack .leading)
             // THE FILTER FOLDS A PLATE OF PICTURES TOO (iOS filterFolds, read before the plate's branch): the plate stands hidden under the
             // same fold, and the person's own tap shows it whole
@@ -3302,7 +3319,7 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
         })
     }
     val chat = Book.chat(ref)
-    val copy = if (chat != null) letterBubble(c, m, chat, members) else View(c)
+    val copy = if (chat != null) letterBubble(c, m, chat, members, selectable = true) else View(c)
     val menuColumn = c.vstack(if (m.mine) Gravity.END else Gravity.START) {
         setPadding(dp(14), 0, dp(14), 0)
         if ((!group || !Groups.isOut(ref)) && reactsHere) { addView(reactions, lp(WRAP, WRAP)); addView(grid, lp(MATCH, dp(220))); gap(8) }
