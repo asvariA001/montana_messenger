@@ -2710,6 +2710,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
         if (who != null && place == SPEAKER_ABOVE) addView(c.text(who, 12f, Groups.tint(m.from ?: ""), bold = true).apply {   // USER-DATA: the speaker's name
             singleLineEllipsis(); setPadding(c.dp(8), c.dp(6), 0, c.dp(2))
         }, lp(WRAP, WRAP))
+        // THE FORWARD MARK, ONE PLACE FOR EVERY KIND OF LETTER (iOS isForwarded, MontanaBubble.swift:604-617, the author's word 16.09; taken from PR #43,
+        // Conversation.kt): the arrow and the word in the caption's grey ABOVE the bubble, the channel's name on a post it forwards
+        if (isForwardQuote(m.qt)) addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(6), 0, dp(6), dp(1))
+            addView(c.icon(R.drawable.ic_reply, MT.gray, 12).apply { scaleX = -1f }, lp(dp(12), dp(12)).apply { marginEnd = dp(4) })
+            addView(c.text(forwardedFrom(m.qt)?.let { c.getString(R.string.ld_forwarded_from, it) } ?: c.getString(R.string.ld_forwarded), 12f, MT.gray).apply { singleLineEllipsis() })   // USER-DATA: a channel's title
+        }, lp(WRAP, WRAP))
         // THE PICTURE IS THE BUBBLE (iOS mediaBubble 1534-1600 and gifBubble 1113-1160, MontanaBubble.swift at 2155): a photo, a film or a
         // moving picture fills its bubble edge to edge, clipped to the bubble's own shape; the time stands ON the picture in a dark
         // capsule; the bubble's fill shows only under a caption. Android drew the picture inside the padded bubble: a blue frame round it.
@@ -2732,10 +2740,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 clipToOutline = true
             } else setPadding(dp(12), dp(7), dp(12), dp(6))
             if (who != null && place == SPEAKER_INSIDE) addView(speakerHead(c, who, m.from), lp(WRAP, WRAP).apply { gravity = Gravity.START; bottomMargin = dp(2) })   // the name widens the bubble, never cut by its words
-            // A FORWARDED LETTER (iOS isForwarded): one grey line over its words, no name and no bar; a channel's post names its
-            // channel on that line (iOS MontanaBubble 552-560, «Forwarded from»)
-            if (isForwardQuote(m.qt)) addView(c.text(forwardedFrom(m.qt)?.let { c.getString(R.string.ld_forwarded_from, it) } ?: c.getString(R.string.ld_forwarded), 13f, BubbleStyle.time(mine)).apply { singleLineEllipsis() }, lp(WRAP, WRAP).apply { bottomMargin = dp(3) })   // USER-DATA: the channel's name
-            else if (m.qt != null) {
+            if (m.qt != null && !isForwardQuote(m.qt)) {
                 val whose = m.qm?.let { q -> chat.msgs.find { it.mid == q } }
                 // THE QUOTE (iOS replyQuote, MontanaBubble.swift:1816; taken from PR #43, Conversation.kt): a bar of 3, white at 0.6 on mine, the speaker's
                 // tint on theirs in a group, the accent elsewhere; the author 12 bold; one line of the words at 12
