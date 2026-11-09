@@ -585,10 +585,25 @@ object Ladder {
         }
     }
 
-    /** The rung's moment: the hour today, the day and the hour before (iOS MTDeliveryLine.moment). */
+    /** The rung's moment: the hour today, the day's word and the hour before (iOS MTDeliveryLine.moment, MontanaBubble 2228-2232):
+     *  «Yesterday 17:12», «8 November 17:12». */
     fun moment(c: Context, at: Long): String {
         val t = android.text.format.DateFormat.getTimeFormat(c).format(Date(at))
-        return if (DateUtils.isToday(at)) t else DateUtils.formatDateTime(c, at, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH) + " " + t
+        return if (DateUtils.isToday(at)) t else DayLabel.of(c, at) + " " + t
+    }
+}
+
+/**
+ * THE DAY HAS ONE WORD (iOS MTDayLabel, MontanaMessageFeed.swift 600-622): «Today», «Yesterday», else the day and the whole month
+ * in the app's language, no year. The feed's separator and floating pill, the ladder's moment over the menu, a peer's panes, the
+ * gallery and the calls' pills name a day by this one function, so two spellings of one date never read as two days.
+ */
+object DayLabel {
+    fun of(c: Context, at: Long): String {
+        if (DateUtils.isToday(at)) return c.getString(R.string.today)
+        if (DateUtils.isToday(at + 86_400_000L)) return c.getString(R.string.gl_yesterday)
+        val loc = c.resources.configuration.locales[0]
+        return java.text.SimpleDateFormat(android.text.format.DateFormat.getBestDateTimePattern(loc, "dMMMM"), loc).format(Date(at))
     }
 }
 
@@ -4051,8 +4066,7 @@ private object LetterMotion {
 }
 
 /** The words of a day, one owner for the feed's separators and its floating pill (iOS dayLabel, MTDayLabel). */
-private fun dayWords(c: Context, at: Long): String =
-    if (DateUtils.isToday(at)) c.getString(R.string.today) else DateUtils.formatDateTime(c, at, DateUtils.FORMAT_SHOW_DATE)
+private fun dayWords(c: Context, at: Long): String = DayLabel.of(c, at)
 
 private fun roundNote(m: Msg): Boolean {
     if (!m.text.startsWith(Marks.MEDIA)) return false
