@@ -84,12 +84,7 @@ private fun callRow(act: MainActivity, r: CallRecord): View {
 }
 
 /** iOS MTDayLabel.of (MontanaMessageFeed.swift:595-614): «Today», «Yesterday», else the day and the month in the app's language. */
-private fun dayLabel(c: Context, at: Long): String {
-    if (DateUtils.isToday(at)) return c.getString(R.string.today)
-    if (DateUtils.isToday(at + 86_400_000L)) return c.getString(R.string.gl_yesterday)
-    val loc = c.resources.configuration.locales[0]
-    return java.text.SimpleDateFormat(DateFormat.getBestDateTimePattern(loc, "dMMMM"), loc).format(Date(at))
-}
+private fun dayLabel(c: Context, at: Long): String = DayLabel.of(c, at)
 
 /**
  * THE CALLS (iOS CallsTabView): the log of calls, a day's pill before the first call of each day, newest first; a stroke from

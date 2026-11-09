@@ -710,9 +710,8 @@ internal class PanesScroll(c: Context, private val skip: (Float) -> Boolean, pri
     }
 }
 
-/** The day's word over a pane's group (iOS MTDayLabel): «Today», else the date. */
-private fun dayWord(c: Context, at: Long) =
-    if (DateUtils.isToday(at)) c.getString(R.string.today) else DateUtils.formatDateTime(c, at, DateUtils.FORMAT_SHOW_DATE)
+/** The day's word over a pane's group (iOS MTDayLabel, MontanaPeerInfoScreen 863, 999): the one DayLabel. */
+private fun dayWord(c: Context, at: Long) = DayLabel.of(c, at)
 
 /**
  * A pane's rows, cut by day: tiles three to a row for media and video, glass rows for files, links, music and voices, each under

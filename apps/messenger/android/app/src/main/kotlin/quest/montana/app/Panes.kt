@@ -91,11 +91,7 @@ fun galleryPane(act: MainActivity): View {
             true
         }
     }
-    fun dayWords(at: Long): String {
-        if (android.text.format.DateUtils.isToday(at)) return c.getString(R.string.today)
-        if (android.text.format.DateUtils.isToday(at + 86_400_000L)) return c.getString(R.string.gl_yesterday)
-        return android.text.format.DateUtils.formatDateTime(c, at, android.text.format.DateUtils.FORMAT_SHOW_DATE)
-    }
+    fun dayWords(at: Long): String = DayLabel.of(c, at)   // iOS MTDayLabel (MontanaFeeds 1042)
     fun fill() {
         column.removeAllViews()
         all = moments()
