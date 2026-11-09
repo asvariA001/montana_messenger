@@ -117,7 +117,22 @@ object Doors {
         return out
     }
 
-    private const val SHIPPED = "api.montana.quest:443\nmontana.xxx:443\nwss://door.montana.quest/ws"   // iOS nodes.txt, line for line
+    /**
+     * THE LIST'S AGE (iOS MontanaNodes.admits, 26a7dfa8; the author's word 17887): the door machines are laid one after another, so
+     * for a moment two doors hand out two lists, and the old one could come back after the new. Every list names its epoch; the phone
+     * keeps the highest it has seen and learns no list older than that. An answer without an epoch -- an older node, a person's own
+     * node -- is epoch 0: it teaches a phone that never saw an epoch and never undoes a newer list. The machines and the barred ride
+     * the same answer and are refused with it.
+     */
+    private const val EPOCH = "mt.nodes.epoch"
+    @Synchronized private fun admits(epoch: Int): Boolean {
+        val mine = Prefs.str(EPOCH, "0").toIntOrNull() ?: 0
+        if (mine > epoch) { Log.d("Montana", "doors_stale epoch=$epoch mine=$mine"); return false }
+        if (mine < epoch) Prefs.setStr(EPOCH, epoch.toString())
+        return true
+    }
+
+    private const val SHIPPED ="api.montana.quest:443\nmontana.xxx:443\nwss://door.montana.quest/ws"   // iOS nodes.txt, line for line
 
     /** iOS MontanaNodes.list 230-240: the network's list once learned, else the shipped one; a machine is not its own node. */
     fun list(): List<Door> {
@@ -204,14 +219,14 @@ object Doors {
         val alive = doors.filter { found[it] != null }.map { host(it) }
         if ((mute.isNotEmpty() && NetProbe.minutePassed()) || NetProbe.hourPassed()) runCatching { NetProbe.round(mute, alive) }
         val first = doors.firstOrNull { found[it] != null } ?: return
-        val named = try {
+        val named = (try {
             val conn = URL(first + "/doors").openConnection() as HttpURLConnection
             conn.connectTimeout = 8000; conn.readTimeout = 8000
             val t = if (conn.responseCode == 200) conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) } else null
             conn.disconnect()
             // the answer counts when it names doors (iOS MontanaWakePush.swift:145: !doors.isEmpty): the machines and the barred ride it
             t?.let { JSONObject(it).takeIf { j -> (j.optJSONArray("doors")?.length() ?: 0) > 0 } }
-        } catch (_: Exception) { null }
+        } catch (_: Exception) { null })?.takeIf { admits((it.opt("epoch") as? Int) ?: 0) }   // no list older than one this phone holds (iOS 26a7dfa8)
         if (named != null) {
             val ds = named.getJSONArray("doors")
             val raw = (0 until ds.length()).map { ds.optString(it) }.filter { it.isNotEmpty() }.joinToString("\n")
