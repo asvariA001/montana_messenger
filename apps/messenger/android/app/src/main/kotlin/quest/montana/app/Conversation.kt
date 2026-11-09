@@ -2908,25 +2908,33 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     addView(TransferMark(c, m.mid, null, line = true), lp(WRAP, WRAP))
                     addView(android.widget.Space(c), lp(0, 0, 1f).apply { width = dp(4) })
                 }
-                val meta = c.hstack {
-                    gravity = Gravity.CENTER_VERTICAL
-                    // THE EYE AND ITS NUMBER BEFORE THE TIME (iOS metaLine, the reference's channel stamp): the owner's count of people
-                    if (Groups.isKey(chat.ref) && Groups.isChannel(chat.ref)) {
-                        addView(c.icon(R.drawable.ic_set_eye, metaInk, 11), lp(dp(11), dp(11)).apply { marginEnd = dp(2) })
-                        addView(c.text(ChannelViews.short(ChannelViews.views(m, chat.ref)) + " ", 11f, metaInk).apply { fontFeatureSettings = "tnum" })   // USER-DATA: a count of people
-                    }
-                    if (m.edited) addView(c.text(c.getString(R.string.edited) + " ", 11f, metaInk))
-                    // a signed channel's post: its signer before the time, «Name, 12:30» (iOS signature, Sign Messages)
-                    val time = android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at))
-                    val signer = if (Groups.isKey(chat.ref)) Groups.signature(c, m, chat.ref) else null
-                    if (signer != null) addView(c.text(signer, 11f, metaInk).apply { singleLineEllipsis(); maxWidth = dp(160) })   // USER-DATA: the post's signer, cut, never its time
-                    addView(c.text(if (signer == null) time else ", $time", 11f, metaInk))
-                    // the letter's gematria right of the time, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark)
+                // THE STAMP (iOS metaLine, MontanaBubble 2062-2103): the clock -- the eye and its count, «edited», the time, «not sent»
+                // -- 3 apart, then the letter's seal; one line while the bubble's width holds it, else the seal on a line of its own
+                // at the trailing edge (iOS ViewThatFits), whole fields moved, never a field cut
+                val meta = StampRow(c).apply {
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        val gap = dp(3)
+                        // THE EYE AND ITS NUMBER BEFORE THE TIME (iOS metaLine, the reference's channel stamp): the owner's count of people
+                        if (Groups.isKey(chat.ref) && Groups.isChannel(chat.ref)) {
+                            addView(c.icon(R.drawable.ic_set_eye, metaInk, 10), lp(dp(10), dp(10)).apply { marginEnd = gap })   // iOS eye 9 semibold
+                            addView(c.text(ChannelViews.short(ChannelViews.views(m, chat.ref)), 11f, metaInk).apply { fontFeatureSettings = "tnum" }, lp(WRAP, WRAP).apply { marginEnd = gap })   // USER-DATA: a count of people
+                        }
+                        if (m.edited) addView(c.text(c.getString(R.string.edited), 9f, metaInk), lp(WRAP, WRAP).apply { marginEnd = gap })   // iOS «edited» at 9
+                        // a signed channel's post: its signer before the time, «Name, 12:30» (iOS signature, Sign Messages)
+                        val time = android.text.format.DateFormat.getTimeFormat(c).format(Date(m.at))
+                        val signer = if (Groups.isKey(chat.ref)) Groups.signature(c, m, chat.ref) else null
+                        if (signer != null) addView(c.text(signer, 11f, metaInk).apply { singleLineEllipsis(); maxWidth = dp(160) })   // USER-DATA: the post's signer, cut, never its time
+                        addView(c.text(if (signer == null) time else ", $time", 11f, metaInk))
+                        // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the
+                        // corner, inside the clock, before the seal (iOS checks)
+                        if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = gap })
+                    }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))
+                    // the letter's gematria after the clock, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark);
+                    // the seal's head beside it waits for the ribbon of time (iOS newestFirst && coinStands), which Android has not got
                     LetterSeal.gematria(m.mid)?.let { g ->
-                        addView(c.text(" · $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" })   // USER-DATA: the letter's gematria
+                        addView(c.text("· $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's gematria
                     }
-                    // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the corner
-                    if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
                 }
                 // UNDER THE ROUND NOTE THE STAMP WEARS THE PICTURE'S PLATE (iOS videoNoteBubble 1285-1288): white on black 0.45, the
                 // ring of its transfer left of it, outside the plate
@@ -2974,6 +2982,55 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }
         }, lp(WRAP, WRAP).apply { topMargin = dp(2) })
     }, FrameLayout.LayoutParams(WRAP, WRAP, if (mine) Gravity.END else Gravity.START))
+}
+
+/**
+ * THE STAMP'S TWO FIELDS (iOS metaLine: ViewThatFits(in: .horizontal) { HStack(spacing: 3) { clock; seal }.fixedSize();
+ * VStack(alignment: .trailing, spacing: 2) { clock; seal } }): side by side, centred, 3 apart while the width offered holds them
+ * whole; else each on its own line, 2 apart, at the trailing edge. A field is moved whole, never cut to make room.
+ */
+private class StampRow(c: Context) : android.view.ViewGroup(c) {
+    private val gapH = c.dp(3)
+    private val gapV = c.dp(2)
+    private var stacked = false
+    private fun shown() = (0 until childCount).map { getChildAt(it) }.filter { it.visibility != View.GONE }
+
+    override fun onMeasure(wSpec: Int, hSpec: Int) {
+        val kids = shown()
+        val free = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        kids.forEach { it.measure(free, free) }
+        val padW = paddingLeft + paddingRight
+        val row = kids.sumOf { it.measuredWidth } + gapH * (kids.size - 1).coerceAtLeast(0)
+        val room = if (MeasureSpec.getMode(wSpec) == MeasureSpec.UNSPECIFIED) Int.MAX_VALUE else MeasureSpec.getSize(wSpec) - padW
+        stacked = kids.size > 1 && row > room
+        // stacked, a field wider than the room still keeps to it (the clock's own row then gives way, as the HStack inside iOS's VStack)
+        if (stacked) kids.forEach { if (it.measuredWidth > room) it.measure(MeasureSpec.makeMeasureSpec(room.coerceAtLeast(0), MeasureSpec.AT_MOST), free) }
+        val w = if (stacked) kids.maxOf { it.measuredWidth } else row.coerceAtLeast(0)
+        val h = if (stacked) kids.sumOf { it.measuredHeight } + gapV * (kids.size - 1) else kids.maxOfOrNull { it.measuredHeight } ?: 0
+        setMeasuredDimension(resolveSize(w + padW, wSpec), resolveSize(h + paddingTop + paddingBottom, hSpec))
+    }
+
+    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+        val kids = shown()
+        val rtl = layoutDirection == View.LAYOUT_DIRECTION_RTL
+        val width = r - l
+        if (stacked) {
+            var y = paddingTop
+            for (k in kids) {
+                val x = if (rtl) paddingLeft else width - paddingRight - k.measuredWidth   // the trailing edge
+                k.layout(x, y, x + k.measuredWidth, y + k.measuredHeight)
+                y += k.measuredHeight + gapV
+            }
+        } else {
+            val rowH = b - t - paddingTop - paddingBottom
+            var x = if (rtl) width - paddingRight else paddingLeft
+            for (k in kids) {
+                val y = paddingTop + (rowH - k.measuredHeight) / 2
+                if (rtl) { k.layout(x - k.measuredWidth, y, x, y + k.measuredHeight); x -= k.measuredWidth + gapH }
+                else { k.layout(x, y, x + k.measuredWidth, y + k.measuredHeight); x += k.measuredWidth + gapH }
+            }
+        }
+    }
 }
 
 /** My own face for a small mark (an answer's plate): decoded once, small, and again only when the face file changes. */
