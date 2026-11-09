@@ -58,6 +58,11 @@ object YouTube {
     private const val LISTEN = "(function(){if(window.__mtTube){return}window.__mtTube=1;function say(e){try{window.tube.postMessage(e)}catch(x){}}" +
         "['playing','pause','ended','error'].forEach(function(e){document.addEventListener(e,function(){say(e)},true)});" +
         "var v=document.querySelector('video');if(v&&!v.paused){say('playing')}})()"
+    /** What the page shows, for the diary, naming no video: its size, the video's state, YouTube's own error words if any. */
+    private const val PROBE = "(function(){var v=document.querySelector('video');var e=document.querySelector('.ytp-error-content-wrap-reason,.ytp-error');" +
+        "return 'w='+innerWidth+' h='+innerHeight+' videos='+document.querySelectorAll('video').length+(v?(' ready='+v.readyState+' net='+v.networkState+" +
+        "' paused='+v.paused+' err='+(v.error?v.error.code:0)):'')+' ui='+document.querySelectorAll('.ytp-chrome-bottom,.ytp-large-play-button').length+" +
+        "(e?(' error='+(e.innerText||'').replace(/\\s+/g,' ').slice(0,120)):'')})()"
     private const val PAUSE = "document.querySelectorAll('video').forEach(function(v){v.pause()})"
     private const val RESUME = "document.querySelectorAll('video').forEach(function(v){v.play()})"
 
@@ -380,11 +385,28 @@ object YouTube {
                 return false
             }
             override fun onPageCommitVisible(view: WebView, url: String?) { view.evaluateJavascript(LISTEN, null) }
-            override fun onPageFinished(view: WebView, url: String?) { view.evaluateJavascript(LISTEN, null) }
+            override fun onPageFinished(view: WebView, url: String?) {
+                view.evaluateJavascript(LISTEN, null)
+                Log.d("Montana", "youtube page loaded")
+                for (ms in longArrayOf(4000, 12000)) view.postDelayed({ if (web === view) view.evaluateJavascript(PROBE) { said -> Log.d("Montana", "youtube page " + said.trim('"')) } }, ms)
+            }
+            // the page's own failures, by their codes alone (no address is told)
+            override fun onReceivedError(view: WebView, r: WebResourceRequest, e: android.webkit.WebResourceError) {
+                if (r.isForMainFrame) Log.d("Montana", "youtube page error " + e.errorCode)
+            }
+            override fun onReceivedHttpError(view: WebView, r: WebResourceRequest, e: android.webkit.WebResourceResponse) {
+                if (r.isForMainFrame) Log.d("Montana", "youtube page http " + e.statusCode)
+            }
         }
         v.webChromeClient = object : WebChromeClient() {
             override fun onShowCustomView(view: View, callback: CustomViewCallback) { if (web === v) showCustom(view, callback) else callback.onCustomViewHidden() }
             override fun onHideCustomView() { hideCustom() }
+            // a script's failure in the player's page, its words without any address
+            override fun onConsoleMessage(m: android.webkit.ConsoleMessage): Boolean {
+                if (m.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR)
+                    Log.d("Montana", "youtube console " + m.message().replace(Regex("https?://\\S+"), "<link>").take(160))
+                return true
+            }
         }
         return v
     }
