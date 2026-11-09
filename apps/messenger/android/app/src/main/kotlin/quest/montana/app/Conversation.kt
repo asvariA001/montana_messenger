@@ -609,12 +609,31 @@ fun Context.deliveryLine(ref: String, m: Msg, withMoment: Boolean = false): View
     if (withMoment) addView(text(Ladder.moment(context, m.statusMoment), 12f, Color.WHITE), lp(WRAP, WRAP).apply { marginStart = dp(5) })
 }
 
-/** THE RED MARK of a letter that did not go (iOS MTFailedMark): the bubble's corner and the chat row wear the same one. */
-fun Context.failedMark(): View = text("!", 9f, Color.WHITE, bold = true, center = true).apply {
-    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.red) }
-    layoutParams = LinearLayout.LayoutParams(dp(12), dp(12))
-    gravity = Gravity.CENTER
-    setPadding(0, 0, 0, 0)
+/**
+ * THE RED MARK of a letter that did not go (iOS MTFailedMark, MontanaBubble 2202-2208: exclamationmark.circle.fill, 10 semibold,
+ * red): the bubble's corner and the chat row wear the same one. The sign is cut through the red disc, as the symbol's own, so the
+ * bubble or the row shows through it -- not a white letter laid on it.
+ */
+fun Context.failedMark(): View = FailedMark(this).apply { layoutParams = LinearLayout.LayoutParams(dp(12), dp(12)) }
+
+private class FailedMark(c: Context) : View(c) {
+    private val disc = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = SysColor.red }
+    private val cut = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
+    }
+    private val bar = android.graphics.RectF()
+    override fun onDraw(canvas: android.graphics.Canvas) {
+        val w = width.toFloat(); val h = height.toFloat()
+        val r = minOf(w, h) / 2f
+        val cx = w / 2f; val cy = h / 2f
+        val layer = canvas.saveLayer(0f, 0f, w, h, null)
+        canvas.drawCircle(cx, cy, r, disc)
+        val half = r * 0.13f   // the stroke of the sign, the symbol's semibold
+        bar.set(cx - half, cy - r * 0.56f, cx + half, cy + r * 0.16f)
+        canvas.drawRoundRect(bar, half, half, cut)
+        canvas.drawCircle(cx, cy + r * 0.47f, half * 1.15f, cut)
+        canvas.restoreToCount(layer)
+    }
 }
 
 // ─────────────────────────── the conversation (iOS ChatConversationView) ───────────────────────────
@@ -3539,8 +3558,8 @@ internal fun captionView(c: Context, words: String, tint: Int, maxW: Int): TextV
 }
 
 /**
- * A CORRESPONDENT'S PICTURE OR FILM, WHOLE ON DISK (iOS the guard before MTSaveMediaBadge, MontanaBubble.swift 865-880): not a
- * round note (it plays, it does not save).
+ * A CORRESPONDENT'S PICTURE OR FILM, WHOLE ON DISK (iOS saveBesideBadge, MontanaBubble.swift 1015-1027): not a round note (it
+ * plays, it does not save), not a sticker.
  */
 private fun saveMediaFile(m: Msg): Pair<java.io.File, Boolean>? {
     if (m.mine || !m.text.startsWith(Marks.MEDIA)) return null
@@ -3550,6 +3569,7 @@ private fun saveMediaFile(m: Msg): Pair<java.io.File, Boolean>? {
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     if (kind != "img" && kind != "vid") return null
     if (kind == "vid" && man?.optBoolean("r") == true) return null
+    if (man?.optString("n") == Stickers.DOC_NAME) return null   // a sticker is not a picture to keep (iOS m.docName != MontanaStickerBook.docName)
     return f to (kind == "vid")
 }
 
@@ -3581,11 +3601,6 @@ private object SavedMedia {
     }
 }
 
-/**
- * THE CIRCLE ITSELF (iOS MTSaveMediaBadge, MontanaBubble.swift:1891-1923): the tray arrow; a tap saves every file the circle
- * carries -- one picture, or all of a plate's -- and a picture saved before is not saved twice; then the green diskette stays.
- * Files all saved before show the diskette at once (iOS MontanaSavedToPhotos); a failed save offers the arrow again.
- */
 /** The round of glass beside a channel's post (iOS MTChannelShareRound): the forward arrow on 30 across, the finger's 44 around it. */
 private fun shareRound(c: Context, onTap: () -> Unit): View = FrameLayout(c).apply {
     addView(FrameLayout(c).apply {
@@ -3596,6 +3611,11 @@ private fun shareRound(c: Context, onTap: () -> Unit): View = FrameLayout(c).app
     pressable { onTap() }
 }
 
+/**
+ * THE CIRCLE ITSELF (iOS MTSaveMediaBadge, MontanaBubble.swift:2126-2158): the tray arrow; a tap saves every file the circle
+ * carries -- one picture, or all of a plate's -- and a picture saved before is not saved twice; then the green diskette stays.
+ * Files all saved before show the diskette at once (iOS MontanaSavedToPhotos); a failed save offers the arrow again.
+ */
 private fun saveMediaBadge(act: MainActivity, files: List<Pair<java.io.File, Boolean>>): View {
     val c: Context = act
     val circle = FrameLayout(c).apply {
