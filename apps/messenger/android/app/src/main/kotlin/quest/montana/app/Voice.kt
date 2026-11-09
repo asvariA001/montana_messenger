@@ -398,18 +398,32 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
     val waveDp = minOf(maxOf(76f, window * 0.8f - 111f), maxOf(76f, 60f + total / 1000f * 8f))
     val ink = if (m.mine) Color.rgb(158, 222, 255) else Color.WHITE   // iOS (0.62, 0.87, 1.0) on one's own, white on theirs
     val time = c.text(fmt(total), 13f, MT.withAlpha(BubbleStyle.text(m.mine), 0.85f)).apply { fontFeatureSettings = "tnum" }
+    val lines = maxOf(8, (waveDp / 4).toInt())
     val bar = WaveView(c).apply {
-        bars = resampleWave(wave, maxOf(8, (waveDp / 4).toInt()))
+        bars = resampleWave(wave, lines)
         barDp = 2f
         played = ink; rest = MT.withAlpha(ink, if (VoicePlayer.playing == path && path != null) 0.4f else 0.9f)
     }
+    // THE VOICE'S OWN WAVE FROM ITS FILE (iOS voiceCapsuleBubble .task: MTWaveform.samples once the file is on the disk, kept on
+    // the shelf): a letter that brought no wave draws the one its file holds, measured once and kept, never a flat line.
+    if (wave == null && path != null) trackWaves.get(path)?.let { bar.bars = resampleWave(it, lines) }
+        ?: Thread { Waveform.compute(File(path))?.let { w -> trackWaves.put(path, w); MainThread.post { bar.bars = resampleWave(w, lines) } } }.start()
+    // THE ROUND SAYS WHERE THE VOICE IS (iOS voicePlayRound): the play glyph on the phone, the arrow down while it waits to come,
+    // the ring of its transfer, in the letter's ink, while it rides either way -- the wave and the length stay where they are.
     val mark = ImageView(c).apply {
-        setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        setImageResource(if (path == null) R.drawable.ic_arrow_down else if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
         imageTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
         background = c.voiceRoundPlate()   // the round of glass with the quiet prism sheen (iOS MTVoiceRound)
         setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
-        alpha = if (path == null) 0.4f else 1f
     }
+    val ring = VoiceRing(c, tint)
+    val ride: () -> Unit = {
+        val p = Transfers.progress(m.mid)
+        ring.visibility = if (p == null) View.GONE else View.VISIBLE
+        mark.visibility = if (p == null) View.VISIBLE else View.GONE
+        if (p != null) ring.share = p
+    }
+    ride()
     mark.setOnClickListener {
         // automatic download off, a voice of theirs waits: the play key asks for it (iOS: a tap starts the queued download)
         val p = path ?: run { if (Media.waiting(c, m)) Media.tapped(c, m); return@setOnClickListener }
@@ -437,7 +451,7 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
     }
     // the bar rests and plays this voice too: the play mark follows what the one player does (iOS: the bubble reads the one player)
     val follow: () -> Unit = {
-        mark.setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        if (path != null) mark.setImageResource(if (VoicePlayer.sounding(path)) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
         val chosen = path != null && VoicePlayer.playing == path
         val want = MT.withAlpha(ink, if (chosen) 0.4f else 0.9f)
         if (bar.rest != want) bar.rest = want
@@ -449,8 +463,8 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         else if (!chosen && bar.progress != 0f) { bar.progress = 0f; time.text = fmt(total) }
     }
     mark.addOnAttachStateChangeListener(object : android.view.View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: android.view.View) { Playing.listen(follow) }
-        override fun onViewDetachedFromWindow(v: android.view.View) { Playing.unlisten(follow) }
+        override fun onViewAttachedToWindow(v: android.view.View) { Playing.listen(follow); Transfers.listen(m.mid, ride); ride() }
+        override fun onViewDetachedFromWindow(v: android.view.View) { Playing.unlisten(follow); Transfers.forget(m.mid, ride) }
     })
     // the capsule: the letter's own plate is laid down and the capsule wears it, the pills stand under it on the feed
     into.background = null
@@ -460,12 +474,31 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
         background = BubbleStyle.capsule(c, m.mine)
         minimumHeight = c.dp(54)
         setPadding(c.dp(8), 0, c.dp(14), 0)
-        addView(android.widget.FrameLayout(c).apply { addView(mark, android.widget.FrameLayout.LayoutParams(c.dp(40), c.dp(40), Gravity.CENTER)) }, lp(c.dp(44), c.dp(44)))
-        addView(if (path == null) android.widget.ProgressBar(c).apply { isIndeterminate = true } else bar,
-            lp(if (path == null) c.dp(28) else c.dp(waveDp.toInt()), WRAP).apply { marginStart = c.dp(3) })
+        addView(android.widget.FrameLayout(c).apply {
+            addView(mark, android.widget.FrameLayout.LayoutParams(c.dp(40), c.dp(40), Gravity.CENTER))
+            addView(ring, android.widget.FrameLayout.LayoutParams(c.dp(40), c.dp(40), Gravity.CENTER))
+        }, lp(c.dp(44), c.dp(44)))
+        // the wave stands whether the file is here or not (iOS voiceLine: the shelf's samples, a quiet line with none)
+        addView(bar, lp(c.dp(waveDp.toInt()), WRAP).apply { marginStart = c.dp(3) })
         addView(time, lp(WRAP, WRAP).apply { marginStart = c.dp(8) })
-        setOnClickListener { mark.performClick() }   // the whole capsule plays (iOS primaryTap: «a tap anywhere on the bubble»)
+        setOnClickListener { if (mark.visibility == View.VISIBLE) mark.performClick() }   // the whole capsule plays (iOS primaryTap: «a tap anywhere on the bubble»)
     }, LinearLayout.LayoutParams(WRAP, WRAP))
+}
+
+/** The voice's transfer on its round (iOS voicePlayRound while mediaProgress rides): a circle of the letter's ink at a quarter,
+ *  the done part whole over it, 2 points, from twelve o'clock. */
+private class VoiceRing(c: Context, ink: Int) : View(c) {
+    var share = 0f
+        set(v) { if (field != v) { field = v; invalidate() } }
+    private val line = c.dp(2).toFloat()
+    private val pale = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = line; color = MT.withAlpha(ink, 0.25f) }
+    private val done = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = line; color = ink; strokeCap = android.graphics.Paint.Cap.ROUND }
+    private val box = android.graphics.RectF()
+    override fun onDraw(cv: android.graphics.Canvas) {
+        box.set(line / 2, line / 2, width - line / 2, height - line / 2)
+        cv.drawOval(box, pale)
+        cv.drawArc(box, -90f, 360f * share.coerceIn(0f, 1f), false, done)
+    }
 }
 
 private val trackWaves = Caches.kept("track_waves", android.util.LruCache<String, FloatArray>(64))
