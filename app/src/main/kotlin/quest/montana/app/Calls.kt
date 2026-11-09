@@ -381,15 +381,20 @@ object Calls {
         if (synchronized(gate) { ring !== r }) return 0
         val twin = MontanaSeed.twin ?: return 0
         val secret = Book.secret(r.ref) ?: return 0
+        // ONE BIRTH ON THE NODE'S CLOCK FOR EVERY KNOCK (iOS inviteAtMS, MontanaCall.swift 2504 at ca615034): our call's own birth read
+        // by the node's clock, said inside the ring («born») and to the door as the call's life («expires» = birth + 90 s, iOS
+        // callLifeS). Since iOS 90edfbd9 (07.11) the life travels as «expires» alone, and the doors refuse a call wake without it (400):
+        // A1's rings stopped waking an iPhone in the background, 09.11 17:38 MSK, `wake code=400 sent=-1` on every knock
+        val born = r.startedAt + (NodeClock.now() - System.currentTimeMillis())
         fun sealed(o: String): String? {
             val words = JSONObject().put("o", o).put("v", r.video).put("s", r.seed).put("n", Prefs.userName.trim()).put("g", "")
-                .put("av", false).put("rj", false)
+                .put("av", false).put("rj", false).put("born", born)
             val body = "ring".toByteArray() + byteArrayOf(0) + twin.toByteArray() + byteArrayOf(0) + Signal.deflate(words.toString().toByteArray())
             return Wire.seal(Wire.bodyKey(secret, Wire.minute()), body)?.let { Base64.encodeToString(it, Base64.NO_WRAP) }
         }
         val env = sealed(offer ?: "")?.takeIf { it.length <= 4600 } ?: sealed("") ?: return 0
         val cw = Wire.convW(secret, Wire.day())
-        val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", env)
+        val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", env).put("expires", (born + LIFE_MS) / 1000)
         var saw404 = false
         var sawOther = false
         for (door in Signal.byProof(MontanaCard.doors)) {   // the doors that answered on this path first (iOS 484)
