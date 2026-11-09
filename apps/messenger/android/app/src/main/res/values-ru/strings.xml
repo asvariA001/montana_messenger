@@ -425,6 +425,8 @@
     <string name="coin_key">Монета</string>
     <string name="coin_available">Доступно</string>
     <string name="close">Закрыть</string>
+    <string name="yt_full_screen">Во весь экран</string>
+    <string name="yt_small_screen">Выйти из полноэкранного режима</string>
     <string name="coin_not_enough_sub">На вашем балансе меньше монет.</string>
     <string name="coin_not_sent">Монеты не отправлены</string>
     <string name="coin_not_sent_sub">С баланса ничего не ушло. Попробуйте ещё раз чуть позже.</string>

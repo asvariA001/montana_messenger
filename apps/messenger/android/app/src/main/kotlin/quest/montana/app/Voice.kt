@@ -226,6 +226,7 @@ object VoicePlayer {
     fun toggle(path: String, onProgress: (Int, Int) -> Unit, stopped: () -> Unit, then: (() -> Unit)? = null, sender: String = "", fromPeer: Boolean = false) {
         if (playing == path) { if (paused) resume() else pause(); return }
         if (CallSound.refused("voice message")) return   // the call holds the sound (iOS MontanaMedia 372)
+        YouTube.rest()   // one sound: YouTube rests where it stands, its window stays (iOS MontanaMedia 381)
         stop()
         NoteOpen.close?.invoke()   // one thing plays: a voice closes the open note (iOS MontanaVideoDock)
         // THE RECEIVER IS THE CATEGORY'S OWN DEFAULT (iOS: no .defaultToSpeaker on the voice's playAndRecord category,
@@ -282,6 +283,7 @@ object VoicePlayer {
     fun resume() {
         val p = player ?: return
         if (CallSound.refused("voice message")) return   // iOS MontanaMedia 482
+        YouTube.rest()   // one sound (iOS MontanaMedia 500)
         val path = playing ?: return
         runCatching { p.start(); speed(p) }; paused = false; armProximity(); tick(path); Playing.changed()
     }

@@ -4016,6 +4016,7 @@ private fun noteFly(forward: Boolean, scale0: Float, dx0: Float, dy0: Float, cir
  */
 private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, origin: android.graphics.Rect) {
     NoteOpen.close?.invoke()
+    YouTube.rest()   // and YouTube rests where it stands (iOS MontanaVideoDock.open, MontanaFeeds.swift 1460)
     VoicePlayer.stop()
     // THEIR ROUND NOTE OPENED WITH ITS SOUND: ITS SENDER LEARNS IT ONCE, SILENTLY (iOS notePlayed, MontanaConversation.swift:3101
     // at build 2155, atom cbd70b2f08ed) -- the road to their «Viewed»; opening the chat alone says nothing.
