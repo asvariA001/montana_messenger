@@ -2786,11 +2786,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 // THE QUOTE (iOS replyQuote, MontanaBubble.swift:1816; taken from PR #43, Conversation.kt): a bar of 3, white at 0.6 on mine, the speaker's
                 // tint on theirs in a group, the accent elsewhere; the author 12 bold; one line of the words at 12
                 val authorInk = if (!mine && whose?.from != null && !whose.mine && Groups.isKey(chat.ref)) Groups.tint(whose.from) else Color.WHITE
+                // THE AUTHOR IS THE VIEWER'S TRUTH (iOS quoteAuthor, MontanaConversation.swift 2911-2917 at ca615034): named only when the quoted row
+                // stands on this phone; without it the quote is its one line of words and the bar is 16 high, with it 32
                 addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
                     if (bare) { background = BubbleStyle.drawable(context, mine); setPadding(dp(10), dp(6), dp(10), dp(6)) }
-                    addView(View(c).apply { setBackgroundColor(if (mine) MT.withAlpha(Color.WHITE, 0.6f) else authorInk) }, lp(dp(3), MATCH).apply { marginEnd = dp(6) })
+                    addView(View(c).apply { setBackgroundColor(if (mine) MT.withAlpha(Color.WHITE, 0.6f) else authorInk) }, lp(dp(3), dp(if (whose == null) 16 else 32)).apply { marginEnd = dp(6) })
                     addView(c.vstack(Gravity.NO_GRAVITY) {
-                        addView(c.text(if (whose?.mine == true) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose?.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 12f, authorInk, bold = true).apply { singleLineEllipsis(); maxWidth = wordsMax - dp(9) })
+                        if (whose != null) addView(c.text(if (whose.mine) Prefs.userName.ifBlank { "·" } else if (Groups.isKey(chat.ref)) Groups.speakerName(c, whose.from) else chat.shown.ifBlank { c.getString(R.string.peer) }, 12f, authorInk, bold = true).apply { singleLineEllipsis(); maxWidth = wordsMax - dp(9) })
                         addView(c.text(m.qt ?: "", 12f, if (mine) MT.withAlpha(Color.WHITE, 0.85f) else MT.gray).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END; maxWidth = wordsMax - dp(9) })   // USER-DATA
                     })
                 }, lp(WRAP, WRAP).apply { bottomMargin = dp(if (bare) 2 else 4) })   // over the bare glyphs the stack's own 2 (iOS 870)
@@ -2830,9 +2833,23 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(BubbleStyle.text(mine))
                 if (selectable) takesSelection(letterWords(c, m.text))
-            }, lp(WRAP, WRAP).apply { if (who != null && place == SPEAKER_INSIDE) gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name it keeps the bubble's leading edge (iOS VStack .leading)
+            }, lp(WRAP, WRAP).apply { gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name or a quote wider than its words it keeps the bubble's leading edge (iOS textBubble VStack .leading)
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
-            LinkCard.parse(m.lp)?.let { addView(linkCardView(c, it, mine, wordsMax), lp(WRAP, WRAP)) }
+            val card = LinkCard.parse(m.lp)
+            if (card != null) addView(linkCardView(c, card, mine, wordsMax), lp(WRAP, WRAP))
+            // THE ROOM IS HELD WHILE THE CARD IS BEING READ (iOS textBubble, MontanaBubble.swift 1923-1941 at ca615034, the critic 22.09): my
+            // letter with a web link, on its way, before its card lands -- a line of 3 and two grey bars of the card's own height, so the
+            // bubble does not jump to a new height under the eye a second later
+            else if (mine && m.state == 0 && LinkPreview.enabled && !m.text.startsWith(Marks.MEDIA) && LinkPreview.webURLs(m.text).isNotEmpty())
+                addView(c.hstack {
+                    gravity = Gravity.TOP
+                    addView(View(c).apply { background = c.rounded(MT.withAlpha(Color.WHITE, 0.35f), 1.5f) }, lp(dp(3), MATCH).apply { marginEnd = dp(6) })
+                    val ink = BubbleStyle.text(mine)
+                    addView(c.vstack(Gravity.NO_GRAVITY) {
+                        addView(View(c).apply { background = c.rounded(MT.withAlpha(ink, 0.18f), 3f) }, lp(dp(90), dp(9)))
+                        addView(View(c).apply { background = c.rounded(MT.withAlpha(ink, 0.12f), 3f) }, lp(dp(150), dp(9)).apply { topMargin = dp(5) })
+                    })
+                }, lp(WRAP, WRAP).apply { topMargin = dp(4); gravity = Gravity.START })
             // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
             // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
