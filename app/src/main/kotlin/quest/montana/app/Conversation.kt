@@ -2918,7 +2918,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 if (voiceFile != null) addView(voiceTextGlyph(c, voiceFile) { voiceHints(c, chat) }, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
             }.also { row -> foldOpens?.let { hold -> row.visibility = View.GONE; hold { row.visibility = View.VISIBLE } } }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
-            if (edge) edgeLay(this, onPlate)
+            if (edge) edgeLay(this, onPlate) else docLay(this)
         }, lp(WRAP, WRAP))
         // A POST'S COMMENTS (iOS MontanaBubble 506-541, the reference's «Leave a Comment»): under the post a plate of the bubble's own
         // fill across its width -- the bubble, «Leave a Comment» or «N Comments», the chevron; the touch opens the post's comments
@@ -3434,25 +3434,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
             else if (kind == "vid") setOnClickListener { if ((c as? MainActivity)?.let { a -> Streams.play(a, m) } != true && Media.waiting(c, m)) Media.tapped(c, m) }
             else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
         }, LinearLayout.LayoutParams(boxW, fit.second).apply { bottomMargin = c.dp(4) })
-    } else {
-        val name = man?.optString("n")?.ifEmpty { null } ?: ("file." + (man?.optString("e") ?: ""))
-        val size = man?.optLong("sz") ?: 0L
-        into.addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(FrameLayout(c).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(70, 255, 255, 255)) }
-                if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, tint), FrameLayout.LayoutParams(c.dp(24), c.dp(24), Gravity.CENTER))
-                else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(26), c.dp(26), Gravity.CENTER))
-                else addView(c.icon(R.drawable.ic_set_doc, tint), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
-            }, lp(c.dp(44), c.dp(44)).apply { marginEnd = c.dp(10) })
-            addView(c.vstack(Gravity.NO_GRAVITY) {
-                addView(c.text(name, 15f, tint, bold = true).apply { maxWidth = c.dp(190); singleLineEllipsis() })   // USER-DATA: the file's name
-                addView(c.text(android.text.format.Formatter.formatShortFileSize(c, size), 13f, BubbleStyle.time(m.mine)))
-            })
-            if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
-            else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
-        }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
-    }
+    } else docBody(c, m, man, f, kind, into)   // a file: its face, its name, its size and the stamp in one row (DocBubble.kt)
     if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
     val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
     // A CARD OF AN EARLIER BUILD IS A PHOTO WITH ITS WORDS (iOS a2a4f782, decision 601): the card left the app, what was sent stays readable
