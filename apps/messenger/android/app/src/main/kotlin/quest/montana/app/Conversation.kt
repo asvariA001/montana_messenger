@@ -3397,7 +3397,6 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
         val pic = full?.pic ?: Media.thumbOf(man) ?: f?.let { Media.preview(c, it, kind, 800) }
         var blurView: ImageView? = null
         var picView: ImageView? = null
-        var spinner: View? = null
         // ONE PLATE FOR A PICTURE AND A VIDEO (iOS mediaBubble 1526-1574, the author's word 15.09): as wide as the widest of its contents —
         // the picture fitted, or the caption's own bubble — never the picture alone; a picture narrower than the plate keeps its fitted
         // size in the middle and the sides are a mirrored blur of the picture itself.
@@ -3427,18 +3426,17 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
                 picView?.setImageBitmap(s.pic)
                 blurView?.setImageBitmap(s.blur)
             }
-            // automatic download off: the attachment waits for a tap (iOS queuePendingMedia), the platform's arrow down on it
-            if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
-                setPadding(c.dp(10), c.dp(10), c.dp(10), c.dp(10))
-            }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
-            else if (f == null) addView(android.widget.ProgressBar(c).also { spinner = it }, FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
-            else if (kind == "vid") addView(c.icon(R.drawable.ic_play_fill, Color.WHITE).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
-                setPadding(c.dp(12), c.dp(12), c.dp(12), c.dp(12))
-            }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
+            // A VIDEO IN A CHAT PLAYS BY ITSELF (iOS MTChatClip, MontanaBubble.swift 1735-1745 and 3595-3615 at ca615034; the author's word
+            // 28.09 «live as in the posts»): on the phone, the plate is the post's own player (WallClip) without sound, round and round, while
+            // the letter stands seen, over the poster and with no sign on it; a tap is the full player with sound. Not here yet: the platform's
+            // arrow down, 54, white 0.9, whether it waits for a tap or rides. A PICTURE WEARS NO SIGN AND NO SPINNER OF ITS OWN (iOS mediaBubble):
+            // only the transfer's pill and dim lie over it while it rides
+            if (kind == "vid") {
+                if (f != null) addView(WallClip(c).apply { file = f }, FrameLayout.LayoutParams(MATCH, MATCH))
+                else addView(c.icon(R.drawable.ic_arrow_circle_down, Color.argb(230, 255, 255, 255)), FrameLayout.LayoutParams(c.dp(54), c.dp(54), Gravity.CENTER))
+            }
             // ONE INDICATOR ON THE PLATE (iOS mediaProgressOverlay, MontanaBubble.swift:341-356 at 2155): the pill top-left over the dim
-            addView(TransferMark(c, m.mid, null, spinner), FrameLayout.LayoutParams(MATCH, MATCH))
+            addView(TransferMark(c, m.mid, null), FrameLayout.LayoutParams(MATCH, MATCH))
             // a tap on a riding letter is harmless (iOS primaryTap: «the letter keeps riding»)
             if (f != null) setOnClickListener { if (!Transfers.riding(m.mid)) (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
             // A FILM PLAYS FROM ITS FIRST PIECES (iOS onTapVideo, 25.09): the player opens on its loader at once; no manifest -- the download

@@ -1058,7 +1058,7 @@ object Board {
  * The pieces come as the player asks for them (Board.stream, iOS MTBoardClip at 2322), never the whole file ahead; a file this phone
  * holds plays from the disk. The loader is born only when the tile first stands seen, and only where the connection lets it.
  */
-private class WallClip(c: Context) : android.view.TextureView(c), android.view.TextureView.SurfaceTextureListener {
+internal class WallClip(c: Context) : android.view.TextureView(c), android.view.TextureView.SurfaceTextureListener {
     var file: File? = null
         set(v) { field = v; look() }
     /** The film's address before it is whole (Board.stream), asked for once the tile first plays. */
