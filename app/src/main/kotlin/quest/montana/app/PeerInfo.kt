@@ -224,6 +224,16 @@ fun montanaLinkMatches(text: String): List<Pair<IntRange, Uri>> {
 fun linkedWords(text: String, openMontana: (Uri) -> Unit): android.text.SpannableString {
     val s = android.text.SpannableString(text)
     android.text.util.Linkify.addLinks(s, android.text.util.Linkify.WEB_URLS)
+    // A YOUTUBE LINK PLAYS HERE, in YouTube's own player, before every other road (iOS MTTextLinks, MTMessageText.swift 356-364 at ca615034)
+    for (span in s.getSpans(0, s.length, android.text.style.URLSpan::class.java)) {
+        val url = span.url
+        if (LinkPreview.youtube(url) == null) continue
+        val from = s.getSpanStart(span); val to = s.getSpanEnd(span)
+        s.removeSpan(span)
+        s.setSpan(object : android.text.style.URLSpan(url) {
+            override fun onClick(widget: View) { if (!YouTube.play(widget.context as? android.app.Activity, url)) super.onClick(widget) }
+        }, from, to, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+    }
     for ((range, uri) in montanaLinkMatches(text)) {
         s.setSpan(object : android.text.style.ClickableSpan() {
             override fun onClick(widget: View) { openMontana(uri) }
@@ -734,6 +744,7 @@ private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearL
             }
             Tab.LINKS -> items.forEach { m -> linksIn(m.text).forEach { u ->
                 into.addView(glassRow(c, R.drawable.ic_link, u.host ?: u.toString(), u.toString(), m, law) {
+                    if (YouTube.play(act, u.toString())) return@glassRow   // YouTube's player (iOS MontanaPeerInfoScreen 1158)
                     runCatching { act.startActivity(Intent(Intent.ACTION_VIEW, u)) }
                 }, lp().apply { bottomMargin = c.dp(8) })
             } }

@@ -1222,7 +1222,7 @@ private fun wallLinkView(act: MainActivity, card: LinkCard): View {
     var clip: WallLinkClip? = null
     var sound = false
     val playable = card.u.takeIf { kind != null && LinkPreview.mediaFile(it) }
-    fun open() { Log.d("Montana", "post_link open " + (kind ?: "page")); act.openLink(card.u) }
+    fun open() { Log.d("Montana", "post_link open " + (kind ?: "page")); if (!YouTube.play(act, card.u, card.t)) act.openLink(card.u) }   // iOS open(): YouTube's player first
     // iOS press(): the first tap fetches the file and plays it here with its sound; the next quiets it and opens it whole
     fun press() {
         val st = stage

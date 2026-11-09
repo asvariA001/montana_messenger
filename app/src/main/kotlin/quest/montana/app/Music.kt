@@ -180,6 +180,7 @@ object MusicPlayer {
 
     fun play(c: Context, list: List<Track>, i: Int) {
         if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
+        YouTube.rest()   // one sound: YouTube rests where it stands (iOS MontanaMedia 381)
         val a = c.applicationContext
         app = a
         // A TRACK OF A FOLDER THAT DID NOT OPEN IS SAID, NOT SWALLOWED (iOS MontanaMedia at 6e2b29ca, the author's word 17206)
@@ -234,6 +235,7 @@ object MusicPlayer {
         val p = mp?.takeIf { prepared } ?: return
         // A RESUME THAT WOULD NOT PLAY IS SAID TOO (iOS fa901ee6)
         if (CallSound.refused("music")) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=1 call=1"); return }   // iOS MontanaMedia 482
+        YouTube.rest()   // one sound (iOS MontanaMedia 500)
         if (app?.let { takeFocus(it) } == false) { android.util.Log.i("Montana", "play_refused resume voice=0 ready=0 call=0"); return }
         takenBySystem = false
         if (endedInPause) {

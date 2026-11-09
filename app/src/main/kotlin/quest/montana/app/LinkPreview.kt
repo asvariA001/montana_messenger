@@ -107,7 +107,8 @@ object LinkPreview {
         val picked = if (bare == "youtu.be") parts.firstOrNull()
             else if (1 < parts.size && parts[0] in setOf("shorts", "embed", "live", "v")) parts[1]
             else u.query?.split("&")?.map { it.split("=", limit = 2) }?.firstOrNull { it.size == 2 && it[0] == "v" }?.get(1)
-        if (picked == null || picked.length != 11 || !picked.all { it.isLetterOrDigit() || it == '-' || it == '_' }) return null
+        // iOS youtubeToken: ASCII letters and digits, '-' and '_' alone
+        if (picked == null || picked.length != 11 || !picked.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it == '-' || it == '_' }) return null
         return Tube(picked, music)
     }
 
@@ -529,6 +530,11 @@ fun linkCardView(c: Context, card: LinkCard, mine: Boolean, room: Int): View {
         setPadding(0, c.dp(3), 0, 0)
         addView(View(c).apply { background = c.rounded(accent, 1.5f) }, lp(c.dp(3), MATCH).apply { marginEnd = c.dp(6) })   // iOS RoundedRectangle(cornerRadius: 1.5)
         addView(col, lp(room - c.dp(3) - c.dp(6), WRAP))   // the card runs the bubble's whole measure (iOS linkCard, maxWidth .infinity)
-        pressable { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(card.u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
+        // A YOUTUBE CARD PLAYS HERE, in YouTube's own player (iOS linkCard, MontanaBubble.swift 1976-1981 at ca615034, MTApps.youtube);
+        // any other page opens where it lives
+        pressable {
+            if (YouTube.play(c as? android.app.Activity, card.u, card.t)) return@pressable
+            runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(card.u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        }
     }
 }

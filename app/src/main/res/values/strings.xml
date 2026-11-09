@@ -430,6 +430,8 @@
     <string name="coin_key">Coin</string>
     <string name="coin_available">Available</string>
     <string name="close">Close</string>
+    <string name="yt_full_screen">Full Screen</string>
+    <string name="yt_small_screen">Exit Full Screen</string>
     <string name="coin_not_enough_sub">Your coin balance is lower than this.</string>
     <string name="coin_not_sent">Coins were not sent</string>
     <string name="coin_not_sent_sub">Nothing left your balance. Try again in a moment.</string>

@@ -430,12 +430,14 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT < 33) return   // no OnBackInvokedDispatcher below 33: the deprecated onBackPressed is the only road
         val callback = if (Build.VERSION.SDK_INT >= 34) object : android.window.OnBackAnimationCallback {
             override fun onBackStarted(e: android.window.BackEvent) {
+                if (YouTube.whole) return   // the back leaves the player's whole screen, the page stays (commitBack)
                 keysDown()
                 slidingPage?.animate()?.cancel()
                 edgeOpens = back == null && slidingPage == null && e.swipeEdge == android.window.BackEvent.EDGE_LEFT && drawer != null
                 if (edgeOpens) drawer?.edgeBegin()
             }
             override fun onBackProgressed(e: android.window.BackEvent) {
+                if (YouTube.whole) return
                 if (edgeOpens) { drawer?.edgeMove(e.touchX); return }
                 // the left edge drags the page one to one with the finger; the right edge has no such finger on the page — its progress
                 slidingPage?.let { it.translationX = if (e.swipeEdge == android.window.BackEvent.EDGE_RIGHT) e.progress * surface.width else e.touchX.coerceAtLeast(0f) }
@@ -461,6 +463,7 @@ class MainActivity : Activity() {
      * (iOS MontanaDrawerHost: the drawer opens by a drag from the screen's left edge), and any other back there does nothing.
      */
     private fun commitBack() {
+        if (YouTube.back()) return   // YouTube's whole screen gives the mini player back first
         val b = back
         when {
             b != null -> b()
@@ -517,7 +520,7 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { MyWall.roadBack("active") }.start()   // a post on its way goes on by itself (iOS roadBack 1922)   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
-    override fun onPause() { super.onPause(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
+    override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the
     // platform's own word that the window stands or is gone
@@ -583,6 +586,7 @@ class MainActivity : Activity() {
 
     @Deprecated("registerBack's OnBackInvokedCallback takes every system back from API 33; this is the road below it")
     override fun onBackPressed() {
+        if (YouTube.back()) return
         val b = back
         if (b != null) b() else drawer?.open()   // the root never leaves the app (commitBack)
     }
