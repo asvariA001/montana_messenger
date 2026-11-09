@@ -2933,7 +2933,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     // the letter's gematria after the clock, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark);
                     // the seal's head beside it waits for the ribbon of time (iOS newestFirst && coinStands), which Android has not got
                     LetterSeal.gematria(m.mid)?.let { g ->
-                        addView(c.text("· $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" }, android.view.android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's gematria
+                        addView(c.text("· $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's gematria
                     }
                 }
                 // UNDER THE ROUND NOTE THE STAMP WEARS THE PICTURE'S PLATE (iOS videoNoteBubble 1285-1288): white on black 0.45, the
