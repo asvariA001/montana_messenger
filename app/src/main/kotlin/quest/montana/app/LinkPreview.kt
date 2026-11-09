@@ -496,7 +496,8 @@ fun linkCardView(c: Context, card: LinkCard, mine: Boolean, room: Int): View {
     val wide = card.wide && pic != null
     val accent = if (mine) Color.WHITE else BubbleStyle.text(false)   // iOS MontanaNativeBubble.link(mine:)
     val bubbleText = BubbleStyle.text(mine)
-    val f = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, c.resources.displayMetrics)   // iOS floor(17 * 14 / 17)
+    // iOS floor(letterFont(.body) * 14 / 17): fourteen points at the platform size, following the person's text size, floored as iOS floors it
+    val f = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, Math.floor(14.0 * MontanaTextSize.system).toFloat(), c.resources.displayMetrics)
     val blocks = ArrayList<LinkCardWordsView.Block>()
     card.s?.takeIf { it.isNotEmpty() }?.let { blocks += LinkCardWordsView.Block(it, true, accent, 2) }   // USER-DATA: the site
     card.t?.takeIf { it.isNotEmpty() }?.let { blocks += LinkCardWordsView.Block(it, true, bubbleText, 5) }   // USER-DATA: the title
@@ -526,7 +527,7 @@ fun linkCardView(c: Context, card: LinkCard, mine: Boolean, room: Int): View {
     return c.hstack {
         gravity = Gravity.TOP
         setPadding(0, c.dp(3), 0, 0)
-        addView(View(c).apply { setBackgroundColor(accent) }, lp(c.dp(3), MATCH).apply { marginEnd = c.dp(6) })
+        addView(View(c).apply { background = c.rounded(accent, 1.5f) }, lp(c.dp(3), MATCH).apply { marginEnd = c.dp(6) })   // iOS RoundedRectangle(cornerRadius: 1.5)
         addView(col, lp(room - c.dp(3) - c.dp(6), WRAP))   // the card runs the bubble's whole measure (iOS linkCard, maxWidth .infinity)
         pressable { runCatching { c.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(card.u)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } }
     }
