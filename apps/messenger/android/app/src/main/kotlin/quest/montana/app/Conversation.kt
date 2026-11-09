@@ -2918,7 +2918,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 if (voiceFile != null) addView(voiceTextGlyph(c, voiceFile) { voiceHints(c, chat) }, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
             }.also { row -> foldOpens?.let { hold -> row.visibility = View.GONE; hold { row.visibility = View.VISIBLE } } }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
-            if (edge) edgeLay(this, onPlate)
+            if (edge) edgeLay(this, onPlate) else docLay(this)
         }, lp(WRAP, WRAP))
         // A POST'S COMMENTS (iOS MontanaBubble 506-541, the reference's «Leave a Comment»): under the post a plate of the bubble's own
         // fill across its width -- the bubble, «Leave a Comment» or «N Comments», the chevron; the touch opens the post's comments
@@ -3055,7 +3055,7 @@ private fun edgePlate(m: Msg): Boolean {
     return when (man?.optString("k")?.ifEmpty { null } ?: byExt) {
         "img" -> true
         "vid" -> man?.optBoolean("r") != true
-        "doc" -> ext == "gif" && f != null
+        "doc" -> ext == "gif" || gifNamed(man)   // on its way too (iOS gifBubble draws its plate before the file lands)
         else -> false
     }
 }
@@ -3362,10 +3362,12 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     val byExt = when (f?.extension?.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     val tint = BubbleStyle.text(m.mine)
-    // A MOVING PICTURE IS A GIF, NOT A STILL PICTURE (iOS MontanaGif.isGif, 23.09): the file's own extension says so; one not
-    // yet on the phone falls back to the waiting plate below, as any other picture does. A GIF LEAVES AN IPHONE AS A DOCUMENT
+    // A MOVING PICTURE IS A GIF, NOT A STILL PICTURE (iOS MontanaGif.isGif, 23.09): the file's own extension says so; a picture's one not
+    // yet on the phone falls back to the waiting plate below, as any other picture does (iOS imageFile -> mediaBubble). A GIF LEAVES AN IPHONE AS A DOCUMENT
     // (iOS sendGifFile, kind "doc", MontanaConversation.swift 3807-3820 at 2155): the extension finds it under either kind.
-    val isGif = f?.extension?.lowercase() == "gif" && (kind == "img" || kind == "doc")
+    // A GIF ON ITS WAY IS STILL A GIF (iOS isGif(docName ?? df), MontanaBubble.swift 994): a document whose name says .gif takes the
+    // moving picture's plate before its file lands, not the file's plate
+    val isGif = (f?.extension?.lowercase() == "gif" && (kind == "img" || kind == "doc")) || (kind == "doc" && gifNamed(man))
     // A MUSIC FILE IS HEARD, NOT OPENED (iOS audioBubble voice=false): the voice's bubble with the track's name (trackBody)
     if (man != null && isTrackLetter(m, man)) { trackBody(c, m, man, into, chat); return }
     if (kind == "aud") {
@@ -3375,7 +3377,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     }
     if (kind == "vid" && man?.optBoolean("r") == true) { noteBody(c, m, f, man, into, chat); return }
     var capRoom = c.dp(240)
-    if (isGif && f != null) {
+    if (isGif) {
         capRoom = gifBody(c, m, f, into)
     } else if (kind == "img" || kind == "vid") {
         // the full picture when it is kept, else the manifest's small one of the same shape while the full one is read behind
@@ -3432,25 +3434,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
             else if (kind == "vid") setOnClickListener { if ((c as? MainActivity)?.let { a -> Streams.play(a, m) } != true && Media.waiting(c, m)) Media.tapped(c, m) }
             else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
         }, LinearLayout.LayoutParams(boxW, fit.second).apply { bottomMargin = c.dp(4) })
-    } else {
-        val name = man?.optString("n")?.ifEmpty { null } ?: ("file." + (man?.optString("e") ?: ""))
-        val size = man?.optLong("sz") ?: 0L
-        into.addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            addView(FrameLayout(c).apply {
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(70, 255, 255, 255)) }
-                if (f == null && Media.waiting(c, m)) addView(c.icon(R.drawable.ic_arrow_circle_down, tint), FrameLayout.LayoutParams(c.dp(24), c.dp(24), Gravity.CENTER))
-                else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(26), c.dp(26), Gravity.CENTER))
-                else addView(c.icon(R.drawable.ic_set_doc, tint), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
-            }, lp(c.dp(44), c.dp(44)).apply { marginEnd = c.dp(10) })
-            addView(c.vstack(Gravity.NO_GRAVITY) {
-                addView(c.text(name, 15f, tint, bold = true).apply { maxWidth = c.dp(190); singleLineEllipsis() })   // USER-DATA: the file's name
-                addView(c.text(android.text.format.Formatter.formatShortFileSize(c, size), 13f, BubbleStyle.time(m.mine)))
-            })
-            if (f != null) setOnClickListener { (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
-            else if (Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }
-        }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
-    }
+    } else docBody(c, m, man, f, kind, into)   // a file: its face, its name, its size and the stamp in one row (DocBubble.kt)
     if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
     val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
     // A CARD OF AN EARLIER BUILD IS A PHOTO WITH ITS WORDS (iOS a2a4f782, decision 601): the card left the app, what was sent stays readable
@@ -3736,8 +3720,12 @@ private class GifView(c: Context, private val f: java.io.File) : View(c) {
     }
 }
 
-private fun gifBody(c: Context, m: Msg, f: java.io.File, into: LinearLayout): Int {
-    val shape = runCatching {
+/** The document's own name says it is a moving picture (iOS MontanaGif.isGif over docName). */
+private fun gifNamed(man: JSONObject?): Boolean =
+    man?.optString("n")?.lowercase()?.endsWith(".gif") == true || man?.optString("e")?.lowercase() == "gif"
+
+private fun gifBody(c: Context, m: Msg, f: java.io.File?, into: LinearLayout): Int {
+    val dims = if (f == null) null else runCatching {
         val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(f.path, o)
         if (0 < o.outWidth && 0 < o.outHeight) o.outWidth to o.outHeight else null
@@ -3745,16 +3733,32 @@ private fun gifBody(c: Context, m: Msg, f: java.io.File, into: LinearLayout): In
     // A STICKER OF THE HOUSE IS A STICKER, NOT A PICTURE IN A BUBBLE (iOS gifBubble bare, MontanaBubble.swift 1119-1123 at 2155):
     // no fill, no rim, the one size every sticker of ours wears (MTStickerLook)
     val bare = Stickers.house(m)
-    val fit = if (bare) Stickers.box(c, shape?.first ?: 1, shape?.second ?: 1) else mediaBox(c, shape?.first ?: 4, shape?.second ?: 3, gifCeilingDp(c))
+    val fit = if (bare) Stickers.box(c, dims?.first ?: 1, dims?.second ?: 1) else mediaBox(c, dims?.first ?: 4, dims?.second ?: 3, gifCeilingDp(c))
     into.addView(FrameLayout(c).apply {
         tag = MEDIA_PLATE_TAG
         if (!bare) outlineProvider = object : android.view.ViewOutlineProvider() {
             override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
         }
         clipToOutline = !bare
-        val gif = GifView(c, f)
-        addView(gif, FrameLayout.LayoutParams(MATCH, MATCH))
-        setOnClickListener { gif.toggle() }
+        var spinner: View? = null
+        if (f != null) {
+            val gif = GifView(c, f)
+            addView(gif, FrameLayout.LayoutParams(MATCH, MATCH))
+            setOnClickListener { gif.toggle() }
+        } else {
+            // NOT ON THE PHONE YET (iOS gifBubble's Color(white: 0.2) at the 4:3 of the gif's ceiling): the grey plate; the arrow down
+            // while it waits for a tap, the platform's spinner while it comes by itself, both as a still picture's plate has them
+            setBackgroundColor(Color.rgb(51, 51, 51))
+            if (Media.waiting(c, m)) {
+                addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE).apply {
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
+                    setPadding(c.dp(10), c.dp(10), c.dp(10), c.dp(10))
+                }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
+                setOnClickListener { Media.tapped(c, m) }
+            } else addView(android.widget.ProgressBar(c).also { spinner = it }, FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+        }
+        // ONE INDICATOR ON THE PLATE (iOS gifBubble .overlay { mediaProgressOverlay }): the pill top-left over the dim, going or coming
+        addView(TransferMark(c, m.mid, null, spinner), FrameLayout.LayoutParams(MATCH, MATCH))
     }, LinearLayout.LayoutParams(fit.first, fit.second).apply { bottomMargin = c.dp(4) })
     return fit.first
 }
