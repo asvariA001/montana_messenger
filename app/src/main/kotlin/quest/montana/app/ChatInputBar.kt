@@ -274,9 +274,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val keys = rootWindowInsets?.getInsets(android.view.WindowInsets.Type.ime())?.bottom ?: 0
         val room = rootView.height - keys
-        val most = field.lineHeight * LINES + field.paddingTop + field.paddingBottom
-        val bar = if (open) dp(TIER + TIER_GAP + TIER) else dp(TIER)
-        if (0 < room) field.maxHeight = maxOf(dp(TIER), minOf(most, room - bar - dp(TIER)))
+        if (0 < room) field.maxHeight = ceiling(field, room, open)
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
@@ -577,7 +575,28 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         }
     }
 
-    private companion object {
+    companion object {
+        /**
+         * THE FIELD'S CEILING (iOS MTInputField.cap, MontanaBubble 2524): thirteen lines and the field's own insets, never past the
+         * room less the bar's tiers for the chosen shape and one tier of the feed, never below the tier. The chat's field and the
+         * caption's field ask the same function -- one owner of the number.
+         */
+        fun ceiling(field: android.widget.TextView, room: Int, open: Boolean): Int {
+            val most = field.lineHeight * LINES + field.paddingTop + field.paddingBottom
+            val bar = field.dp(if (open) TIER + TIER_GAP + TIER else TIER)
+            return maxOf(field.dp(TIER), minOf(most, room - bar - field.dp(TIER)))
+        }
+        /**
+         * THE WHOLE TIER IS THE FIELD (iOS MTInputField.inset, MontanaBubble 2533): the line is 21 in the font's own unit, the room
+         * around it the field's own padding -- the tier less the line, halved, above and below; 16 at the start; `end` at the end.
+         */
+        fun tier(field: EditText, end: Int) {
+            field.textSize = FONT
+            if (android.os.Build.VERSION.SDK_INT >= 28) field.lineHeight = Math.round(android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, LINE, field.resources.displayMetrics))
+            field.minHeight = field.dp(TIER)
+            val v = (field.dp(TIER) - field.lineHeight) / 2f
+            field.setPadding(field.dp(INSET_SIDE), Math.floor(v.toDouble()).toInt(), end, Math.ceil(v.toDouble()).toInt())
+        }
         const val LOCK_WAY = 72                            // iOS lockWay: the swell's way up to the lock plate, in points
         const val MODE_TIMEOUT_MS = 190L                   // iOS MontanaHoldControl.modeTimeout: a shorter press is a tap
         const val BOUNCE_MS = 400L                         // a press this soon after the last one is a bounce (iOS beginTracking)
@@ -602,5 +621,32 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         const val OPEN_KEY = "composeOpen"
         const val MODE_KEY = "composeMediaMode"            // iOS @AppStorage("composeMediaMode")
         const val COIN_MODE = "coin"                       // iOS ChatInputBar.coinMode
+    }
+}
+
+/**
+ * THE FIELD OF WORDS (iOS MTGrowTextView, MontanaBubble 2343-2470). A PASTE IS THE PASTE ACTION, NOT A COUNT (iOS 2370-2384): the
+ * flag is raised by the action itself, never by how many letters appeared at once -- a suggested word, an autocorrection and a
+ * dictated phrase arrive whole too and keep the caret in view. Pasted words show the field from its top (iOS textViewDidChange
+ * 2697-2717: the person sees what arrived from its beginning). Pictures in the paste are the chat's own (setOnReceiveContentListener).
+ */
+class GrowField(c: Context) : EditText(c) {
+    override fun onTextContextMenuItem(id: Int): Boolean {
+        val paste = id == android.R.id.paste || id == android.R.id.pasteAsPlainText
+        val was = if (paste) text.toString() else null
+        val done = super.onTextContextMenuItem(id)
+        if (paste && done && was != text.toString()) {
+            // the platform brings the caret into view in its own pre-draw; this one-shot listener stands after it and wins
+            val tree = viewTreeObserver
+            tree.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                override fun onPreDraw(): Boolean {
+                    if (tree.isAlive) tree.removeOnPreDrawListener(this) else viewTreeObserver.removeOnPreDrawListener(this)
+                    scrollTo(0, 0)
+                    android.util.Log.d("Montana", "field_scroll paste to=0 h=" + height + " content=" + (layout?.height ?: 0))
+                    return true
+                }
+            })
+        }
+        return done
     }
 }
