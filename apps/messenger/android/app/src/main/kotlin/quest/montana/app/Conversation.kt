@@ -768,7 +768,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
 
     // A DRAFT OPENS AT ITS END (iOS MontanaBubble.swift:2429-2433 at 2155, atom 8cdb001dfc9d): the caret stands after the
     // last word, not at the beginning -- the writing goes on at once.
-    val field = EditText(c).apply { setText(Prefs.str("draft.$ref", "")); setSelection(text.length) }
+    val field = GrowField(c).apply { setText(Prefs.str("draft.$ref", "")); setSelection(text.length) }
     // THE KEYBOARD AWAY IS THE FIELD LET GO (iOS inputFocused = false with hideKeyboard): a field kept focused under a hidden keyboard
     // is raised again by the system each time the window comes forward (SHOW_AUTO_EDITOR_FORWARD_NAV, the Pixel's own record 07.10 22:35)
     // and the panel in the keyboard's place goes with it: every other deed of the bar puts it away (iOS showEmoji = false)
@@ -4327,13 +4327,16 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
     }
     // THE SAME PLATE AS THE CHAT'S OWN FIELD (iOS MTComposeRow.montanaFieldGlass, MontanaBubble.swift:67,2279 at 2155, the author's
     // word 22.09): one glass, one radius (18) for the caption and the chat row alike — never a field drawn by hand with its own shape.
-    val field = EditText(c).apply {
+    // THE CHAT'S OWN FIELD (iOS MTComposeRow, MontanaBubble 2472-2498): the same tier, line, insets (16 at both sides: no emoji key
+    // here) and the same ceiling -- thirteen lines within half the screen less the bar (cap(room: MTScene.size().height / 2)), then
+    // it scrolls inside; not five lines of its own.
+    val field = GrowField(c).apply {
         hint = c.getString(R.string.caption_hint); setText(draft); setSelection(text.length)
-        setHintTextColor(MT.gray); setTextColor(Color.WHITE); textSize = 17f
+        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
         background = c.glassPlate().apply { cornerRadius = c.dp(18).toFloat() }
-        setPadding(c.dp(16), c.dp(9), c.dp(16), c.dp(9))
         inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-        maxLines = 5
+        ChatInputBar.tier(this, c.dp(ChatInputBar.INSET_SIDE))
+        maxHeight = ChatInputBar.ceiling(this, c.resources.displayMetrics.heightPixels / 2, Prefs.bool(ChatInputBar.OPEN_KEY, false))
     }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
@@ -4346,7 +4349,8 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
         }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.TOP or Gravity.START).apply { setMargins(c.dp(14), c.dp(6), 0, 0) })
         addView(c.hstack {
             gravity = Gravity.BOTTOM
-            setPadding(dp(10), dp(8), dp(10), dp(10))
+            // iOS MTComposeRow: .padding(.horizontal) 16, .padding(.vertical, barPad) 8, the field and the key 10 apart
+            setPadding(dp(16), dp(ChatInputBar.BAR_PAD), dp(16), dp(ChatInputBar.BAR_PAD))
             setBackgroundColor(Color.argb(150, 0, 0, 0))
             addView(field, lp(0, WRAP, 1f))
             // THE SAME TIER AS THE CHAT'S OWN SEND KEY (iOS MontanaOctagon.composeHeight == MTInputField.tier, MontanaBubble.swift:2331,
@@ -4355,7 +4359,7 @@ fun captionPage(act: MainActivity, p: Media.Picked, draft: String, onCancel: () 
                 setImageResource(R.drawable.send_button); scaleType = ImageView.ScaleType.FIT_CENTER
                 contentDescription = c.getString(R.string.send)
                 pressable { onSend(field.text.toString().trim()) }
-            }, lp(dp(36), dp(36)).apply { marginStart = dp(8) })
+            }, lp(dp(ChatInputBar.TIER), dp(ChatInputBar.TIER)).apply { marginStart = dp(10) })
         }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
         setOnApplyWindowInsetsListener { v, insets ->
             val b = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
