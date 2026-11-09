@@ -487,10 +487,10 @@ fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArr
 
 /** The voice's transfer on its round (iOS voicePlayRound while mediaProgress rides): a circle of the letter's ink at a quarter,
  *  the done part whole over it, 2 points, from twelve o'clock. */
-private class VoiceRing(c: Context, ink: Int) : View(c) {
+private class VoiceRing(c: Context, ink: Int, lineDp: Float = 2f) : View(c) {
     var share = 0f
         set(v) { if (field != v) { field = v; invalidate() } }
-    private val line = c.dp(2).toFloat()
+    private val line = lineDp * c.resources.displayMetrics.density
     private val pale = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = line; color = MT.withAlpha(ink, 0.25f) }
     private val done = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { style = android.graphics.Paint.Style.STROKE; strokeWidth = line; color = ink; strokeCap = android.graphics.Paint.Cap.ROUND }
     private val box = android.graphics.RectF()
@@ -579,33 +579,67 @@ fun trackBody(c: Context, m: Msg, man: JSONObject, into: LinearLayout, chat: Cha
     }
     // THE FINGER ON THE WAVE (iOS MontanaScrubber on the wave): playing, it moves the place; at rest, the place starts it
     bar.onSeek = { p -> if (f != null) { if (!mine()) mark.performClick(); MusicPlayer.seek(p.toDouble()) } }
+    // THE ROUND GIVES WAY TO THE TRANSFER'S RING (iOS audioBubble `if let p = mediaProgress`): while the track rides either way a
+    // circle of the letter's ink at a quarter, the done part whole over it, 3.5 points, 42 across; the wave stands beside it as it
+    // stands with the file on the phone; under the name the size gives way to «N% · word» in the bubble's ink.
+    val ring = VoiceRing(c, tint, 3.5f)
+    val sizeWord = android.text.format.Formatter.formatShortFileSize(c, man.optLong("sz").takeIf { it > 0 } ?: f?.length() ?: 0L)
+    val info = c.text(sizeWord, 11f, MT.withAlpha(tint, 0.7f))   // USER-DATA: a measured size
+    val ride: () -> Unit = {
+        val p = Transfers.progress(m.mid)
+        ring.visibility = if (p == null) View.GONE else View.VISIBLE
+        mark.visibility = if (p == null) View.VISIBLE else View.GONE
+        if (p == null) {
+            info.text = sizeWord; info.setTextColor(MT.withAlpha(tint, 0.7f)); info.typeface = android.graphics.Typeface.DEFAULT
+        } else {
+            ring.share = p
+            info.text = "${(p * 100).toInt()}%" + (Transfers.word(m.mid)?.let { " · $it" } ?: "")   // USER-DATA: a measured number
+            info.setTextColor(tint); info.typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+        }
+    }
+    ride()
     mark.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { Playing.listen(follow); follow() }
-        override fun onViewDetachedFromWindow(v: View) { Playing.unlisten(follow) }
+        override fun onViewAttachedToWindow(v: View) { Playing.listen(follow); Transfers.listen(m.mid, ride); follow(); ride() }
+        override fun onViewDetachedFromWindow(v: View) { Playing.unlisten(follow); Transfers.forget(m.mid, ride) }
     })
+    // THE BUBBLE'S WIDTH FOLLOWS THE NAME (iOS audioBubble bubbleW): from 252 to the name's width +30% (+28 of the margins), never
+    // past 0.78 of the window; the wave takes what the round leaves (42 and 12 between), the name is cut in its middle.
+    val dens = c.resources.displayMetrics.density
+    val nameDp = android.graphics.Paint().apply {
+        textSize = 15f * c.resources.displayMetrics.scaledDensity
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD)
+    }.measureText(title) / dens
+    val winDp = c.resources.displayMetrics.widthPixels / dens
+    val innerDp = maxOf(252f, minOf(nameDp * 1.3f + 28f, winDp * 0.78f)) - 28f
     into.addView(c.vstack(Gravity.NO_GRAVITY) {
         setPadding(c.dp(2), c.dp(4), c.dp(2), c.dp(2))
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
-            addView(android.widget.FrameLayout(c).apply { addView(mark, android.widget.FrameLayout.LayoutParams(c.dp(40), c.dp(40), Gravity.CENTER)) }, lp(c.dp(44), c.dp(44)))
+            addView(android.widget.FrameLayout(c).apply {
+                addView(mark, android.widget.FrameLayout.LayoutParams(c.dp(42), c.dp(42), Gravity.CENTER))
+                addView(ring, android.widget.FrameLayout.LayoutParams(c.dp(42), c.dp(42), Gravity.CENTER))
+            }, lp(c.dp(44), c.dp(44)))
             addView(c.vstack(Gravity.NO_GRAVITY) {
-                addView(if (f == null && !Media.waiting(c, m)) android.widget.ProgressBar(c).apply { isIndeterminate = true } else bar,
-                    lp(if (f == null && !Media.waiting(c, m)) c.dp(26) else MATCH, c.dp(26)))
+                // the wave stands whether the file is here or not (iOS waveColumn onDisk=false: the letter's samples, a quiet line with none)
+                addView(bar, lp(MATCH, c.dp(26)))
                 addView(c.hstack {
                     addView(now, lp(0, WRAP).apply { weight = 1f })
                     addView(length, lp(WRAP, WRAP))
                 }, lp(MATCH, WRAP))
-            }, lp(c.dp(178), WRAP).apply { marginStart = c.dp(10) })
+            }, lp(c.dp(innerDp.toInt() - 44 - 10), WRAP).apply { marginStart = c.dp(10) })
         }, lp(WRAP, WRAP))
-        addView(c.text(title, 14f, tint, bold = true).apply {   // USER-DATA: the track's file name
-            maxWidth = c.dp(232); setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+        addView(c.text(title, 15f, tint, bold = true).apply {   // USER-DATA: the track's file name
+            maxWidth = c.dp(innerDp.toInt()); setSingleLine(true); ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
         }, lp(WRAP, WRAP).apply { topMargin = c.dp(7) })
+        // THE BOTTOM ROW (iOS audioBubble [C-1]): the note and the size or percent on the left, the stamp at the row's right end --
+        // docLay moves the bubble's stamp into this row, as it does for a file's
         addView(c.hstack {
             gravity = Gravity.CENTER_VERTICAL
-            addView(c.icon(R.drawable.ic_music_note, MT.withAlpha(tint, 0.7f)), lp(c.dp(11), c.dp(11)))
-            addView(c.text(android.text.format.Formatter.formatShortFileSize(c, man.optLong("sz")), 11f, MT.withAlpha(tint, 0.7f)),
-                lp(WRAP, WRAP).apply { marginStart = c.dp(4) })
-        }, lp(WRAP, WRAP).apply { topMargin = c.dp(4) })
+            tag = DOC_STAMP_TAG
+            addView(c.icon(R.drawable.ic_music_note, MT.withAlpha(tint, 0.7f)), lp(c.dp(10), c.dp(10)))
+            addView(info, lp(WRAP, WRAP).apply { marginStart = c.dp(4) })
+            addView(View(c), lp(0, 1).apply { weight = 1f; marginStart = c.dp(10) })
+        }, lp(MATCH, WRAP).apply { topMargin = c.dp(7) })
     }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(4) })
 }
 
