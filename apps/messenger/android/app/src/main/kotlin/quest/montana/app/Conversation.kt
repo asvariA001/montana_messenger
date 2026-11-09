@@ -3080,7 +3080,16 @@ private fun edgeLay(col: LinearLayout, onPlate: Boolean) {
     lines.forEachIndexed { i, v ->
         val lp = v.layoutParams as LinearLayout.LayoutParams
         if (v === plate) { lp.bottomMargin = 0; lp.topMargin = 0 }
-        else {
+        // THE CAPTION'S OWN PADDING (iOS captionBar 1574-1592): 10 at the sides, 7 over the words; the stamp's line under them 2 below,
+        // 7 above the bubble's foot, at the same 10 from the right edge
+        else if (v.tag == CAPTION_TAG) {
+            lp.marginStart = c.dp(10); lp.marginEnd = c.dp(10)
+            lp.topMargin = c.dp(7); lp.bottomMargin = if (i == lines.size - 1) c.dp(7) else 0
+            if (v is TextView && 0 < plateW) v.maxWidth = plateW - c.dp(20)   // the words wrap inside the picture's own width
+        } else if (v === time && 0 < i && lines[i - 1].tag == CAPTION_TAG) {
+            lp.marginStart = c.dp(10); lp.marginEnd = c.dp(10)
+            lp.topMargin = c.dp(2); lp.bottomMargin = c.dp(7)
+        } else {
             lp.marginStart = c.dp(12); lp.marginEnd = c.dp(12)
             lp.topMargin = if (i == 0) c.dp(7) else c.dp(4)
             if (i == lines.size - 1) lp.bottomMargin = c.dp(6)
@@ -3339,6 +3348,8 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
 /** THE MEDIA PLATE'S OWN TAG (iOS .mtMediaMiddle): the selection circle beside a letter finds this view to stand level
  *  with it, not with the whole bubble (item 21). */
 internal const val MEDIA_PLATE_TAG = "media_plate"
+/** The caption under a single picture or film: edgeLay gives it iOS captionBar's padding and the stamp's line under it. */
+internal const val CAPTION_TAG = "media_caption"
 
 /** How far a tagged view stands below `ancestor`, summing every parent's own top (iOS alignmentGuide, carried up the stacks). */
 private fun mediaPlateOffset(v: View, ancestor: View): Int {
@@ -3392,7 +3403,7 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
         // size in the middle and the sides are a mirrored blur of the picture itself.
         val fit = mediaBox(c, pic?.width ?: 4, pic?.height ?: 3)
         val words = man?.optString("cap")?.takeIf { it.isNotEmpty() }
-        val boxW = minOf(c.dp(PLATE_CEILING), maxOf(fit.first, words?.let { captionWidth(c, it, c.text(it, 16f, tint).paint) } ?: 0))
+        val boxW = minOf(c.dp(PLATE_CEILING), maxOf(fit.first, words?.let { captionWidth(c, it, c.text(it, 16f * MontanaTextSize.system, tint).paint) } ?: 0))
         val narrow = pic != null && fit.first < boxW - 1
         capRoom = boxW
         into.addView(FrameLayout(c).apply {
@@ -3438,7 +3449,18 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
     val cap = man?.optString("cap")?.takeIf { it.isNotEmpty() }
     // A CARD OF AN EARLIER BUILD IS A PHOTO WITH ITS WORDS (iOS a2a4f782, decision 601): the card left the app, what was sent stays readable
-    cap?.let { into.addView(c.text(it, 16f, tint).apply { maxWidth = capRoom }) }   // USER-DATA: the caption
+    // THE CAPTION IS THE TEXT BUBBLE'S OWN WORDS (iOS captionBar + words(), MontanaBubble.swift 739-750 and 1574-1592 at ca615034): the
+    // letter's font that follows the person's text size, its links open at a touch in the bubble's ink and take the touch only where
+    // they lie (the platform's movement only when a link is there, as iOS's MTLinks gate); its padding and the stamp's line: edgeLay
+    cap?.let { w ->
+        val s = linkedWords(w) { u -> (c as? MainActivity)?.openLink(u.toString()) }
+        into.addView(c.text(s, 16f * MontanaTextSize.system, tint).apply {
+            tag = CAPTION_TAG; maxWidth = capRoom
+            if (s.getSpans(0, s.length, android.text.style.ClickableSpan::class.java).isNotEmpty()) {
+                movementMethod = android.text.method.LinkMovementMethod.getInstance(); setLinkTextColor(tint)
+            }
+        })   // USER-DATA: the caption
+    }
 }
 
 /**
