@@ -255,23 +255,25 @@ internal fun albumBody(c: Context, members: List<Msg>, into: LinearLayout) {
         val f = m.file?.let { File(it) }?.takeIf { it.exists() }
         // the plate's outer corners are the bubble's own (it clips them); where a tile meets another, 3 (iOS MTMosaic.corners)
         val tile = CornerTile(c, t.pos, 0f, 3 * d)
+        // ONE TILE OF THE PLATE (iOS groupTile, MontanaBubble.swift 1643-1700 at ca615034): the picture or the film's poster; a tile
+        // without a picture yet stands grey with the photo's or the film's glyph in grey; a film wears its play when it is on the phone,
+        // the arrow down while it is not; a still picture wears no sign and no spinner of its own -- the ring tells its ride
+        val vid = kind == "vid"
         tile.addView(ImageView(c).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             val pic = pics[i]
             if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.rgb(51, 51, 51))
         }, FrameLayout.LayoutParams(MATCH, MATCH))
-        fun sign(res: Int, side: Int) = c.icon(res, Color.WHITE).apply {
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(140, 0, 0, 0)) }
-            val pad = side / 4; setPadding(pad, pad, pad, pad)
-        }
-        val side = c.dp(min(44f, max(28f, t.rect.width() * 0.22f)))
-        val spinner = if (f == null && !Media.waiting(c, m)) android.widget.ProgressBar(c) else null
-        if (f == null && Media.waiting(c, m)) tile.addView(sign(R.drawable.ic_arrow_circle_down, side), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
-        else if (spinner != null) tile.addView(spinner, FrameLayout.LayoutParams(c.dp(28), c.dp(28), Gravity.CENTER))
-        else if (kind == "vid") tile.addView(sign(R.drawable.ic_play_fill, side), FrameLayout.LayoutParams(side, side, Gravity.CENTER))
-        // EVERY TILE CARRIES ITS OWN PROGRESS (iOS groupTile, MontanaBubble.swift:1485-1509 at 2155): its ring and percent inside it
-        tile.addView(TransferMark(c, m.mid, t.rect.width() to t.rect.height(), spinner), FrameLayout.LayoutParams(MATCH, MATCH))
-        if (m.mine && m.state == -1) tile.addView(c.failedMark(), FrameLayout.LayoutParams(c.dp(16), c.dp(16), Gravity.TOP or Gravity.END).apply { setMargins(0, c.dp(6), c.dp(6), 0) })
+        if (pics[i] == null) tile.addView(c.icon(if (vid) R.drawable.ic_peer_video else R.drawable.ic_photo, MT.gray), FrameLayout.LayoutParams(c.dp(26), c.dp(26), Gravity.CENTER))
+        if (vid) tile.addView(c.icon(if (f != null) R.drawable.ic_play_circle_fill else R.drawable.ic_arrow_circle_down, Color.argb(230, 255, 255, 255)),
+            FrameLayout.LayoutParams(c.dp(34), c.dp(34), Gravity.CENTER))
+        // EVERY TILE CARRIES ITS OWN PROGRESS (iOS groupTile): its ring and percent inside it
+        tile.addView(TransferMark(c, m.mid, t.rect.width() to t.rect.height()), FrameLayout.LayoutParams(MATCH, MATCH))
+        // A FAILED OWN TILE WEARS THE RETRY SIGN (iOS exclamationmark.arrow.circlepath 18 bold on a red round of 34): the tap is the resend
+        if (m.mine && m.state == -1) tile.addView(c.icon(R.drawable.ic_retry_circlepath, Color.WHITE).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.red) }
+            setPadding(c.dp(8), c.dp(8), c.dp(8), c.dp(8))
+        }, FrameLayout.LayoutParams(c.dp(34), c.dp(34), Gravity.CENTER))
         // a tap on a tile still riding is harmless (iOS primaryTap: «the tile keeps riding»)
         if (f != null) tile.setOnClickListener { if (!Transfers.riding(m.mid)) (c as? MainActivity)?.let { a -> openMedia(a, f, kind) } }
         // a tile's film plays from its first pieces as a single film does (iOS tileTap → store.stream(forFile:))
@@ -285,7 +287,8 @@ internal fun albumBody(c: Context, members: List<Msg>, into: LinearLayout) {
     if (members.any { it.mine && it.state == -1 }) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
     // THE ONE CAPTION (iOS groupCaption): the words ride with the first letter of the pick
     members.firstNotNullOfOrNull { m -> Media.manifestOf(m)?.optString("cap")?.takeIf { it.isNotEmpty() } }?.let { cap ->
-        into.addView(c.text(cap, 16f, BubbleStyle.text(members[0].mine)).apply { maxWidth = (cut.w * d).toInt() })   // USER-DATA: the caption
+        // THE ONE CAPTION IN THE TEXT BUBBLE'S MANNER (iOS groupBubble → captionBar at the mosaic's width): as a single plate's
+        into.addView(captionView(c, cap, BubbleStyle.text(members[0].mine), (cut.w * d).toInt()))
     }
 }
 

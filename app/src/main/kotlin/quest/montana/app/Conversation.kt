@@ -3452,15 +3452,18 @@ private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null
     // THE CAPTION IS THE TEXT BUBBLE'S OWN WORDS (iOS captionBar + words(), MontanaBubble.swift 739-750 and 1574-1592 at ca615034): the
     // letter's font that follows the person's text size, its links open at a touch in the bubble's ink and take the touch only where
     // they lie (the platform's movement only when a link is there, as iOS's MTLinks gate); its padding and the stamp's line: edgeLay
-    cap?.let { w ->
-        val s = linkedWords(w) { u -> (c as? MainActivity)?.openLink(u.toString()) }
-        into.addView(c.text(s, 16f * MontanaTextSize.system, tint).apply {
-            tag = CAPTION_TAG; maxWidth = capRoom
-            if (s.getSpans(0, s.length, android.text.style.ClickableSpan::class.java).isNotEmpty()) {
-                movementMethod = android.text.method.LinkMovementMethod.getInstance(); setLinkTextColor(tint)
-            }
-        })   // USER-DATA: the caption
-    }
+    cap?.let { into.addView(captionView(c, it, tint, capRoom)) }
+}
+
+/** The caption's words under a plate, a single one or an album's (iOS captionBar): the letter's font, its links, the tag edgeLay pads by. */
+internal fun captionView(c: Context, words: String, tint: Int, maxW: Int): TextView {
+    val s = linkedWords(words) { u -> (c as? MainActivity)?.openLink(u.toString()) }
+    return c.text(s, 16f * MontanaTextSize.system, tint).apply {
+        tag = CAPTION_TAG; maxWidth = maxW
+        if (s.getSpans(0, s.length, android.text.style.ClickableSpan::class.java).isNotEmpty()) {
+            movementMethod = android.text.method.LinkMovementMethod.getInstance(); setLinkTextColor(tint)
+        }
+    }   // USER-DATA: the caption
 }
 
 /**
