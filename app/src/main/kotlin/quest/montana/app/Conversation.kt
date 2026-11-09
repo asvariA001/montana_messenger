@@ -2833,7 +2833,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                 movementMethod = android.text.method.LinkMovementMethod.getInstance()
                 setLinkTextColor(BubbleStyle.text(mine))
                 if (selectable) takesSelection(letterWords(c, m.text))
-            }, lp(WRAP, WRAP).apply { if (who != null && place == SPEAKER_INSIDE) gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name it keeps the bubble's leading edge (iOS VStack .leading)
+            }, lp(WRAP, WRAP).apply { gravity = Gravity.START })   // USER-DATA: the letter; under a speaker's name or a quote wider than its words it keeps the bubble's leading edge (iOS textBubble VStack .leading)
             // THE LINK'S CARD UNDER THE WORDS (iOS the link card in the bubble), drawn from the letter's own bytes
             val card = LinkCard.parse(m.lp)
             if (card != null) addView(linkCardView(c, card, mine, wordsMax), lp(WRAP, WRAP))
@@ -2849,7 +2849,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                         addView(View(c).apply { background = c.rounded(MT.withAlpha(ink, 0.18f), 3f) }, lp(dp(90), dp(9)))
                         addView(View(c).apply { background = c.rounded(MT.withAlpha(ink, 0.12f), 3f) }, lp(dp(150), dp(9)).apply { topMargin = dp(5) })
                     })
-                }, lp(WRAP, WRAP).apply { topMargin = dp(4) })
+                }, lp(WRAP, WRAP).apply { topMargin = dp(4); gravity = Gravity.START })
             // A VOICE'S STAMP STANDS UNDER ITS CAPSULE (iOS voiceCapsuleBubble 982-994): the microphone with the length and the stamp,
             // each on its quiet pill (MTVoicePill: black 0.38, a white 0.18 rim), white, on the feed under the capsule
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
