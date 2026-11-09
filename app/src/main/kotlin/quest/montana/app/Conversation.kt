@@ -2838,7 +2838,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             val voiceMan = if (m.text.startsWith(Marks.MEDIA)) (m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)) else null
             val voice = 1 == members.size && voiceMan?.optString("k") == "aud"
             val note = 1 == members.size && voiceMan?.optString("k") == "vid" && voiceMan.optBoolean("r")
-            val metaInk = if (voice || darkMeta) Color.WHITE else BubbleStyle.time(mine)
+            val metaInk = if (voice || note || darkMeta) Color.WHITE else BubbleStyle.time(mine)
             fun pill(v: View) = v.apply {
                 background = GradientDrawable().apply { cornerRadius = dp(100).toFloat(); setColor(Color.argb(97, 0, 0, 0)); setStroke(1, Color.argb(46, 255, 255, 255)) }
                 setPadding(dp(8), dp(3), dp(8), dp(3))
@@ -2911,6 +2911,9 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                     // no ticks in the bubble (iOS 15.47): the words stand under the last own letter; only «not sent» marks the corner
                     if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = dp(4) })
                 }
+                // UNDER THE ROUND NOTE THE STAMP WEARS THE PICTURE'S PLATE (iOS videoNoteBubble 1285-1288): white on black 0.45, the
+                // ring of its transfer left of it, outside the plate
+                if (note) meta.apply { background = c.rounded(Color.argb(115, 0, 0, 0), 10); setPadding(dp(7), dp(3), dp(7), dp(3)) }
                 addView(if (voice) pill(meta) else meta, lp(WRAP, WRAP))
                 if (voiceFile != null) addView(voiceTextGlyph(c, voiceFile) { voiceHints(c, chat) }, lp(WRAP, WRAP))
             // iOS 966: the voice's stack leans to its own side -- their pills stand at the capsule's left edge, mine at its right
@@ -3813,19 +3816,33 @@ private fun noteBody(c: Context, m: Msg, f: java.io.File?, man: JSONObject?, int
     val full = f?.let { BubblePicture.kept(it, "vid", 600) }
     val pic = full?.pic ?: Media.thumbOf(man)
     into.addView(FrameLayout(c).apply {
-        // the poster in the note's window: the circle filled, the badge at the corner the manifest names (iOS MontanaNoteFrame)
-        addView(NoteWindow(c, NoteWindow.cornerOf(man?.optString("rb"))).holding(ImageView(c).apply {
+        // the poster in the note's window: the circle filled, the badge at the corner the manifest names (iOS MontanaNoteFrame);
+        // with no frame yet the circle stands black (iOS MontanaNotePlayback's Color.black)
+        val window = NoteWindow(c, NoteWindow.cornerOf(man?.optString("rb"))).holding(ImageView(c).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
-            if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.argb(60, 255, 255, 255))
+            if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.BLACK)
             if (full == null && f != null) BubblePicture.wear(c, f, "vid", 600, this) { s -> background = null
                 setImageBitmap(s.pic) }
-        }), FrameLayout.LayoutParams(side, side))
-        if (f == null && Media.waiting(c, m)) {
-            addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
-            setOnClickListener { Media.tapped(c, m) }   // automatic download off: the round note waits for a tap
+        })
+        addView(window, FrameLayout.LayoutParams(side, side))
+        // THE GLYPH ON THE CIRCLE (iOS MontanaNotePlayback, MontanaFeeds.swift:1406-1409): play when the note is on the phone, the
+        // arrow down while it is not -- waiting for a tap or on its way, the ring under the circle telling how far -- at 40, white 0.9
+        val glyph = c.icon(if (f != null) R.drawable.ic_play_fill else R.drawable.ic_arrow_circle_down, Color.argb(230, 255, 255, 255))
+        addView(glyph, FrameLayout.LayoutParams(c.dp(40), c.dp(40), Gravity.CENTER))
+        // ONE CIRCLE (iOS MontanaNotePlayback's `mine`, the author's word 15.09): while this note is out over the feed, its flight
+        // back included, the bubble holds nothing at all; it stands again when the open note lets go (NoteOpen.close cleared)
+        if (f != null) {
+            val out = { val gone = NoteOpen.close != null && NoteOpen.file == f.path
+                window.visibility = if (gone) View.INVISIBLE else View.VISIBLE; glyph.visibility = window.visibility }
+            out()
+            addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) { Playing.listen(out); out() }
+                override fun onViewDetachedFromWindow(v: View) { Playing.unlisten(out) }
+            })
         }
-        else if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
-        else setOnClickListener { v ->
+        if (f == null && Media.waiting(c, m)) setOnClickListener { Media.tapped(c, m) }   // automatic download off: the round note waits for a tap
+        else if (f != null) setOnClickListener { v ->
+            if (NoteOpen.close != null && NoteOpen.file == f.path) return@setOnClickListener   // it is already out: the empty place answers nothing
             (c as? MainActivity)?.let { a ->
                 val loc = IntArray(2); v.getLocationOnScreen(loc)
                 // THE FLIGHT'S ORIGIN (iOS onTapNote's noteFrameBox.rect, MontanaBubble.swift:24,34 at build 1598, carried to
@@ -4010,7 +4027,7 @@ private fun playNote(act: MainActivity, m: Msg, f: java.io.File, chat: Chat?, or
                     val i = notes.indexOfFirst { it.path == current.path }
                     val next = if (0 <= i) notes.getOrNull(i + 1) else null
                     if (next == null) close()
-                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); speed(mp); current = next; Playing.changed() }.onFailure { close() }
+                    else runCatching { mp.reset(); mp.setDataSource(next.path); mp.prepare(); mp.start(); speed(mp); current = next; NoteOpen.file = next.path; Playing.changed() }.onFailure { close() }
                 }
             } }.getOrNull()
             val tick = object : Runnable { override fun run() { val p = player ?: return; Playing.changed(); MainThread.later(100, this) } }
