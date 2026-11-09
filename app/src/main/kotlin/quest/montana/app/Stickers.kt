@@ -147,9 +147,12 @@ object Stickers {
             val k = box.toFloat() / maxOf(pic.width, pic.height)
             (pic.width * k).toInt().coerceAtLeast(1) to (pic.height * k).toInt().coerceAtLeast(1)
         }
+        // A STICKER ON ITS WAY STANDS ON NOTHING (iOS stickerPlaceholder, MontanaBubble.swift 1530-1537 at ca615034): no plate and no
+        // spinner of its own -- the place it will take is held empty at the one sticker size (or its sender's preview stands there),
+        // and only the transfer's pill and dim lie over it while it rides (mediaProgressOverlay)
         into.addView(FrameLayout(c).apply {
             addView(ImageView(c).apply { scaleType = ImageView.ScaleType.FIT_CENTER; pic?.let { setImageBitmap(it) } }, FrameLayout.LayoutParams(w, h))
-            if (f == null) addView(android.widget.ProgressBar(c), FrameLayout.LayoutParams(c.dp(30), c.dp(30), Gravity.CENTER))
+            addView(TransferMark(c, m.mid, null), FrameLayout.LayoutParams(w, h))
         }, LinearLayout.LayoutParams(WRAP, WRAP).apply { bottomMargin = c.dp(2) })
         if (m.state == -1) into.addView(c.text(c.getString(R.string.media_failed), 12f, SysColor.red))
         return true
