@@ -704,6 +704,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var panelAway: () -> Unit = {}
     var barTop: () -> Int = { Int.MAX_VALUE }   // the bar's top on the screen, once it stands
     var ride: KeyRide? = null   // the keys' cover and the finger that drags them (KeyRide.kt), born with the page below
+    var twoFingers: (MotionEvent) -> Boolean = { false }   // the choice drawn by two fingers while the chat selects, born below
     var lifted = 0   // how far the bar stands above the page's foot for the keys (their cover, less the panel's own room)
     // THE KEYBOARD GOES WHERE THE IPHONE'S GOES (the author's word 09.10.2026 11:5x MSK: «make the keyboard behave as on iOS -- here it
     // hangs when it is not needed»): a tap anywhere on the feed puts it away, unless a control under the finger took the tap (iOS
@@ -715,9 +716,17 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         private var downY = 0f
         private var downT = 0L
         private var moved = false
+        private var drawing = false
         private fun keysUp() = rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == true || panelUp()
         override fun dispatchTouchEvent(e: MotionEvent): Boolean {
             if (feedBlocked) return false   // a tape rolls: the feed behind the blur takes no touches (iOS allowsHitTesting)
+            // TWO FINGERS CHOOSE, ONE SCROLLS (iOS MTSelectionPan): once two fingers draw the choice, the scroll is let go of the
+            // touch with a cancel and hears nothing more of it until every finger is up
+            if (twoFingers(e)) {
+                if (!drawing) { drawing = true; val x = MotionEvent.obtain(e).apply { action = MotionEvent.ACTION_CANCEL }; super.dispatchTouchEvent(x); x.recycle() }
+                if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) drawing = false
+                return true
+            }
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; downT = e.eventTime; moved = false }
                 MotionEvent.ACTION_MOVE -> {
@@ -747,6 +756,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // THE CHAT'S SELECTION (iOS selectingMsgs, selectedMsgs): «Select» in a letter's menu begins it
     var selecting = false
     val picked = linkedSetOf<String>()
+    val pickOf = java.util.WeakHashMap<View, List<String>>()   // a selecting row's letters (a plate whole), named by its view
     // THE CHAT'S OWN SEARCH (iOS searching / searchText, MontanaConversation.swift:1410-1412, 2495-2537 at 2312): open and asked
     // something, the feed shows only the letters whose words or file name hold the query, in any case and with any accent; a tap on
     // one carries the eye to its own place in the whole conversation (iOS searchJump, 2975-2990)
@@ -1086,6 +1096,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     if (chosen) addView(c.icon(R.drawable.ic_check, Color.BLACK, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
                 }
                 return c.hstack {
+                    pickOf[this] = row.map { it.mid }
                     gravity = Gravity.TOP
                     addView(circle, lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
                     addView(b.apply { isClickable = false }, lp(0, WRAP, 1f))
@@ -1310,6 +1321,90 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         drawEmpty(column.childCount == 0, asked.isNotEmpty())
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
         if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
+    }
+
+    // FAST CHOICE BY TWO FINGERS (iOS MTSelectionPan, MontanaBubble 2309-2340; selectPan and the edge scroll, MontanaMessageFeed
+    // 1113-1161; panSelectBeganId, applyPanRange, panSelectEnded, MontanaConversation): while the chat selects, two fingers moved 5
+    // up or down choose every row they pass from the one they began on, a plate whole; begun on a chosen row they unchoose. What
+    // was chosen outside the range stays. Two fingers spread wider than 200 are a pinch and choose nothing; one finger still scrolls.
+    // Within 90 of the feed's top or foot the feed rolls on by itself, up to 14 a frame at the very edge. When the fingers rise
+    // with nothing chosen, the selection ends.
+    run {
+        var trying = false
+        var on = false
+        var held = false
+        var startY = 0f
+        var pointY = 0f
+        var base: Set<String> = emptySet()
+        var choose = true
+        var startKey: String? = null
+        val zone = c.dp(90).toFloat()
+        val step = c.dp(14).toFloat()
+        fun rows(): List<Pair<View, List<String>>> = (0 until column.childCount).mapNotNull { i ->
+            val v = column.getChildAt(i)
+            pickOf[v]?.let { v to it } ?: (v as? android.view.ViewGroup)?.let { g -> (0 until g.childCount).firstNotNullOfOrNull { k -> pickOf[g.getChildAt(k)]?.let { v to it } } }
+        }
+        val at = IntArray(2)
+        val origin = IntArray(2)
+        fun rowAt(y: Float, all: List<Pair<View, List<String>>>): Int {
+            scroll.getLocationInWindow(origin)
+            return all.indexOfFirst { (v, _) -> v.getLocationInWindow(at); val top = at[1] - origin[1]; y >= top && y < top + v.height }
+        }
+        fun reach(end: Int, all: List<Pair<View, List<String>>>) {
+            val a = all.indexOfFirst { it.second.firstOrNull() == startKey }
+            if (a < 0 || end < 0) return
+            val sel = LinkedHashSet(base)
+            for (i in minOf(a, end)..maxOf(a, end)) for (mid in all[i].second) if (choose) sel.add(mid) else sel.remove(mid)
+            if (sel == picked) return
+            picked.clear(); picked.addAll(sel); redraw(); drawFoot()
+        }
+        val roll = object : Runnable {
+            override fun run() {
+                if (!on) return
+                val h = scroll.height.toFloat()
+                val v = if (pointY < zone) -(zone - pointY) / zone * step else if (pointY > h - zone) (pointY - (h - zone)) / zone * step else 0f
+                if (v != 0f) { scroll.scrollBy(0, v.toInt()); val all = rows(); reach(rowAt(pointY, all), all) }
+                scroll.postOnAnimation(this)
+            }
+        }
+        twoFingers = fun(e: MotionEvent): Boolean {
+            if (!selecting && !held) return false
+            when (e.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> if (e.pointerCount == 2 && !held) { trying = true; startY = e.getY(0) }
+                MotionEvent.ACTION_MOVE -> {
+                    if (trying && !on && e.pointerCount == 2) {
+                        val spread = kotlin.math.hypot(e.getX(0) - e.getX(1), e.getY(0) - e.getY(1))
+                        if (spread > c.dp(200)) trying = false
+                        else if (c.dp(5) <= kotlin.math.abs(e.getY(0) - startY)) {
+                            val all = rows()
+                            val i = rowAt(e.getY(0), all)
+                            if (i >= 0) {
+                                on = true; held = true; trying = false
+                                base = picked.toSet()
+                                choose = !picked.contains(all[i].second.first())   // begun on a chosen row: this drag unchooses
+                                startKey = all[i].second.first()
+                                pointY = e.getY(0)
+                                scroll.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                                reach(i, all)
+                                scroll.postOnAnimation(roll)
+                            }
+                        }
+                    }
+                    if (on) { pointY = e.getY(0); val all = rows(); reach(rowAt(pointY, all), all) }
+                }
+                MotionEvent.ACTION_POINTER_UP -> if (on) {
+                    on = false; startKey = null
+                    if (picked.isEmpty()) { selecting = false; redraw(); drawFoot() }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val was = held
+                    if (on && picked.isEmpty()) { selecting = false; redraw(); drawFoot() }
+                    on = false; held = false; trying = false; startKey = null
+                    return was
+                }
+            }
+            return held
+        }
     }
 
     // ── sending (iOS sendMessage) ──
