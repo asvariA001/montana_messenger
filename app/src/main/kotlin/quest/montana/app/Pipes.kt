@@ -1141,6 +1141,8 @@ object Marks {
     const val PLAYED = "\u200B\u200BPL:"   // + the mid of a voice of theirs that was played here (iOS playedMark)
     const val SAME_ASK = "\u200B\u200BSM:"   // + base64 {t: [32 tags]}: \u00ABdo we already share a pipe?\u00BB (iOS sameAskMark)
     const val SAME_YES = "\u200B\u200BSY:"   // + base64 {p: proof or noise}: the answer (iOS sameYesMark)
+    /** A call's word by the pipe (iOS callSignalMark): the node's line carries it as a door of its own, never the box, never a row. */
+    const val CALL_SIGNAL = "\u2063mtcall:"
     const val RING = "\u200B\u200BRG:"   // + {v, s, n, t}: a call as a letter (iOS ringMark) — it rings, never a row
     const val MISSED = "\u200B\u200BMC:"   // + {v, s}: the caller's «missed call» (iOS missedCallMark) — it lands as a call row
     const val CALL = "\u200B\u200BCL:"   // + {v, inc, dur, miss}: a call's row, laid by each phone for itself (iOS callMark), never sent
@@ -2219,6 +2221,17 @@ object Post {
     }
 
     /** A letter's body up to its glyph (iOS sendP2P 902-908): mid ‖ 0 ‖ words ‖ 0 ‖ my name ‖ 0 ‖ glyph — one shape for the box and the channels. */
+    /**
+     * A CALL'S WORD BY THE NODE'S LINE (iOS MTCallRoute.lineDoor, sendOnStandingLine, acf2132d of 09.11): the same sealed letter
+     * under the pipe's tag, laid on the standing channels and nowhere else -- no box, no queue, no row. The call's receipt judges it.
+     */
+    fun lineWord(ref: String, text: String): Boolean {
+        val secret = Book.secret(ref) ?: return false
+        val mid = Marks.mintMid()
+        val ok = Channels.lay(secret, mid, letterHead(mid, text))
+        Log.d("Montana", "line_tx mid=" + mid.take(8) + " ok=" + (if (ok) 1 else 0))
+        return ok
+    }
     private fun letterHead(mid: String, text: String): ByteArray =
         mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
 
@@ -2766,6 +2779,10 @@ object Post {
             text = words.ifEmpty { text }
         }
         if (own) { landOwn(SamePair.root(ref), f[0], text, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null }); return true }
+        // A CALL'S WORD BY THE PIPE (iOS ChatStore callSignalMark, acf2132d of 09.11): an iPhone whose web doors are dead lays a copy
+        // of every call packet on the node's line; it is the call's, heard as the lane's words are, and its receipt goes back the same
+        // way. Before, it fell silent as an unknown word of the wire and the iPhone beat on the dead doors.
+        if (text.startsWith(Marks.CALL_SIGNAL)) { Calls.lineWords(ref, text.removePrefix(Marks.CALL_SIGNAL)); return true }
         // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
         // other devices -- the box gave it to this one, and this one's confirmation erases it there
         if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])

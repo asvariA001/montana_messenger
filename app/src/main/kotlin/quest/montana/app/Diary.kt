@@ -18,7 +18,9 @@ import java.security.MessageDigest
 object Diary {
     private const val FILE = "telemetry.log"
     private const val ROTATE = 512 * 1024L          // iOS Channel.telemetry.rotateAtBytes
-    private const val KEEP = 6                      // iOS MontanaLog.keep: finished generations wait for the shipper
+    // iOS MontanaLog.keep: finished generations wait for the shipper. TWENTY-FOUR PLACES (iOS 51fca1bf, the author's word 17968:
+    // the diary is critical, no scenario loses it) -- about three days of a busy trace when the node refuses, 12 MB at most
+    private const val KEEP = 24
     private const val CHUNK = 262_144               // iOS shipRange: a quarter of a megabyte a request
     private const val PER_PASS = 32                 // iOS perPass: up to 8 MB of catching up per pass
     /** A birth millisecond in the diary, written as the letter born then is named there (iOS MontanaP2PTrace.shortMs,
@@ -289,8 +291,23 @@ object Diary {
         val bytes = body.toString().length
         for (door in Signal.writeOrder("diag")) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"))
             // THE DEADLINE GROWS WITH THE BODY BY THE CARGO ROAD'S ONE RULE (iOS MontanaWakePush 3772-3775, MTNodeWire.cargoTimeoutS 306)
-            val (code, _) = Wire.post(door, "/diag-put", body, Wire.cargoTimeoutMs(bytes))
-            if (code == 200) { Signal.doorAnswered(door); refused = 0; return true }
+            val (code, answer) = Wire.post(door, "/diag-put", body, Wire.cargoTimeoutMs(bytes))
+            if (code == 200) {
+                // LANDED MEANS EVERY LINE LANDED (iOS 51fca1bf, the author's word 17968): a 200 with «dropped» was read as landed and
+                // the lines the node threw away were let go on both sides. Ok, nothing lost, as many lines as were sent -- anything
+                // else keeps the lines here for the next pass; the door is not blamed, it answered
+                val o = runCatching { JSONObject(answer ?: "") }.getOrNull() ?: JSONObject()
+                val ok = o.optBoolean("ok", false)
+                val kept = o.optInt("lines", lines.size)
+                val lost = o.optInt("dropped", 0)
+                Signal.doorAnswered(door)
+                if (!ok || lost != 0 || kept != lines.size) {
+                    android.util.Log.d("Montana", "diag_ship refused=kept-nothing ok=" + (if (ok) 1 else 0) + " kept=" + kept + " lost=" + lost + " of=" + lines.size)
+                    refused++
+                    return false
+                }
+                refused = 0; return true
+            }
             Signal.doorFailed(door, code)
         }
         refused++

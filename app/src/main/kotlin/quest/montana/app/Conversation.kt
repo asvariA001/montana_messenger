@@ -1880,14 +1880,21 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         paint(voicePause, VoiceTape.paused)
     }
     fun beginEarReply() {
-        if (earReply || VoiceTape.rolling) return
+        // EVERY WAY OUT IS A LINE (iOS 51fca1bf, T1 09.11): a reply that did not come names its reason in the diary
+        if (earReply) return android.util.Log.d("Montana", "voice_ear_reply busy -- a reply already stands").let {}
+        if (VoiceTape.rolling) return android.util.Log.d("Montana", "voice_ear_reply busy -- a tape already rolls").let {}
         earReply = true
         Proximity.hold("ear-reply", true)
         Proximity.onChange = { near -> if (!near) endEarReply() }
         EarTone.play()
+        android.util.Log.d("Montana", "voice_ear_reply tone")
         MainThread.later(600) {
-            if (!earReply) return@later   // the phone already left the ear
-            if (Proximity.isNear && bar.earStart()) android.util.Log.d("Montana", "voice_ear_reply record") else endEarReply()
+            if (!earReply) return@later android.util.Log.d("Montana", "voice_ear_reply left before the tone ended").let {}
+            when {
+                !Proximity.isNear -> { android.util.Log.d("Montana", "voice_ear_reply far after the tone"); endEarReply() }
+                bar.earStart() -> android.util.Log.d("Montana", "voice_ear_reply record")
+                else -> { android.util.Log.d("Montana", "voice_ear_reply the tape did not start"); endEarReply() }
+            }
         }
     }
     val earHook: () -> Unit = { beginEarReply() }

@@ -241,8 +241,13 @@ object VoicePlayer {
             // THE REPLY AT THE EAR FOLLOWS THE PEER'S VOICE ONLY (iOS VoicePlayer end, MontanaMedia.swift:623-631 at 2155, the
             // author's word 14.09): the last voice of theirs ended while the phone was at the ear -- one's own, listened back, asks
             // for no answer; a voice with a next one walks on to it
-            val atEar = then == null && this.fromPeer && proximityArmed && Proximity.isNear
-            Log.d("Montana", "voice_end ear=" + (if (atEar) 1 else 0) + " theirs=" + (if (this.fromPeer) 1 else 0))
+            // THE EAR IS A WINDOW, NOT AN INSTANT (iOS 51fca1bf, T1 09.11): a head that moved as the voice fell silent read «far»;
+            // a «near» within the last second and a half counts as the ear, the recording asks the sensor once more after the tone
+            val near = Proximity.isNear
+            val recent = Proximity.nearWithin(1500)
+            val atEar = then == null && this.fromPeer && proximityArmed && recent
+            Log.d("Montana", "voice_end ear=" + (if (atEar) 1 else 0) + " theirs=" + (if (this.fromPeer) 1 else 0) +
+                " armed=" + (if (proximityArmed) 1 else 0) + " near=" + (if (near) 1 else 0) + " recent=" + (if (recent) 1 else 0))
             // A TO B DIRECTLY (iOS finished, MontanaMedia.swift:613-615 at 2155): a voice handed on to the next keeps the track
             // that stepped aside for it aside -- the track plays on when nothing follows, never in the moment between two voices
             val aside = then != null && musicAside

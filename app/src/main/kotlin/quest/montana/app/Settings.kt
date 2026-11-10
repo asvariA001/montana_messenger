@@ -258,7 +258,7 @@ fun languagePage(act: MainActivity, onBack: () -> Unit): View {
 /** A REAL DOOR: the addresses shown as they are; a tap opens the mail, and with no mail on the phone the address is copied. */
 fun supportPage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
-    val mail = "contact@montana.quest"   // iOS MontanaSafety.contactMail
+    val mail = "contact@montana.one"   // iOS MontanaSafety.contactMail
     val site = "https://montana.xxx"   // iOS MontanaSafety.site (MTEditionMontana.site, decision 711)
     fun write(subject: Int) {
         val i = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:$mail")).putExtra(Intent.EXTRA_SUBJECT, c.getString(subject))

@@ -77,8 +77,17 @@ object Calls {
         return true
     }
 
-    /** The words of a call on the node's lane (iOS handleMeshCallSignal, handleSignal): its birth, and the end of a ring here. */
-    fun hear(ref: String, epoch: String, payload: ByteArray) {
+    /** A call's words by the pipe (iOS handleLiveCallSignal with door «line»): base64 of the same JSON the lane carries. */
+    fun lineWords(ref: String, b64: String) {
+        val bytes = runCatching { android.util.Base64.decode(b64, android.util.Base64.DEFAULT) }.getOrNull()
+            ?: return log("line word unreadable -- dropped")
+        log("line word bytes=" + bytes.size)
+        hear(ref, "", bytes, line = true)
+    }
+
+    /** The words of a call on the node's lane (iOS handleMeshCallSignal, handleSignal): its birth, and the end of a ring here.
+     *  `line` -- the words came by the node's line (iOS MTCallRoute.lineDoor): the receipt goes back the same way too. */
+    fun hear(ref: String, epoch: String, payload: ByteArray, line: Boolean = false) {
         val words = runCatching { JSONArray(String(payload, Charsets.UTF_8)) }.getOrNull() ?: return
         val receipts = JSONArray()
         val verdict = HashMap<String, Boolean>()   // «q» → first: one packet's words share its «q» (a batch of candidates), judged once (iOS acceptedReceipt)
@@ -153,8 +162,12 @@ object Calls {
         } } finally {
             // one answer for the words of one delivery, on every door the call knocks (the sender's door among them)
             if (receipts.length() > 0) {
-                Signal.postWord(ref, epoch, receipts.toString().toByteArray())
-                log("call_receipt tx n=" + receipts.length() + " applied=" + verdict.values.count { it })
+                // a word by the line names no lane epoch: the receipt rides its call's own (each receipt names its «e»)
+                val lane = epoch.ifEmpty { receipts.optJSONObject(0)?.optString("e").orEmpty() }
+                if (lane.isNotEmpty()) Signal.postWord(ref, lane, receipts.toString().toByteArray())
+                // THE RECEIPT COMES BACK THE WAY THE WORD CAME (iOS acf2132d): by the line, where the web doors may be dead
+                if (line) Post.lineWord(ref, Marks.CALL_SIGNAL + android.util.Base64.encodeToString(receipts.toString().toByteArray(), android.util.Base64.NO_WRAP))
+                log("call_receipt tx n=" + receipts.length() + " applied=" + verdict.values.count { it } + (if (line) " by=line" else ""))
             }
         }
     }
