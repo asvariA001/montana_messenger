@@ -978,7 +978,7 @@ object Groups {
         return if (rest.length <= 32 && rest.none { it.isWhitespace() }) rest else null
     }
     /**
-     * A LETTER THAT NAMES ME (iOS mentionsMe): «@» and the name I go by -- my own name or my nick. The name must end where a word ends:
+     * A LETTER THAT NAMES ME (iOS mentionsMe, 5666090f: no nick any more): «@» and my own name. The name must end where a word ends:
      * «@Al» is not a mention of a person named «Al» inside «@Alex». It rings even in a chat whose sound is off (Notify.letter).
      */
     fun mentionsMe(words: String): Boolean {
