@@ -342,6 +342,18 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     }
     bar = HomeBar(act, onDrawer = { shell.open() }, onPane = ::choose)
     bar.showPane(Pane.CHATS, animated = false)
+    // THE UNFOLDED PLAYER ASKS THE HOST FOR THE MUSIC PAGE (iOS MontanaPlayerBar onSearch/onPlace): its own search, the track's place
+    player.big?.onSearch = {
+        if (pane != Pane.MUSIC) choose(Pane.MUSIC)
+        bar.turn(true, "player")
+        search.field.requestFocus()
+        act.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(search.field, 0)
+    }
+    player.big?.onPlace = {
+        if (pane != Pane.MUSIC) choose(Pane.MUSIC)
+        MusicPlayer.current?.let { music.focus(it, player.top) }
+    }
+    player.big?.onQueue = { act.push { close -> queuePage(act, close) { player.big?.onPlace?.invoke() } } }
     // FOLDED WITH THE BAR (iOS listHead 746-762, the author's word 10.09): the logo folds its glyphs and the search alike; what
     // stays under it is the search's own hairline (MTRowHairline 2247-2250: white 0.14, half a point, 29 from the leading edge,
     // twenty under the panel), and a tap on it unfolds both. A search in progress keeps its field.

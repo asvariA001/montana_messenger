@@ -31,6 +31,8 @@ class Track(val uri: Uri, val file: String) {
     @Volatile var tagTitle: String? = null
     @Volatile var artist: String? = null
     @Volatile var length: Double = 0.0
+    /** The picture its folder holds, when it holds one: the cover of a file that carries none (iOS MTMusicFolders.art). */
+    @Volatile var art: Uri? = null
     val title: String get() = tagTitle ?: file.substringBeforeLast('.')
 }
 
@@ -97,17 +99,113 @@ object MusicFolders {
     private fun collect(c: Context, tree: Uri, doc: String, out: MutableList<Track>) {
         val kids = DocumentsContract.buildChildDocumentsUriUsingTree(tree, doc)
         val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
+        val here = ArrayList<Track>()
+        val pictures = ArrayList<Pair<String, String>>()   // a picture's name and its document
         c.contentResolver.query(kids, cols, null, null, null)?.use { cur ->
             while (cur.moveToNext()) {
                 val id = cur.getString(0); val name = cur.getString(1) ?: continue; val mime = cur.getString(2) ?: ""
+                val ext = name.substringAfterLast('.', "").lowercase()
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) collect(c, tree, id, out)
-                else if (mime.startsWith("audio/") || name.substringAfterLast('.', "").lowercase() in audio) {
+                else if (mime.startsWith("audio/") || ext in audio) {
                     val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
-                    out += known.getOrPut(uri.toString()) { Track(uri, name) }
-                }
+                    here += known.getOrPut(uri.toString()) { Track(uri, name) }
+                } else if (ext in picture) pictures += name to id
             }
         }
+        // EACH TRACK TAKES ITS OWN FOLDER'S COVER, when the folder holds a picture (iOS MTMusicFolders walk, MontanaMusicPlayer.swift:
+        // 2425-2431 at 2310; the author's word 24.09: «the covers are there, and another music app shows them locally»).
+        val art = cover(pictures)?.let { DocumentsContract.buildDocumentUriUsingTree(tree, it) }
+        for (t in here) t.art = art
+        out += here
     }
+    private val picture = setOf("jpg", "jpeg", "png", "heic", "webp")
+    /** A folder's cover among its pictures, as music players have long chosen it: the one named for the cover, else the first by
+     *  name (iOS MTMusicFolders.cover(among:), MontanaMusicPlayer.swift:2437-2446 at 2310). */
+    private fun cover(pictures: List<Pair<String, String>>): String? {
+        val byName = pictures.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.first })
+        fun stem(n: String) = n.substringBeforeLast('.').lowercase()
+        for (want in listOf("cover", "folder", "front", "album", "albumart", "albumartsmall", "artwork"))
+            byName.firstOrNull { stem(it.first) == want }?.let { return it.second }
+        return (byName.firstOrNull { stem(it.first).startsWith("albumart") } ?: byName.firstOrNull())?.second
+    }
+}
+
+// ─────────────────────────── a track's picture (iOS MTTrackMeta.wholeCover, MTMusicArt) ───────────────────────────
+
+/**
+ * A TRACK'S PICTURE, ONE OWNER (iOS MTTrackMeta and MTMusicArt, MontanaMusicPlayer.swift:918-984 and 1689-1827 at 2310; the author's
+ * words 23.09 «the music file's cover, when it has one», 29.09 ~23:10 «the app's icon natively, if the music has no real cover»):
+ * the file's own picture, else the one its folder holds, else the app's own icon in its own shape. Only the track that plays wears
+ * one here -- the unfolded plate, its opened stage and the lock screen -- so the one track's picture is read, whole (1024 a side, as
+ * iOS reads the lock screen's), off the main thread, once; its landing redraws the player and the lock screen (iOS readingLanded).
+ * A cover is a peer's file like any other: past 32 MB it is not drawn, and it is never decoded whole.
+ */
+object TrackArt {
+    private const val SIDE = 1024
+    private const val CAP = 32 * 1_048_576
+    /** The icon's own shape: a rounded square whose corner is 22.37 % of its side (iOS MTMusicArt.corner). */
+    const val ICON_CORNER = 0.2237f
+    @Volatile private var ofKey = ""
+    @Volatile private var asking = ""
+    @Volatile private var picture: android.graphics.Bitmap? = null
+    private var icon: android.graphics.Bitmap? = null
+    private var lock: android.graphics.Bitmap? = null
+
+    /** The playing track's own picture once read (null: none, or not yet -- asked here, and its landing says so). */
+    fun of(c: Context, t: Track): android.graphics.Bitmap? {
+        val key = t.uri.toString()
+        if (ofKey == key) return picture
+        if (asking != key) {
+            asking = key
+            val a = c.applicationContext
+            Thread {
+                var from = "none"
+                val own = runCatching {
+                    MediaMetadataRetriever().run { try { setDataSource(a, t.uri); embeddedPicture } finally { release() } }
+                }.getOrNull()?.takeIf { it.size <= CAP }?.let { decode(it) }
+                if (own != null) from = "file"
+                val img = own ?: t.art?.let { u -> runCatching { a.contentResolver.openInputStream(u)?.use { s -> read(s) } }.getOrNull()?.let { decode(it) } }
+                if (own == null && img != null) from = "folder"
+                android.util.Log.d("Montana", "music_meta kind=${t.file.substringAfterLast('.', "").lowercase()} cover=${if (img != null) 1 else 0} from=$from")
+                MainThread.post { if (asking == key) { ofKey = key; picture = img; asking = ""; MusicPlayer.landed() } }
+            }.start()
+        }
+        return null
+    }
+
+    /** The app's icon, drawn down once (iOS MTMusicArt.thumb): what a plate shows where the track has no cover. */
+    fun icon(c: Context): android.graphics.Bitmap = icon ?: res(c).also { icon = it }
+    /** The icon for the lock screen, cut by its own shape with its corners clear (iOS MTMusicArt.lockIcon). */
+    fun lockIcon(c: Context): android.graphics.Bitmap = lock ?: icon(c).let { src ->
+        val out = android.graphics.Bitmap.createBitmap(src.width, src.height, android.graphics.Bitmap.Config.ARGB_8888)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        val cv = android.graphics.Canvas(out)
+        val r = src.width * ICON_CORNER
+        cv.drawRoundRect(0f, 0f, src.width.toFloat(), src.height.toFloat(), r, r, p)
+        p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC_IN)
+        cv.drawBitmap(src, 0f, 0f, p)
+        out
+    }.also { lock = it }
+
+    private fun res(c: Context): android.graphics.Bitmap =
+        android.graphics.BitmapFactory.decodeResource(c.resources, R.drawable.music_icon_art)   // 512 px, iOS AppIconPicture (the coin, 678ff911) drawn down once
+    /** Bytes up to the cap, else nothing. */
+    private fun read(s: java.io.InputStream): ByteArray? {
+        val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(65536)
+        while (true) { val n = s.read(buf); if (n < 0) break; out.write(buf, 0, n); if (out.size() > CAP) return null }
+        return out.toByteArray()
+    }
+    /** Drawn down to the side by the platform's own sampling, never decoded whole. */
+    private fun decode(d: ByteArray): android.graphics.Bitmap? = runCatching {
+        val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeByteArray(d, 0, d.size, o)
+        if (o.outWidth <= 0 || o.outHeight <= 0) return null
+        var k = 1
+        while (maxOf(o.outWidth, o.outHeight) / (k * 2) >= SIDE) k *= 2
+        val b = android.graphics.BitmapFactory.decodeByteArray(d, 0, d.size, android.graphics.BitmapFactory.Options().apply { inSampleSize = k }) ?: return null
+        val m = maxOf(b.width, b.height)
+        if (m <= SIDE) b else android.graphics.Bitmap.createScaledBitmap(b, maxOf(1, b.width * SIDE / m), maxOf(1, b.height * SIDE / m), true)
+    }.getOrNull()
 }
 
 // ─────────────────────────── the one player (iOS VoicePlayer for the music) ───────────────────────────
@@ -178,7 +276,10 @@ object MusicPlayer {
         app?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(f)
     }
 
-    fun play(c: Context, list: List<Track>, i: Int) {
+    /** Where the queue plays from, as its page heads it (iOS MTQueuePage.from): the one chat's name, the walls, the folders. */
+    var from = ""; private set
+
+    fun play(c: Context, list: List<Track>, i: Int, from: String? = null) {
         if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
         YouTube.rest()   // one sound: YouTube rests where it stands (iOS MontanaMedia 381)
         val a = c.applicationContext
@@ -189,6 +290,7 @@ object MusicPlayer {
             refused?.invoke(R.string.track_folder_closed)
             return
         }
+        from?.let { this.from = it }
         // THE TRACK IN HAND KEEPS ITS MOMENT BEFORE THE NEXT ONE TAKES THE PLAYER (iOS VoicePlayer.toggle:386 at 2155,
         // MTPlayPlaces.keep, the author's word 26.09).
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
@@ -209,8 +311,7 @@ object MusicPlayer {
                 // A PAUSE IN THE TRACK'S LAST MOMENT STAYS A PAUSE: the platform still reports the end, and the next track started over
                 // the very sound that took ours (seen on A1 under a ringing timer). The next one waits for the resume.
                 if (!playing) { endedInPause = true; return@setOnCompletionListener }
-                val nx = sounding(a, index + 1, 1)
-                if (nx != null) play(a, queue, nx) else { playing = false; seek(0.0); changed() }
+                finished(a)
             }
             setOnErrorListener { p, what, extra ->
                 if (mp !== p) return@setOnErrorListener true
@@ -246,8 +347,72 @@ object MusicPlayer {
         p.start(); playing = true; tick(); changed()
     }
     fun seek(f: Double) { val p = mp?.takeIf { prepared } ?: return; p.seekTo((f * p.duration).toInt()); changed() }
-    /** Forward turns the page even on the last track — the first follows (iOS next). */
-    fun next() { val a = app ?: return; if (queue.isEmpty()) return; play(a, queue, sounding(a, index + 1, 1) ?: sounding(a, 0, 1) ?: 0) }
+    /** Forward turns the page even on the last track — the first follows; under the shuffle any other track (iOS next). */
+    fun next() { val a = app ?: return; if (queue.isEmpty()) return; play(a, queue, nextIndex(a) ?: 0) }
+
+    /** THE REPEAT'S ROUND (iOS VoicePlayer.turnRepeat, MontanaMedia.swift:315-324 at 2310, the author's word 01.10 00:42: «the
+     *  repeat repeats the chosen track in a circle, a second tap repeats the playlist, a third takes it all off»). */
+    var repeatOn = false; private set
+    var repeatAll = false; private set
+    fun turnRepeat() {
+        if (repeatOn) { repeatOn = false; repeatAll = true } else if (repeatAll) repeatAll = false else repeatOn = true
+        android.util.Log.d("Montana", "music repeat " + if (repeatOn) "track" else if (repeatAll) "playlist" else "off")
+        said()
+    }
+    var shuffleOn = false
+        set(v) { field = v; android.util.Log.d("Montana", "music shuffle=" + if (v) 1 else 0); said() }
+    /** The next track, past the tracks of a folder that did not open (iOS nextIndex at 6e2b29ca, the author's word 17210). */
+    private fun nextIndex(a: Context): Int? {
+        if (queue.isEmpty()) return null
+        if (shuffleOn) { val held = MusicFolders.held(a); return queue.indices.filter { it != index && !MusicFolders.closed(queue[it], held) }.randomOrNull() }
+        return sounding(a, index + 1, 1)
+    }
+    /** The track ran to its end (iOS VoicePlayer.finished, MontanaMedia.swift:627-632 at 2310): the track again, else the next,
+     *  else the playlist from its first track again, else it rests at its start. */
+    private fun finished(a: Context) {
+        if (repeatOn) {
+            // THE TRACK AGAIN PLAYS AGAIN (iOS start(index:) 686-696): the ended track is started over, never left waiting
+            mp?.takeIf { prepared }?.let { it.seekTo(0); it.start(); playing = true; tick() }
+            android.util.Log.d("Montana", "music_again i=${index + 1} repeat=track")
+            changed(); return
+        }
+        nextIndex(a)?.let { play(a, queue, it); return }
+        if (repeatAll && queue.isNotEmpty()) { play(a, queue, 0); return }
+        playing = false; seek(0.0); changed()
+    }
+    /** A track leaves the queue (iOS VoicePlayer.dropFromQueue, MontanaMedia.swift:706-717 at 2311): the ones after it step up; the
+     *  one that plays leaving, the turn goes on from the place it stood, and an empty queue stops. */
+    fun dropFromQueue(file: String) {
+        val i = queue.indexOfFirst { it.file == file }.takeIf { it != -1 } ?: return
+        val was = i == index
+        queue = queue.toMutableList().apply { removeAt(i) }
+        android.util.Log.d("Montana", "music_queue out i=${i + 1} n=${queue.size} playing=${if (was) 1 else 0}")
+        if (i < index) { index -= 1; said(); return }
+        if (!was) { said(); return }
+        if (queue.isEmpty()) { stop(); return }
+        index = i - 1   // the turn goes on from the place the track stood
+        next()
+    }
+    /** A track moved by hand (iOS moveInQueue 722-728): the one that plays keeps playing, its place followed by its file. */
+    fun moveInQueue(from: Int, to: Int) {
+        if (from !in queue.indices || to !in queue.indices || from == to) return
+        val playing = current?.file
+        queue = queue.toMutableList().apply { add(to, removeAt(from)) }
+        playing?.let { f -> index = queue.indexOfFirst { it.file == f } }
+        android.util.Log.d("Montana", "music_queue moved n=${queue.size} playing_at=${index + 1}")
+        said()
+    }
+    /** THE QUEUE TURNED OVER (iOS reverseQueue 733-740, the author's word 18.10.2026 10:3x UTC): a second turn gives the order back. */
+    fun reverseQueue() {
+        if (queue.size < 2) return
+        val playing = current?.file
+        queue = queue.reversed()
+        playing?.let { f -> index = queue.indexOfFirst { it.file == f } }
+        android.util.Log.d("Montana", "music_queue reversed n=${queue.size} playing_at=${index + 1}")
+        said()
+    }
+    /** The playing track's picture landed (TrackArt): the plate and the lock screen take it at once. */
+    fun landed() = changed()
     /** Back: past three seconds the track starts over, before them the one above plays (iOS prev). */
     fun prev() {
         val a = app ?: return
@@ -266,8 +431,39 @@ object MusicPlayer {
     val duration: Double get() = mp?.takeIf { prepared }?.duration?.div(1000.0) ?: (current?.length ?: 0.0)
     val positionMs: Long get() = mp?.takeIf { prepared }?.currentPosition?.toLong() ?: 0L
 
+    /**
+     * THE MUSIC'S LEVEL, once a frame for the cover's waves (iOS VoicePlayer.level, MTFileSound.level, MontanaMedia.swift:349, 926 at
+     * 2311): the platform's own meter on the player's sound (Visualizer in its peak-and-RMS mode), the RMS in decibels laid on 0…1
+     * over the last forty (iOS MTSoundEar.unit); silence while it rests. The meter stands only while the waves ask for it. Refused
+     * (the microphone's leave not given: the platform guards every meter with it), a steady middle stands in, so the long quiet of
+     * beats still lets a wave go every two seconds.
+     */
+    var metering = false
+        set(v) { field = v; if (!v) dropMeter() }
+    private var meter: android.media.audiofx.Visualizer? = null
+    private var meterOf = 0
+    private val heard = android.media.audiofx.Visualizer.MeasurementPeakRms()
+    fun level(): Float {
+        val p = mp?.takeIf { prepared && playing && metering } ?: return 0f
+        if (meterOf != p.audioSessionId) {
+            dropMeter()
+            meterOf = p.audioSessionId
+            meter = runCatching {
+                android.media.audiofx.Visualizer(p.audioSessionId).apply {
+                    measurementMode = android.media.audiofx.Visualizer.MEASUREMENT_MODE_PEAK_RMS; enabled = true
+                }
+            }.getOrNull()
+            android.util.Log.d("Montana", "cover_waves meter=" + if (meter != null) 1 else 0)
+        }
+        val m = meter ?: return 0.3f
+        if (runCatching { m.getMeasurementPeakRms(heard) }.getOrDefault(-1) != android.media.audiofx.Visualizer.SUCCESS) return 0f
+        return ((heard.mRms / 100f + 40f) / 40f).coerceIn(0f, 1f)
+    }
+    private fun dropMeter() { meter?.let { runCatching { it.enabled = false; it.release() } }; meter = null; meterOf = 0 }
+
     private fun release() {
         main.removeCallbacksAndMessages(null)
+        dropMeter()
         // a player still waiting on a track's piece (Streams) lets go off the main thread: its read may stand on the network a while
         mp?.let { old -> Thread { old.release() }.start() }
         mp = null; prepared = false; playing = false
@@ -383,6 +579,8 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val longPressRunnable = Runnable { longPressed = true; copyTitle() }
     private companion object { const val HOLD_MS = 220L }   // iOS montanaLongPress, MontanaNetFrames.swift:9 at 2155
+    /** THE MINI UNFOLDED WHERE IT STANDS (iOS MontanaPlayerBar.unfolded, MTPlayerHead): the bar's alone, a track's alone. */
+    val big: PlayerHead? = if (bar) PlayerHead(ctx) else null
 
     /**
      * A TAP ON THE NAME'S ROOM: A VOICE OR A NOTE GOES TO ITS BUBBLE (iOS MTMiniFace.open → onGoTo, MontanaMusicPlayer.swift:
@@ -459,6 +657,8 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
                         if (longPressed) longPressed = false
                         else if (held != null) onSeek(held)
                         else if (e.x > v.width - dp(64)) { if (Playing.kind == Playing.Kind.TRACK) { remaining = !remaining; live() } else Playing.nextRate() }
+                        // a tap on the name's room: the track unfolds the mini where it stands (iOS MontanaPlayerBar.open, 1307-1313)
+                        else if (Playing.kind == Playing.Kind.TRACK) PlayerUnfold.set(true)
                         else goToLetter()
                         true
                     }
@@ -467,6 +667,7 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
                 }
             }
         }
+        big?.let { it.visibility = View.GONE; addView(it, LayoutParams(MATCH, WRAP)) }
     }
 
     /** The title shown now, unless the copied word still stands in its room (iOS MTCopiedWord, 2 s, MTNameCopy.shown). */
@@ -508,6 +709,15 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     fun live() {
         val kind = Playing.kind ?: return
         val track = kind == Playing.Kind.TRACK
+        big?.let { head ->
+            // the unfolded plate stands in the bar's own place: the mini's own pieces step aside while it stands
+            val open = track && PlayerUnfold.open
+            if (open != (head.visibility == View.VISIBLE)) {
+                for (i in 0 until childCount) getChildAt(i).visibility = if ((getChildAt(i) === head) == open) View.VISIBLE else View.GONE
+                if (open) setPadding(0, 0, 0, 0) else setPadding(dp(12), dp(4), dp(12), dp(4))
+            }
+            if (open) { head.update(); return }
+        }
         prevBtn?.visibility = if (track) View.VISIBLE else View.GONE
         nextBtn?.visibility = if (track) View.VISIBLE else View.GONE
         val sounding = when (kind) {
@@ -568,6 +778,324 @@ fun liveBar(act: MainActivity): MiniFace = miniBar(act).apply {
     })
 }
 
+/** WHETHER THE MINI STANDS UNFOLDED (iOS MTPlayerUnfold, the author's word 01.10 00:13): one fact for the bar of every page, so
+ *  the bar on the next page stands as the person left it. */
+object PlayerUnfold {
+    var open = false; private set
+    fun set(on: Boolean) {
+        if (on == open) return
+        open = on
+        android.util.Log.d("Montana", "music mini " + if (on) "unfolds" else "folds")
+        Playing.changed()
+    }
+}
+
+/**
+ * THE MINI UNFOLDED (iOS MTPlayerHead, MontanaMusicPlayer.swift:439-678 at 2310; the author's word 01.10 00:13: «a tap on the mini
+ * player unfolds it as on the screenshot, the same buttons one to one, on any page where the mini player stands; a second tap on the
+ * name folds it back»): the lock screen's plate -- the cover, the name running over the artist its tags name, the sound's wave while
+ * it plays; the time's line with the elapsed and the remaining at its ends; the track before, the play and the track after, the
+ * playlist's place at the left and the sound's way at the right -- then the system's volume as a thin line, and under it the round
+ * glass buttons: the repeat, the shuffle, the search, the share. A tap on the cover raises it over the plate in a third of the screen
+ * (MTCoverStage); a tap there folds it back. The whole frame is the player's: a tap in the air between the plates falls through to
+ * no row under it.
+ */
+class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
+    var onSearch: () -> Unit = {}
+    var onPlace: () -> Unit = {}
+    /** The place mark opens the queue's own page (iOS placeMark → MTQueuePage.present). */
+    var onQueue: () -> Unit = {}
+    private val stage = FrameLayout(ctx).apply { visibility = View.GONE }
+    private val stageArt = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER; clipToOutline = true }
+    /** The icon on the stage sends out its waves (iOS MTCoverWaves): only while it stands there for want of a cover. */
+    private val waves = CoverWaves(stageArt)
+    private val cover = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; clipToOutline = true }
+    private var coverCorner = 0f
+    private val title = ctx.text("", 17f, bold = true).apply {
+        isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.MARQUEE; marqueeRepeatLimit = -1; isSelected = true
+        isHorizontalFadingEdgeEnabled = true
+    }
+    private val byline = ctx.text("", 17f, MT.gray).apply { isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.END }
+    private val wave = ctx.icon(R.drawable.ic_waveform, MT.gray, 17)
+    private var waving: android.animation.ObjectAnimator? = null
+    private val elapsed = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
+    private val remain = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
+    private val line = FrameLayout(ctx)
+    private val lineFill = View(ctx).apply { background = ctx.rounded(Color.argb(184, 255, 255, 255), 4) }
+    private var scrub: Double? = null
+    private val playGlyph = ctx.icon(R.drawable.ic_play_fill, Color.WHITE, 36)
+    private val placeNumber = ctx.text("", 13f, MT.gray, bold = true).apply { fontFeatureSettings = "tnum" }
+    private val way = ctx.icon(R.drawable.ic_route_phone, MT.blue, 19)
+    private val volume = android.widget.SeekBar(ctx)
+    private val audio = ctx.getSystemService(AudioManager::class.java)
+    private val repeatGlyph = ctx.icon(R.drawable.ic_repeat, Color.WHITE, 16)
+    private val shuffleGlyph = ctx.icon(R.drawable.ic_shuffle, Color.WHITE, 16)
+    private var shownKey = ""
+    private var shownArt: android.graphics.Bitmap? = null
+    private var copiedUntil = 0L
+    private var saidUntil = 0L
+    private val main = Handler(Looper.getMainLooper())
+    private companion object { const val EDGE = 15; const val GAP = 8 }   // iOS MTPlayerHead.edge/gap, off the author's screenshots
+
+    init {
+        orientation = VERTICAL
+        setPadding(dp(EDGE), dp(GAP), dp(EDGE), dp(GAP))
+        isClickable = true   // the air between the plates is the player's (iOS: player air tap -- kept off the page)
+        stage.addView(stageArt, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
+        stage.pressable { toggleCover() }
+        stage.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { if (stage.visibility == View.VISIBLE && shownArt == null) waves.start() }
+            override fun onViewDetachedFromWindow(v: View) { waves.stop() }
+        })
+        addView(stage, LayoutParams(MATCH, ctx.resources.displayMetrics.heightPixels / 3).apply { bottomMargin = dp(GAP * 2) })
+        addView(plate(), LayoutParams(MATCH, WRAP))
+        addView(volumeLine(), LayoutParams(MATCH, dp(44)).apply { topMargin = dp(GAP) })
+        addView(buttons(), LayoutParams(MATCH, dp(44)).apply { topMargin = dp(GAP) })
+    }
+
+    /** The lock screen's one plate (iOS nowPlaying 509-548), glass of corner 26. */
+    private fun plate() = LinearLayout(ctx).apply {
+        orientation = VERTICAL
+        background = ctx.glassPlate().apply { cornerRadius = dp(26).toFloat() }
+        setPadding(dp(14), dp(14), dp(14), dp(8))
+        val top = LinearLayout(ctx).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        cover.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, coverCorner)
+        }
+        cover.pressable { toggleCover() }
+        top.addView(cover, LayoutParams(dp(57), dp(57)))
+        val names = LinearLayout(ctx).apply {
+            orientation = VERTICAL
+            addView(title, LayoutParams(MATCH, dp(22)))
+            addView(byline, LayoutParams(MATCH, WRAP).apply { topMargin = dp(1) })
+            // the name folds the plate back into the mini; a hold copies it (iOS onTitle, MTNameCopy at the bubble's threshold)
+            setOnClickListener { PlayerUnfold.set(false) }
+            setOnLongClickListener { copyTitle(); true }
+        }
+        top.addView(names, LayoutParams(0, WRAP, 1f).apply { marginStart = dp(12); marginEnd = dp(12) })
+        top.addView(wave, LayoutParams(dp(17), dp(17)))
+        addView(top, LayoutParams(MATCH, WRAP))
+        addView(clockLine(), LayoutParams(MATCH, WRAP).apply { topMargin = dp(12) })
+        addView(controls(), LayoutParams(MATCH, dp(60)).apply { topMargin = dp(4) })
+    }
+
+    /** The time's line (iOS MTPlayerClockLine): the elapsed, the line of 7 the finger holds while it moves, the remaining. */
+    private fun clockLine() = LinearLayout(ctx).apply {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        addView(elapsed, LayoutParams(WRAP, WRAP))
+        line.addView(View(ctx).apply { background = ctx.rounded(Color.argb(51, 255, 255, 255), 4) }, FrameLayout.LayoutParams(MATCH, dp(7), Gravity.CENTER_VERTICAL))
+        line.addView(lineFill, FrameLayout.LayoutParams(0, dp(7), Gravity.CENTER_VERTICAL))
+        line.setOnTouchListener { v, e ->
+            val f = (e.x / v.width).toDouble().coerceIn(0.0, 1.0)
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { v.parent.requestDisallowInterceptTouchEvent(true); scrub = f; clock(f); true }
+                MotionEvent.ACTION_MOVE -> { scrub = f; clock(f); true }
+                MotionEvent.ACTION_UP -> { scrub = null; MusicPlayer.seek(f); true }
+                MotionEvent.ACTION_CANCEL -> { scrub = null; true }
+                else -> false
+            }
+        }
+        addView(line, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(10); marginEnd = dp(10) })
+        addView(remain, LayoutParams(WRAP, WRAP))
+    }
+
+    /** The lock screen's three at the plate's middle, the playlist's place at its left, the sound's way at its right (iOS controls). */
+    private fun controls() = FrameLayout(ctx).apply {
+        val three = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL; gravity = Gravity.CENTER
+            fun control(v: View, side: Int, act: () -> Unit) = FrameLayout(ctx).apply {
+                addView(v, FrameLayout.LayoutParams(dp(side), dp(side), Gravity.CENTER)); pressable(act)
+            }
+            addView(control(ctx.icon(R.drawable.ic_skip_prev, Color.WHITE), 28) { MusicPlayer.prev() }, LayoutParams(dp(52), dp(52)))
+            addView(control(playGlyph, 36) { MusicPlayer.toggle() }, LayoutParams(dp(52), dp(52)).apply { marginStart = dp(30); marginEnd = dp(30) })
+            addView(control(ctx.icon(R.drawable.ic_skip_next, Color.WHITE), 28) { MusicPlayer.next() }, LayoutParams(dp(52), dp(52)))
+        }
+        addView(three, FrameLayout.LayoutParams(WRAP, MATCH, Gravity.CENTER))
+        // THE PLAYLIST THAT PLAYS, LEFT OF «BACK» (iOS placeMark 571-590): the glyph and the track's place in the queue
+        val place = LinearLayout(ctx).apply {
+            orientation = HORIZONTAL; gravity = Gravity.CENTER
+            addView(ctx.icon(R.drawable.ic_list_number, MT.gray, 15), LayoutParams(dp(15), dp(15)))
+            addView(placeNumber, LayoutParams(WRAP, WRAP).apply { marginStart = dp(3) })
+            contentDescription = ctx.getString(R.string.current_playlist)
+            minimumWidth = dp(44)
+            pressable { onQueue() }
+        }
+        addView(place, FrameLayout.LayoutParams(WRAP, dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
+        // THE SOUND'S WAY (iOS MTSoundWayMark): where the sound goes, in the system's blue; a tap opens the system's own output
+        // switcher (Android 14: MediaRouter2.showSystemOutputSwitcher -- the platform's picker, as iOS hands AirPlay's)
+        val wayRoom = FrameLayout(ctx).apply {
+            addView(way, FrameLayout.LayoutParams(dp(19), dp(19), Gravity.CENTER))
+            pressable {
+                if (android.os.Build.VERSION.SDK_INT >= 34) runCatching { android.media.MediaRouter2.getInstance(ctx).showSystemOutputSwitcher() }
+                android.util.Log.d("Montana", "music player way")
+            }
+        }
+        addView(wayRoom, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.END))
+    }
+
+    /** THE SOUND'S LINE (iOS MTVolumeLine, the author's word 16.10.2026): the system's own music volume as a thin line between the
+     *  quiet and the loud speaker, no plate; set without the system's volume panel, so nothing covers the player. */
+    private fun volumeLine() = LinearLayout(ctx).apply {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(14), 0, dp(14), 0)
+        addView(ctx.icon(R.drawable.ic_speaker_fill, MT.gray, 12), LayoutParams(dp(12), dp(12)))
+        volume.max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+        volume.progressTintList = android.content.res.ColorStateList.valueOf(Color.argb(184, 255, 255, 255))
+        volume.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.argb(51, 255, 255, 255))
+        volume.thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
+        volume.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: android.widget.SeekBar, v: Int, user: Boolean) { if (user) audio.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0) }
+            override fun onStartTrackingTouch(s: android.widget.SeekBar) { s.parent.requestDisallowInterceptTouchEvent(true) }
+            override fun onStopTrackingTouch(s: android.widget.SeekBar) {}
+        })
+        addView(volume, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+        addView(ctx.icon(R.drawable.ic_speaker_wave3, MT.gray, 12), LayoutParams(dp(12), dp(12)))
+    }
+
+    /** THE ROUND BUTTONS UNDER THE PLATE (iOS head 599-627): the repeat and the shuffle lit in the platform's blue while on, the
+     *  search, the share -- the same space between every two and at both ends. (iOS's source filter has no other source here:
+     *  the Android music is the lent folders alone.) */
+    private fun buttons() = LinearLayout(ctx).apply {
+        orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+        fun round(glyph: View, act: () -> Unit) = FrameLayout(ctx).apply {
+            background = ctx.glassPlate(oval = true)
+            addView(glyph, FrameLayout.LayoutParams(dp(16), dp(16), Gravity.CENTER))
+            pressable(act)
+        }
+        fun space() = addView(View(ctx), LayoutParams(0, 1, 1f))
+        space()
+        addView(round(repeatGlyph) {
+            MusicPlayer.turnRepeat()
+            say(if (MusicPlayer.repeatOn) R.string.repeat_track else if (MusicPlayer.repeatAll) R.string.repeat_playlist else R.string.repeat_off,
+                if (MusicPlayer.repeatOn) R.drawable.ic_repeat_one else R.drawable.ic_repeat)
+        }, LayoutParams(dp(44), dp(44)))
+        space()
+        addView(round(shuffleGlyph) {
+            MusicPlayer.shuffleOn = !MusicPlayer.shuffleOn
+            say(if (MusicPlayer.shuffleOn) R.string.shuffle_on else R.string.shuffle_off, R.drawable.ic_shuffle)
+        }, LayoutParams(dp(44), dp(44)))
+        space()
+        addView(round(ctx.icon(R.drawable.ic_search, Color.WHITE, 16)) { onSearch() }, LayoutParams(dp(44), dp(44)))
+        space()
+        addView(round(ctx.icon(R.drawable.ic_share, Color.WHITE, 16)) { share() }.apply { contentDescription = ctx.getString(R.string.share) }, LayoutParams(dp(44), dp(44)))
+        space()
+    }
+
+    /** «SHARE» HANDS THE FILE (iOS MontanaPlayerBar.share): the lent track's own document, by the platform's own sheet. */
+    private fun share() {
+        val t = MusicPlayer.current ?: return
+        android.util.Log.d("Montana", "music player share")
+        val send = Intent(Intent.ACTION_SEND).setType(ctx.contentResolver.getType(t.uri) ?: "audio/*")
+            .putExtra(Intent.EXTRA_STREAM, t.uri).putExtra(Intent.EXTRA_TITLE, t.title)   // USER-DATA: the track's own name
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = android.content.ClipData.newRawUri(t.title, t.uri)
+        runCatching { ctx.startActivity(Intent.createChooser(send, null)) }
+    }
+
+    /** THE STATE SAID UNDER THE NAME (iOS say 628-636): the glyph and the catalogue's word in the platform's blue, gone after two seconds. */
+    private fun say(word: Int, glyph: Int) {
+        val d = ctx.getDrawable(glyph)?.mutate()?.apply { setTint(MT.blue); val k = dp(15); setBounds(0, 0, k, k) }
+        byline.setCompoundDrawablesRelative(d, null, null, null); byline.compoundDrawablePadding = dp(5)
+        byline.setTextColor(MT.blue); byline.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 15f)
+        byline.typeface = android.graphics.Typeface.DEFAULT_BOLD
+        byline.text = ctx.getString(word); byline.visibility = View.VISIBLE
+        saidUntil = System.currentTimeMillis() + 2000
+        main.postDelayed({ if (saidUntil <= System.currentTimeMillis()) update() }, 2000)
+    }
+
+    /** The hold copies the name (iOS MTNameCopy): the clipboard, the platform's confirm, «Copied» for two seconds. */
+    private fun copyTitle() {
+        val name = MusicPlayer.current?.title ?: return
+        ctx.getSystemService(android.content.ClipboardManager::class.java)?.setPrimaryClip(android.content.ClipData.newPlainText("", name))
+        performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS)
+        android.util.Log.d("Montana", "music player title copied")
+        title.text = ctx.getString(R.string.copied)
+        copiedUntil = System.currentTimeMillis() + 2000
+        main.postDelayed({ if (copiedUntil <= System.currentTimeMillis()) update() }, 2000)
+    }
+
+    /** The cover rises over the plate in a third of the screen, and folds back at a tap (iOS toggleCover, MTCoverStage). */
+    private fun toggleCover() {
+        val opens = stage.visibility != View.VISIBLE
+        android.util.Log.d("Montana", "cover_look " + if (opens) "rises own=" + (if (shownArt == null) 0 else 1) else "folds")
+        if (opens) {
+            stage.visibility = View.VISIBLE
+            stage.pivotX = 0f; stage.pivotY = stage.layoutParams.height.toFloat()
+            stage.alpha = 0f; stage.scaleX = 0.15f; stage.scaleY = 0.15f
+            stage.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(360).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+            stageShows()
+        } else { waves.stop(); stage.animate().alpha(0f).scaleX(0.15f).scaleY(0.15f).setDuration(260).withEndAction { stage.visibility = View.GONE }.start() }
+    }
+    /** The stage: the track's own cover whole with a corner of 14, else the app's icon in its own shape, a little under half the stage. */
+    private fun stageShows() {
+        val h = stage.layoutParams.height
+        val own = shownArt
+        val side = if (own != null) h else (h * 0.45f).toInt()
+        stageArt.setImageBitmap(own ?: TrackArt.icon(ctx))
+        val r = if (own != null) dp(14).toFloat() else side * TrackArt.ICON_CORNER
+        stageArt.outlineProvider = object : android.view.ViewOutlineProvider() {
+            override fun getOutline(v: View, o: android.graphics.Outline) {
+                // the picture's own drawn rect inside the square (FIT_CENTER), rounded
+                val d = (v as android.widget.ImageView).drawable ?: return o.setRoundRect(0, 0, v.width, v.height, r)
+                val k = minOf(v.width.toFloat() / d.intrinsicWidth, v.height.toFloat() / d.intrinsicHeight)
+                val w = (d.intrinsicWidth * k).toInt(); val hh = (d.intrinsicHeight * k).toInt()
+                o.setRoundRect((v.width - w) / 2, (v.height - hh) / 2, (v.width + w) / 2, (v.height + hh) / 2, r)
+            }
+        }
+        stageArt.layoutParams = (stageArt.layoutParams as FrameLayout.LayoutParams).apply { width = side; height = side }
+        stageArt.invalidateOutline()
+        if (own == null) waves.start() else waves.stop()
+    }
+
+    private fun clock(f: Double) {
+        val d = MusicPlayer.duration
+        elapsed.text = fmtDuration(d * f)   // USER-DATA: the elapsed time, digits
+        remain.text = "-" + fmtDuration(maxOf(0.0, d - d * f))   // USER-DATA: the remaining time, digits
+        val lp = lineFill.layoutParams as FrameLayout.LayoutParams
+        val w = (line.width * f).toInt()
+        if (lp.width != w) { lp.width = w; lineFill.layoutParams = lp }
+    }
+
+    /** The player's word (every change and every tick): the face redrawn from MusicPlayer. */
+    fun update() {
+        val t = MusicPlayer.current ?: return
+        val now = System.currentTimeMillis()
+        val key = t.uri.toString()
+        val art = TrackArt.of(ctx, t)
+        if (key != shownKey || art !== shownArt) {
+            shownKey = key; shownArt = art
+            cover.setImageBitmap(art ?: TrackArt.icon(ctx))
+            coverCorner = if (art != null) dp(10).toFloat() else dp(57) * TrackArt.ICON_CORNER
+            cover.invalidateOutline()
+            if (stage.visibility == View.VISIBLE) stageShows()
+        }
+        if (now >= copiedUntil && title.text.toString() != t.title) title.text = t.title   // USER-DATA: the track's own name
+        if (now >= saidUntil) {
+            byline.setCompoundDrawablesRelative(null, null, null, null)
+            byline.setTextColor(MT.gray); byline.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 17f); byline.typeface = android.graphics.Typeface.DEFAULT
+            val by = t.artist.orEmpty()   // USER-DATA: the artist the file's own tags name -- never where the track lies
+            if (byline.text.toString() != by) byline.text = by
+            byline.visibility = if (by.isEmpty()) View.GONE else View.VISIBLE
+        }
+        playGlyph.setImageResource(if (MusicPlayer.playing) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        if (MusicPlayer.playing) waves.wake()
+        // the sound's wave breathes while it plays (iOS symbolEffect .variableColor.iterative)
+        if (MusicPlayer.playing && waving == null) waving = android.animation.ObjectAnimator.ofFloat(wave, View.ALPHA, 1f, 0.35f).apply {
+            duration = 700; repeatMode = android.animation.ValueAnimator.REVERSE; repeatCount = android.animation.ValueAnimator.INFINITE; start()
+        } else if (!MusicPlayer.playing && waving != null) { waving?.cancel(); waving = null; wave.alpha = 1f }
+        if (scrub == null) clock(MusicPlayer.fraction)
+        placeNumber.text = if (MusicPlayer.index >= 0) (MusicPlayer.index + 1).toString() else ""   // USER-DATA: the track's place, digits
+        repeatGlyph.setImageResource(if (MusicPlayer.repeatOn) R.drawable.ic_repeat_one else R.drawable.ic_repeat)
+        repeatGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicPlayer.repeatOn || MusicPlayer.repeatAll) MT.blue else Color.WHITE)
+        shuffleGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicPlayer.shuffleOn) MT.blue else Color.WHITE)
+        if (!volume.isPressed) volume.progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        val out = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in setOf(
+            android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
+            android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_USB_HEADSET) }
+        way.setImageResource(if (out) R.drawable.ic_route_headphones else R.drawable.ic_route_phone)
+    }
+}
+
 // ─────────────────────────── the music page (iOS MusicTabView) ───────────────────────────
 
 /**
@@ -583,6 +1111,7 @@ class MusicPage(private val act: MainActivity) {
     private val spinner = ProgressBar(act).apply { indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.rgb(204, 204, 204)); visibility = View.GONE }
     private val plusGlyph = act.icon(R.drawable.ic_plus, Color.rgb(204, 204, 204))
     private val faces = HashMap<String, MiniFace>()
+    private val scroll = ScrollView(act)
     private var lastRing: String? = null
     private var lastPlaying = false
     /** The word at the page's head (iOS MusicTab.query): the rows are narrowed to it, see shown(). */
@@ -590,7 +1119,8 @@ class MusicPage(private val act: MainActivity) {
         set(v) { if (v != field) { field = v; fill() } }
 
     init {
-        view.addView(ScrollView(act).apply { addView(rows) }, FrameLayout.LayoutParams(MATCH, MATCH))
+        scroll.addView(rows)
+        view.addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
         view.addView(empty, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         plus.background = act.glassPlate(oval = true)
         plus.addView(plusGlyph, FrameLayout.LayoutParams(act.dp(28), act.dp(28), Gravity.CENTER))
@@ -645,10 +1175,22 @@ class MusicPage(private val act: MainActivity) {
             val cur = MusicPlayer.current?.uri == t.uri
             face.still(t, cur, cur && MusicPlayer.playing)
             face.setOnClickListener {
-                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i)   // the queue is the list as it stands
+                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i, act.getString(R.string.cf_folders))   // the queue is the list as it stands
             }
             face.play.setOnClickListener { face.performClick() }
             rows.addView(face, LinearLayout.LayoutParams(MATCH, WRAP))
+        }
+    }
+
+    /** THE TRACK'S PLACE, ASKED OF THE PAGE (iOS MTMusicFocus, the author's word 01.10 00:44: «the track's number opens the page
+     *  where it plays and centres the visible area on that track, so that it stands at the middle of the screen between the player
+     *  and the screen's top»): `above` is the player's top on the page. */
+    fun focus(t: Track, above: Int) {
+        android.util.Log.d("Montana", "music place asked")
+        scroll.post {
+            val face = faces[t.uri.toString()]?.takeIf { it.parent === rows } ?: return@post
+            val middle = (scroll.paddingTop + above) / 2
+            scroll.smoothScrollTo(0, (face.top + face.height / 2 - middle).coerceAtLeast(0))
         }
     }
 

@@ -279,7 +279,10 @@
     <string name="pi_reported_letter">Письмо, на которое жалоба</string>
     <string name="pi_block_too">Также заблокировать этого человека</string>
     <string name="pi_send_report">Отправить жалобу</string>
-    <string name="pi_reports_go">Жалобы уходят на %1$s и рассматриваются в течение 24 часов.</string>
+    <string name="pi_reports_reach">Жалобы доходят до Montana и рассматриваются в течение 24 часов.</string>
+    <string name="pi_report_sent">Жалоба отправлена</string>
+    <string name="pi_report_reached">Ваша жалоба дошла до Montana. Её рассмотрят в течение 24 часов.</string>
+    <string name="no_mail_report">На этом телефоне нет почтового аккаунта. Жалоба и наш адрес скопированы — вставьте их в любую почту.</string>
     <string name="pi_write_wall">Написать на стене</string>
     <string name="wall_draft">Черновик</string>   <!-- iOS MTBoardDraftCell «Draft» -->
     <string name="pi_voice_message">Голосовое сообщение</string>
@@ -762,4 +765,18 @@
     <string name="voice_text_refused">Разрешите микрофон в Настройках</string>
     <string name="voice_text_unsupported">Распознавание речи на устройстве недоступно для этого языка</string>
     <string name="voice_text_silent">Речь не распознана</string>
+    <!-- the unfolded player (iOS MTPlayerHead) -->
+    <string name="repeat_track">Повтор трека</string>
+    <string name="repeat_playlist">Повтор плейлиста</string>
+    <string name="repeat_off">Повтор выключен</string>
+    <string name="shuffle_on">Перемешивание включено</string>
+    <string name="shuffle_off">Перемешивание выключено</string>
+    <string name="current_playlist">Текущий плейлист</string>
+    <!-- the queue's page (iOS MTQueuePage) -->
+    <string name="queue_title">Сейчас играет</string>
+    <string name="queue_from">Играет из: %1$s</string>
+    <string name="queue_walls">Стены</string>
+    <string name="queue_show">Показать в плейлисте</string>
+    <string name="queue_reverse">Обратный порядок</string>
+    <string name="queue_reorder">Изменить порядок</string>
 </resources>

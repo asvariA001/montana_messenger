@@ -453,7 +453,7 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
             pane.relay(rows)
             wallCells.keepOnly(rows)
         } else if (msgs.isEmpty()) { pane.removeAllViews(); pane.addView(emptyPane(), lp()) }
-        else { pane.removeAllViews(); paneRows(act, tab, msgs.reversed(), pane, law) }   // newest on top
+        else { pane.removeAllViews(); paneRows(act, tab, msgs.reversed(), pane, law, Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.chats)) }   // newest on top
     }
 
     // the one player's turn redraws the music's glyphs, and only its turn: the clock's ticks change nothing here
@@ -718,7 +718,7 @@ private fun dayWord(c: Context, at: Long) = DayLabel.of(c, at)
  * the item law. Music and voices play through the one player, the pane's own in feed order as the queue whichever day the tap lands
  * in (iOS musicList, playVoice); the one playing wears the pause.
  */
-private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearLayout, law: ItemLaw) {
+private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearLayout, law: ItemLaw, from: String) {
     val c: Context = act
     val feed = msgs.reversed()   // the conversation's own order: a queue walks forward from the one tapped
     val days = msgs.groupBy { dayWord(c, it.at) }   // groupBy keeps the order of first appearance: newest day first
@@ -764,7 +764,7 @@ private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearL
                     // the one playing pauses and goes on; another starts the queue at itself
                     if (uri != null) {
                         if (MusicPlayer.current?.uri == uri) MusicPlayer.toggle()
-                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i) }
+                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i, from) }
                     }
                 }, lp().apply { bottomMargin = c.dp(8) })
             }
@@ -935,7 +935,9 @@ private fun safetyPage(act: MainActivity, ref: String, name: String, onClose: ()
 /** A report by mail to the network's address: the reason, «block this person too», the platform's own mail road. */
 // A post whose writer the wall never named is reported through its wall, and nobody is offered to be blocked for another's words
 // (iOS MontanaReportSheet(offersBlock:), MontanaBoardViews.swift:58-60 at 2155).
-fun reportPage(act: MainActivity, ref: String, name: String, offersBlock: Boolean = true, onClose: () -> Unit): View {
+// A letter or a post carries its name and words with the report (iOS MontanaReport(text:mid:)); a person or a group carries none.
+fun reportPage(act: MainActivity, ref: String, name: String, offersBlock: Boolean = true, mid: String = "", text: String = "",
+               onClose: () -> Unit): View {
     val c: Context = act
     val reasons = listOf("spam" to R.string.pi_spam, "abuse" to R.string.pi_abuse, "hate" to R.string.pi_hate,
         "illegal" to R.string.pi_illegal, "other" to R.string.pi_other)
@@ -962,24 +964,77 @@ fun reportPage(act: MainActivity, ref: String, name: String, offersBlock: Boolea
             addView(c.text(c.getString(R.string.pi_block_too), 16f), lp(0, WRAP, 1f))
             addView(Switch(c).apply { isChecked = true; setOnCheckedChangeListener { _, v -> blockToo = v } })
         })
-        section(null, c.getString(R.string.pi_reports_go, mail), c.text(c.getString(R.string.pi_send_report), 16f, Color.WHITE).apply {   // iOS .accentColor, white since the gold left (MontanaSafety.swift:204, 2155)
+        var sending = false   // the doors are being asked
+        section(null, c.getString(R.string.pi_reports_reach), c.text(c.getString(R.string.pi_send_report), 16f, Color.WHITE).apply {   // iOS .accentColor, white since the gold left (MontanaSafety.swift:204, 2155)
             setPadding(dp(16), dp(14), dp(16), dp(14))
-            pressable {
-                if (blockToo) PeerSafety.setBlocked(ref, true)
-                val text = "Report ($reason)\nReported: $name\n\nBuild: ${versionFooter(c)}"
+            val button = this
+            fun alert(words: Int, note: Int? = null) {
+                if (act.isFinishing || act.isDestroyed) return
+                AlertDialog.Builder(act).setTitle(words).apply { note?.let { setMessage(it) } }.setCancelable(false)
+                    .setPositiveButton(R.string.ok) { _, _ -> onClose() }.show()
+            }
+            // The mail road, when no door took the report (iOS sendByMail, MontanaSafety.swift 185-194 at 37f60ac1): the platform's
+            // mail, else the words copied with the address.
+            fun byMail() {
+                val words = reportWords(c, reason, ref, name, mid, text)
                 val send = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")).putExtra(Intent.EXTRA_EMAIL, arrayOf(mail))
-                    .putExtra(Intent.EXTRA_SUBJECT, "Montana report ($reason)").putExtra(Intent.EXTRA_TEXT, text)
-                val ok = runCatching { act.startActivity(send) }.isSuccess
-                if (!ok) {
-                    // no mail app: the report and the address are copied, to paste into any mail
-                    c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", "$mail\n\n$text"))
-                    Toast.makeText(c, mail, Toast.LENGTH_LONG).show()
-                }
-                onClose()
+                    .putExtra(Intent.EXTRA_SUBJECT, "Montana report ($reason)").putExtra(Intent.EXTRA_TEXT, words)
+                if (runCatching { act.startActivity(send) }.isSuccess) return onClose()
+                c.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("", "$mail\n\n$words"))
+                alert(R.string.no_mail_report)
+            }
+            pressable {
+                if (sending) return@pressable
+                android.util.Log.d("Montana", "report reason=$reason letter=" + (if (mid.isEmpty()) 0 else 1))
+                if (blockToo && offersBlock) PeerSafety.setBlocked(ref, true)
+                sending = true
+                button.text = c.getString(R.string.share_sending); button.setTextColor(MT.gray)
+                val body = reportBody(c, reason, ref, name, mid, text)
+                Thread {
+                    val code = reportPut(body)
+                    act.runOnUiThread {
+                        sending = false
+                        button.text = c.getString(R.string.pi_send_report); button.setTextColor(Color.WHITE)
+                        android.util.Log.d("Montana", "report node code=$code")
+                        if (code == 200) alert(R.string.pi_report_sent, R.string.pi_report_reached) else byMail()
+                    }
+                }.start()
             }
         })
     }
 }
+
+// THE REPORT GOES TO MONTANA'S NODE FIRST (iOS 37f60ac1, MontanaSafety.swift 176-184; the author's word 10.11.2026 «a report goes to
+// a node, not only by mail»): a phone with no mail account sent nothing before. Any door takes it and carries it to the reports machine
+// (/report-put, kept 30 days after the decision); the mail road stands in only when no door answers. Fields and bounds are the node's
+// (report_of): reason, reporter, reported, name 200, mid 128, text 8000, build 16.
+private fun reportBody(c: Context, reason: String, ref: String, name: String, mid: String, text: String): JSONObject =
+    JSONObject().put("reason", reason).put("reporter", MontanaSeed.twin ?: "").put("reported", ref)
+        .put("name", name.take(200)).put("mid", mid.take(128)).put("text", text.take(8000)).put("build", buildNumber(c).take(16))
+
+/** Every door the report's capability names, the elected first, one try each (iOS MTNodeWire.post over orderedBases, attempts = doors). */
+private fun reportPut(body: JSONObject): Int {
+    var last = -1
+    for (door in Signal.writeOrder("diag")) {   // the node's CAP_OF_PATH: /report-put rides with the diaries
+        val (code, _) = Wire.post(door, "/report-put", body, 10_000)
+        if (code == 200) { Signal.doorAnswered(door); return 200 }
+        last = code
+        if (code == -1) Signal.doorFailed(door, code)
+    }
+    return last
+}
+
+/** The report in words, for the mail road (iOS body_, MontanaSafety.swift 168-175). */
+private fun reportWords(c: Context, reason: String, ref: String, name: String, mid: String, text: String): String {
+    var s = "Report ($reason)\nReporter: ${MontanaSeed.twin ?: ""}\nReported: $ref"
+    if (name.isNotEmpty()) s += " ($name)"
+    if (mid.isNotEmpty()) s += "\nLetter: $mid"
+    if (text.isNotEmpty()) s += "\n\n---\n$text\n---"
+    return s + "\n\nBuild: " + buildNumber(c)
+}
+
+private fun buildNumber(c: Context): String =
+    runCatching { c.packageManager.getPackageInfo(c.packageName, 0).longVersionCode.toString() }.getOrDefault("")
 
 /**
  * THE EDIT PAGE (iOS MontanaPeerInfoScreen editor): the face with «Edit» under it — the system's picker, then the circle's

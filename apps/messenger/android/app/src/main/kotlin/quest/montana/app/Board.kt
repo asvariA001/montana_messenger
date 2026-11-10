@@ -1988,8 +1988,8 @@ fun wallPeoplePage(act: MainActivity, wall: String, id: String, likes: Boolean, 
 private fun reportPost(act: MainActivity, wall: String, p: JSONObject) {
     val w = Board.writer(wall, p)
     val name = p.optString("byName")
-    if (!w.isNullOrEmpty()) act.push { close -> reportPage(act, w, name, onClose = close) }
-    else act.push { close -> reportPage(act, wall, name, offersBlock = false, onClose = close) }
+    if (!w.isNullOrEmpty()) act.push { close -> reportPage(act, w, name, mid = p.optString("id"), text = p.optString("text"), onClose = close) }
+    else act.push { close -> reportPage(act, wall, name, offersBlock = false, mid = p.optString("id"), text = p.optString("text"), onClose = close) }
 }
 
 /** THE PAGE A POST STANDS ON (iOS MTBoardPlaylist and MTBoardShown.all, MontanaBoardViews.swift:799-801, 3016-3020 at 2155): the feed's
@@ -2445,7 +2445,7 @@ private fun playTrack(act: MainActivity, wall: String, p: JSONObject, i: Int, in
         val k = list.indexOfFirst { t -> t.uri.lastPathSegment == name }
         val queue = list
         Log.d("Montana", "music board queue n=" + queue.size + " at=" + (k + 1) + " in=" + (if (inFeed) "feed" else "wall"))
-        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k) }
+        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k, act.getString(R.string.queue_walls)) }
     }.start()
 }
 
