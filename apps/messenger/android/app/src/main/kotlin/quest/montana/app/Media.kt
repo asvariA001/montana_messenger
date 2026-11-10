@@ -321,14 +321,28 @@ object Media {
         // an album is asked of the group whole, before its first row (G.5): its own rows are not the slow mode's last letter
         if (Groups.isKey(ref)) picks.firstNotNullOfOrNull { p -> refusal(c, ref, p, if (p === picks.firstOrNull()) caption else "") }
             ?.let { Groups.tellRefusal(it); return }
-        // A FILE BETWEEN PICTURES ENDS THEIR PLATE (iOS MTStagedOrder.plates, 2312): pictures side by side fold, a file stands alone
+        // A FILE BETWEEN PICTURES ENDS THEIR PLATE (iOS MTStagedOrder.plates, 2312): pictures side by side fold, a file stands alone;
+        // a tray that holds a sticker folds nothing (a sticker never folds)
         val slots = arrayOfNulls<MediaGroup.Slot>(picks.size)
-        for (run in StagedOrder.plates(picks.map { it.kind == "doc" })) MediaGroup.slots(run.count()).forEachIndexed { j, s -> slots[run.first + j] = s }
+        if (picks.none { isSticker(it) })
+            for (run in StagedOrder.plates(picks.map { it.kind == "doc" })) MediaGroup.slots(run.count()).forEachIndexed { j, s -> slots[run.first + j] = s }
         // THE TRAY LEAVES IN ITS ORDER, ONE AFTER ANOTHER (iOS MTSendLine, 2312, the author's word 25.10.2026 17:40 UTC): every row is
         // laid now, in the tray's order; the network work of each waits in the conversation's one line, so no file overtakes an earlier one
-        picks.forEachIndexed { i, p -> send(c, ref, p, if (i == 0) caption else "", group = slots[i], gate = false, turn = "${i + 1}/${picks.size}") }
-        Log.i("Montana", "tray_send n=${picks.size} files=${picks.count { it.kind == "doc" }} plates=${slots.filterNotNull().map { it.key }.toSet().size}")
+        picks.forEachIndexed { i, p ->
+            val cap = if (i == 0) caption else ""
+            val turn = "${i + 1}/${picks.size}"
+            if (!isSticker(p)) { send(c, ref, p, cap, group = slots[i], gate = false, turn = turn); return@forEachIndexed }
+            // A STICKER THAT LEAVES JOINS MY SET (iOS sendPasted → MontanaStickerBook.adopt, 3474-3484): the bytes copied into the
+            // set, never linked; the letter is named first, so its passport rides under the same name, as a sticker of the panel's
+            Stickers.add(c, p.bytes, p.ext)
+            val mid = Marks.mintMid()
+            send(c, ref, p, cap, gate = false, turn = turn, named = mid)
+            if (Book.chat(ref)?.msgs?.any { it.mid == mid } == true) StickerWire.sendPassport(ref, mid, p.bytes)
+        }
+        Log.i("Montana", "tray_send n=${picks.size} files=${picks.count { it.kind == "doc" }} stickers=${picks.count { isSticker(it) }} plates=${slots.filterNotNull().map { it.key }.toSet().size}")
     }
+    /** A staged picture that rides as a sticker: the card sticker's name in its manifest (iOS MTPasted.asSticker). */
+    fun isSticker(p: Picked) = p.kind == "img" && p.name == Stickers.DOC_NAME
     /** What the group says to this media letter (Groups.mediaRefusal): by its kind, roundness, file name -- its extension at least -- and caption. */
     private fun refusal(c: Context, ref: String, p: Picked, caption: String): String? =
         Groups.mediaRefusal(c, ref, p.kind, p.round, p.name ?: ("." + p.ext), caption)
