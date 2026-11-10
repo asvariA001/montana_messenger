@@ -108,11 +108,15 @@ class CoverWaves(private val icon: View) : Drawable(), Choreographer.FrameCallba
         Choreographer.getInstance().postFrameCallback(this)
     }
 
+    private var saidAt = 0.0
     override fun doFrame(ns: Long) {
         val root = host ?: run { ticking = false; return }
         if (bounds.width() != root.width || bounds.height() != root.height) setBounds(0, 0, root.width, root.height)   // a turn
         val now = ns / 1e9
-        val breath = pulse.step(now, MusicPlayer.level())
+        val heard = MusicPlayer.level()
+        val breath = pulse.step(now, heard)
+        // the heard level in the diary every two seconds while the waves run: a silent track parts no wave, and only this tells why
+        if (now - saidAt > 2) { saidAt = now; android.util.Log.d("Montana", "cover_waves heard=" + "%.2f".format(heard)) }
         icon.scaleX = breath; icon.scaleY = breath
         invalidateSelf()
         // a wave's life after the music rests (iOS quiet after life × 1.2): then the frames stop

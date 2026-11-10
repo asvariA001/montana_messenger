@@ -54,6 +54,9 @@ object Doors {
      * knows the doors and none of them holds it, nobody — a capability asked by name is never guessed; before any door has
      * answered, every door not known silent.
      */
+    /** Every door of the list in the network's order, no capability asked (iOS MontanaWakePush.orderedBases: the report's road). */
+    fun all(): List<String> = hosts().map { base(it) }
+
     fun ordered(cap: String): List<String> {
         if (System.currentTimeMillis() - verifiedAt > 600_000L) verifyLater()
         val all = hosts().map { base(it) }

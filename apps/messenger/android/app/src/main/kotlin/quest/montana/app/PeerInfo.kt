@@ -1012,10 +1012,15 @@ private fun reportBody(c: Context, reason: String, ref: String, name: String, mi
     JSONObject().put("reason", reason).put("reporter", MontanaSeed.twin ?: "").put("reported", ref)
         .put("name", name.take(200)).put("mid", mid.take(128)).put("text", text.take(8000)).put("build", buildNumber(c).take(16))
 
-/** Every door the report's capability names, the elected first, one try each (iOS MTNodeWire.post over orderedBases, attempts = doors). */
+/**
+ * Every door of the network, the elected first, one try each (iOS MTNodeWire.post over orderedBases, attempts = doors). No capability
+ * is asked: the doors' health says diag false (A1 10.11 build 900: the «diag» filter left no door, the report fell to mail at once).
+ */
 private fun reportPut(body: JSONObject): Int {
     var last = -1
-    for (door in Signal.writeOrder("diag")) {   // the node's CAP_OF_PATH: /report-put rides with the diaries
+    val all = Doors.all()
+    val e = Signal.elected()
+    for (door in if (e != null && e in all) listOf(e) + all.filter { it != e } else all) {
         val (code, _) = Wire.post(door, "/report-put", body, 10_000)
         if (code == 200) { Signal.doorAnswered(door); return 200 }
         last = code

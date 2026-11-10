@@ -450,15 +450,37 @@ object MusicPlayer {
             meterOf = p.audioSessionId
             meter = runCatching {
                 android.media.audiofx.Visualizer(p.audioSessionId).apply {
-                    measurementMode = android.media.audiofx.Visualizer.MEASUREMENT_MODE_PEAK_RMS; enabled = true
+                    measurementMode = android.media.audiofx.Visualizer.MEASUREMENT_MODE_PEAK_RMS
+                    captureSize = android.media.audiofx.Visualizer.getCaptureSizeRange()[1].coerceAtMost(1024)
+                    enabled = true
                 }
             }.getOrNull()
+            meter?.let { wave = ByteArray(it.captureSize) }
             android.util.Log.d("Montana", "cover_waves meter=" + if (meter != null) 1 else 0)
         }
         val m = meter ?: return 0.3f
-        if (runCatching { m.getMeasurementPeakRms(heard) }.getOrDefault(-1) != android.media.audiofx.Visualizer.SUCCESS) return 0f
-        return ((heard.mRms / 100f + 40f) / 40f).coerceIn(0f, 1f)
+        // THE PEAK-AND-RMS METER IS DUMB ON A1 (Pixel 9 Pro XL, build 901: a 120 bpm kick heard at volume 4 and 12 read 0.00 the
+        // whole time, the permission given and the meter standing): the RMS is taken from the meter's own waveform as well, the
+        // louder of the two stands. Both laid on 0…1 over the last forty decibels (iOS MTSoundEar.unit).
+        val status = runCatching { m.getMeasurementPeakRms(heard) }.getOrDefault(-1)
+        val byMeter = if (status == android.media.audiofx.Visualizer.SUCCESS) (heard.mRms / 100f + 40f) / 40f else 0f
+        val got = runCatching { m.getWaveForm(wave) }.getOrDefault(-1)
+        var byWave = 0f
+        if (got == android.media.audiofx.Visualizer.SUCCESS) {
+            var sum = 0.0
+            for (b in wave) { val x = ((b.toInt() and 0xFF) - 128) / 128.0; sum += x * x }
+            val rms = kotlin.math.sqrt(sum / wave.size)
+            if (rms > 1e-5) byWave = ((20 * kotlin.math.log10(rms)).toFloat() + 40f) / 40f
+        }
+        val now = android.os.SystemClock.uptimeMillis()
+        if (now - meterSaid > 2000) {
+            meterSaid = now
+            android.util.Log.d("Montana", "cover_waves meter status=$status rms_mb=${heard.mRms} wave=$got by_wave=" + "%.2f".format(byWave))
+        }
+        return kotlin.math.max(byMeter, byWave).coerceIn(0f, 1f)
     }
+    private var wave = ByteArray(1024)
+    private var meterSaid = 0L
     private fun dropMeter() { meter?.let { runCatching { it.enabled = false; it.release() } }; meter = null; meterOf = 0 }
 
     private fun release() {
