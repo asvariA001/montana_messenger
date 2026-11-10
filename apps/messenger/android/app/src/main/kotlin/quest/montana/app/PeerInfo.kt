@@ -941,7 +941,7 @@ fun reportPage(act: MainActivity, ref: String, name: String, offersBlock: Boolea
         "illegal" to R.string.pi_illegal, "other" to R.string.pi_other)
     var reason = "spam"
     var blockToo = offersBlock
-    val mail = "contact@montana.quest"
+    val mail = "contact@montana.one"
     return settingsPage(act, c.getString(R.string.pi_report), onClose, cross = true) {
         val rows = reasons.map { (key, words) ->
             c.hstack {

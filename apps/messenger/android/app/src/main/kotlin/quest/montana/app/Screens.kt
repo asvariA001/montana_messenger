@@ -310,7 +310,7 @@ fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? 
         addView(section(R.string.terms_tools_1, R.string.terms_tools_2, R.string.terms_tools_3, R.string.terms_tools_4), lp())
         addView(header(R.string.terms_reach_h))
         addView(c.plate {
-            addView(link(R.drawable.ic_email, "contact@montana.quest", Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:contact@montana.quest"))), lp())
+            addView(link(R.drawable.ic_email, "contact@montana.one", Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:contact@montana.one"))), lp())
             divider()
             addView(link(R.drawable.ic_language, "https://montana.xxx", Intent(Intent.ACTION_VIEW, Uri.parse("https://montana.xxx"))), lp())
         }, lp())
