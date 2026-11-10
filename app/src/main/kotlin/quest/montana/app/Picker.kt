@@ -695,7 +695,8 @@ class Picker(
         val stripRow = android.widget.HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false }
         fun mineCell(n: String, side: Int) = { cell: FrameLayout ->
             val iv = stillIn(cell)
-            iv.setPadding(c.dp(side / 10), c.dp(side / 10), c.dp(side / 10), c.dp(side / 10))
+            // the sticker fills its cell, fitted, with no margin of ours (iOS stickerBody: .frame(44 / 72) .aspectRatio(.fit))
+            iv.setPadding(0, 0, 0, 0)
             iv.tag = n
             iv.setImageDrawable(null)
             act.background {
