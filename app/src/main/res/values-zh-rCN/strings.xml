@@ -193,6 +193,7 @@
     <string name="no_posts">你联系人墙上的帖子\n将显示在这里</string>
     <string name="no_photos">暂无照片</string>
     <string name="no_music">您的音乐将显示在这里</string>
+    <string name="volume">音量</string>
     <string name="track_refused">无法打开曲目</string>
     <string name="track_folder_closed">此曲目所在的文件夹未能打开。请用加号重新授予访问权限。</string>
     <!-- The card: the QR code and the link (iOS MontanaCodeView, MontanaCardShare) -->
