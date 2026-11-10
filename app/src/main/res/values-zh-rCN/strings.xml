@@ -279,7 +279,10 @@
     <string name="pi_reported_letter">被举报的信件</string>
     <string name="pi_block_too">同时屏蔽此人</string>
     <string name="pi_send_report">发送举报</string>
-    <string name="pi_reports_go">举报将发送至 %1$s，并在 24 小时内处理。</string>
+    <string name="pi_reports_reach">举报将送达 Montana，并在 24 小时内处理。</string>
+    <string name="pi_report_sent">举报已发送</string>
+    <string name="pi_report_reached">您的举报已送达 Montana，将在 24 小时内处理。</string>
+    <string name="no_mail_report">此手机上没有邮件账户。举报内容和我们的地址已复制——请粘贴到任意邮件中。</string>
     <string name="pi_write_wall">在留言墙上发帖</string>
     <string name="pi_voice_message">语音消息</string>
     <string name="pi_file">文件</string>
