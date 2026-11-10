@@ -769,4 +769,11 @@
     <string name="shuffle_on">Перемешивание включено</string>
     <string name="shuffle_off">Перемешивание выключено</string>
     <string name="current_playlist">Текущий плейлист</string>
+    <!-- the queue's page (iOS MTQueuePage) -->
+    <string name="queue_title">Сейчас играет</string>
+    <string name="queue_from">Играет из: %1$s</string>
+    <string name="queue_walls">Стены</string>
+    <string name="queue_show">Показать в плейлисте</string>
+    <string name="queue_reverse">Обратный порядок</string>
+    <string name="queue_reorder">Изменить порядок</string>
 </resources>

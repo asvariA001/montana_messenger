@@ -376,6 +376,37 @@ object MusicPlayer {
         if (repeatAll && queue.isNotEmpty()) { play(a, queue, 0); return }
         playing = false; seek(0.0); changed()
     }
+    /** A track leaves the queue (iOS VoicePlayer.dropFromQueue, MontanaMedia.swift:706-717 at 2311): the ones after it step up; the
+     *  one that plays leaving, the turn goes on from the place it stood, and an empty queue stops. */
+    fun dropFromQueue(file: String) {
+        val i = queue.indexOfFirst { it.file == file }.takeIf { it != -1 } ?: return
+        val was = i == index
+        queue = queue.toMutableList().apply { removeAt(i) }
+        android.util.Log.d("Montana", "music_queue out i=${i + 1} n=${queue.size} playing=${if (was) 1 else 0}")
+        if (i < index) { index -= 1; said(); return }
+        if (!was) { said(); return }
+        if (queue.isEmpty()) { stop(); return }
+        index = i - 1   // the turn goes on from the place the track stood
+        next()
+    }
+    /** A track moved by hand (iOS moveInQueue 722-728): the one that plays keeps playing, its place followed by its file. */
+    fun moveInQueue(from: Int, to: Int) {
+        if (from !in queue.indices || to !in queue.indices || from == to) return
+        val playing = current?.file
+        queue = queue.toMutableList().apply { add(to, removeAt(from)) }
+        playing?.let { f -> index = queue.indexOfFirst { it.file == f } }
+        android.util.Log.d("Montana", "music_queue moved n=${queue.size} playing_at=${index + 1}")
+        said()
+    }
+    /** THE QUEUE TURNED OVER (iOS reverseQueue 733-740, the author's word 18.10.2026 10:3x UTC): a second turn gives the order back. */
+    fun reverseQueue() {
+        if (queue.size < 2) return
+        val playing = current?.file
+        queue = queue.reversed()
+        playing?.let { f -> index = queue.indexOfFirst { it.file == f } }
+        android.util.Log.d("Montana", "music_queue reversed n=${queue.size} playing_at=${index + 1}")
+        said()
+    }
     /** The playing track's picture landed (TrackArt): the plate and the lock screen take it at once. */
     fun landed() = changed()
     /** Back: past three seconds the track starts over, before them the one above plays (iOS prev). */
@@ -737,6 +768,8 @@ object PlayerUnfold {
 class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     var onSearch: () -> Unit = {}
     var onPlace: () -> Unit = {}
+    /** The place mark opens the queue's own page (iOS placeMark → MTQueuePage.present). */
+    var onQueue: () -> Unit = {}
     private val stage = FrameLayout(ctx).apply { visibility = View.GONE }
     private val stageArt = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER; clipToOutline = true }
     private val cover = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; clipToOutline = true }
@@ -844,7 +877,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
             addView(placeNumber, LayoutParams(WRAP, WRAP).apply { marginStart = dp(3) })
             contentDescription = ctx.getString(R.string.current_playlist)
             minimumWidth = dp(44)
-            pressable { onPlace() }
+            pressable { onQueue() }
         }
         addView(place, FrameLayout.LayoutParams(WRAP, dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
         // THE SOUND'S WAY (iOS MTSoundWayMark): where the sound goes, in the system's blue; a tap opens the system's own output
@@ -1099,7 +1132,7 @@ class MusicPage(private val act: MainActivity) {
             val cur = MusicPlayer.current?.uri == t.uri
             face.still(t, cur, cur && MusicPlayer.playing)
             face.setOnClickListener {
-                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i)   // the queue is the list as it stands
+                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i, act.getString(R.string.cf_folders))   // the queue is the list as it stands
             }
             face.play.setOnClickListener { face.performClick() }
             rows.addView(face, LinearLayout.LayoutParams(MATCH, WRAP))

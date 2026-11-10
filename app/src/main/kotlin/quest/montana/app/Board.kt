@@ -2445,7 +2445,7 @@ private fun playTrack(act: MainActivity, wall: String, p: JSONObject, i: Int, in
         val k = list.indexOfFirst { t -> t.uri.lastPathSegment == name }
         val queue = list
         Log.d("Montana", "music board queue n=" + queue.size + " at=" + (k + 1) + " in=" + (if (inFeed) "feed" else "wall"))
-        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k) }
+        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k, act.getString(R.string.queue_walls)) }
     }.start()
 }
 

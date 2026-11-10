@@ -774,4 +774,11 @@
     <string name="shuffle_on">Shuffle on</string>
     <string name="shuffle_off">Shuffle off</string>
     <string name="current_playlist">Current playlist</string>
+    <!-- the queue's page (iOS MTQueuePage) -->
+    <string name="queue_title">Now playing</string>
+    <string name="queue_from">Playing from %1$s</string>
+    <string name="queue_walls">Walls</string>
+    <string name="queue_show">Show in playlist</string>
+    <string name="queue_reverse">Reverse order</string>
+    <string name="queue_reorder">Reorder</string>
 </resources>

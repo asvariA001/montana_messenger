@@ -108,7 +108,7 @@ fun settingsPage(act: MainActivity, title: String, onLead: () -> Unit, cross: Bo
         }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
         addView(c.text(title, 17f, Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         // the page's own act at the right of its bar (iOS the toolbar's trailing mark: «Done» as the platform's checkmark)
-        trailing?.let { addView(it, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.END)) }
+        trailing?.let { addView(it, FrameLayout.LayoutParams(if (it is LinearLayout) WRAP else dp(44), dp(44), Gravity.CENTER_VERTICAL or Gravity.END)) }   // a row of marks keeps its width
     }
     return FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)

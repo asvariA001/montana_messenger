@@ -453,7 +453,7 @@ internal fun panesOf(act: MainActivity, ref: String, group: Boolean, onClose: ()
             pane.relay(rows)
             wallCells.keepOnly(rows)
         } else if (msgs.isEmpty()) { pane.removeAllViews(); pane.addView(emptyPane(), lp()) }
-        else { pane.removeAllViews(); paneRows(act, tab, msgs.reversed(), pane, law) }   // newest on top
+        else { pane.removeAllViews(); paneRows(act, tab, msgs.reversed(), pane, law, Book.chat(ref)?.shown?.ifBlank { null } ?: c.getString(R.string.chats)) }   // newest on top
     }
 
     // the one player's turn redraws the music's glyphs, and only its turn: the clock's ticks change nothing here
@@ -718,7 +718,7 @@ private fun dayWord(c: Context, at: Long) = DayLabel.of(c, at)
  * the item law. Music and voices play through the one player, the pane's own in feed order as the queue whichever day the tap lands
  * in (iOS musicList, playVoice); the one playing wears the pause.
  */
-private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearLayout, law: ItemLaw) {
+private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearLayout, law: ItemLaw, from: String) {
     val c: Context = act
     val feed = msgs.reversed()   // the conversation's own order: a queue walks forward from the one tapped
     val days = msgs.groupBy { dayWord(c, it.at) }   // groupBy keeps the order of first appearance: newest day first
@@ -764,7 +764,7 @@ private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearL
                     // the one playing pauses and goes on; another starts the queue at itself
                     if (uri != null) {
                         if (MusicPlayer.current?.uri == uri) MusicPlayer.toggle()
-                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i) }
+                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i, from) }
                     }
                 }, lp().apply { bottomMargin = c.dp(8) })
             }

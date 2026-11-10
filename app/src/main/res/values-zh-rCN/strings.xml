@@ -769,4 +769,11 @@
     <string name="shuffle_on">随机播放已开启</string>
     <string name="shuffle_off">随机播放已关闭</string>
     <string name="current_playlist">当前播放列表</string>
+    <!-- the queue's page (iOS MTQueuePage) -->
+    <string name="queue_title">正在播放</string>
+    <string name="queue_from">播放来源：%1$s</string>
+    <string name="queue_walls">留言墙</string>
+    <string name="queue_show">在播放列表中显示</string>
+    <string name="queue_reverse">倒序</string>
+    <string name="queue_reorder">调整顺序</string>
 </resources>
