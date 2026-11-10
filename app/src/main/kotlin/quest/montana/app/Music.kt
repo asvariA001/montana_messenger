@@ -207,7 +207,6 @@ object TrackArt {
         if (m <= SIDE) b else android.graphics.Bitmap.createScaledBitmap(b, maxOf(1, b.width * SIDE / m), maxOf(1, b.height * SIDE / m), true)
     }.getOrNull()
 }
-}
 
 // ─────────────────────────── the one player (iOS VoicePlayer for the music) ───────────────────────────
 
@@ -750,7 +749,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     private val wave = ctx.icon(R.drawable.ic_waveform, MT.gray, 17)
     private var waving: android.animation.ObjectAnimator? = null
     private val elapsed = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
-    private val left = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
+    private val remain = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
     private val line = FrameLayout(ctx)
     private val lineFill = View(ctx).apply { background = ctx.rounded(Color.argb(184, 255, 255, 255), 4) }
     private var scrub: Double? = null
@@ -823,7 +822,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
             }
         }
         addView(line, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(10); marginEnd = dp(10) })
-        addView(left, LayoutParams(WRAP, WRAP))
+        addView(remain, LayoutParams(WRAP, WRAP))
     }
 
     /** The lock screen's three at the plate's middle, the playlist's place at its left, the sound's way at its right (iOS controls). */
@@ -976,7 +975,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     private fun clock(f: Double) {
         val d = MusicPlayer.duration
         elapsed.text = fmtDuration(d * f)   // USER-DATA: the elapsed time, digits
-        left.text = "-" + fmtDuration(maxOf(0.0, d - d * f))   // USER-DATA: the remaining time, digits
+        remain.text = "-" + fmtDuration(maxOf(0.0, d - d * f))   // USER-DATA: the remaining time, digits
         val lp = lineFill.layoutParams as FrameLayout.LayoutParams
         val w = (line.width * f).toInt()
         if (lp.width != w) { lp.width = w; lineFill.layoutParams = lp }
