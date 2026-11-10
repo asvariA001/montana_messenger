@@ -762,4 +762,11 @@
     <string name="voice_text_refused">请在设置中允许麦克风</string>
     <string name="voice_text_unsupported">此语言不支持设备上的语音识别</string>
     <string name="voice_text_silent">未识别到语音</string>
+    <!-- the unfolded player (iOS MTPlayerHead) -->
+    <string name="repeat_track">单曲重复</string>
+    <string name="repeat_playlist">重复播放列表</string>
+    <string name="repeat_off">重复已关闭</string>
+    <string name="shuffle_on">随机播放已开启</string>
+    <string name="shuffle_off">随机播放已关闭</string>
+    <string name="current_playlist">当前播放列表</string>
 </resources>

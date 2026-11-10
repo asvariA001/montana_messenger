@@ -767,4 +767,11 @@
     <string name="voice_text_refused">Allow the microphone in Settings</string>
     <string name="voice_text_unsupported">Speech recognition is not available for this language</string>
     <string name="voice_text_silent">No speech recognized</string>
+    <!-- the unfolded player (iOS MTPlayerHead) -->
+    <string name="repeat_track">Repeat track</string>
+    <string name="repeat_playlist">Repeat playlist</string>
+    <string name="repeat_off">Repeat off</string>
+    <string name="shuffle_on">Shuffle on</string>
+    <string name="shuffle_off">Shuffle off</string>
+    <string name="current_playlist">Current playlist</string>
 </resources>

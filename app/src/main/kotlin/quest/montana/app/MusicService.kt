@@ -140,9 +140,13 @@ class MusicService : Service() {
         val t = MusicPlayer.current
         val playing = MusicPlayer.playing
         val title = t?.title ?: getString(R.string.app_music)
+        val art = t?.let { TrackArt.of(this, it) } ?: TrackArt.lockIcon(this)
         session.setMetadata(MediaMetadata.Builder()
             .putString(MediaMetadata.METADATA_KEY_TITLE, title)   // USER-DATA: the track's own name
-            .putString(MediaMetadata.METADATA_KEY_ARTIST, "Montana")
+            // the artist its own tags name, never where the track lies; none named -- the app's name (iOS pushNowPlaying 779-786)
+            .putString(MediaMetadata.METADATA_KEY_ARTIST, t?.artist ?: "Montana")
+            // THE LOCK SCREEN'S PICTURE (the author's word 29.09 ~23:10): the track's own cover, else the app's own icon (TrackArt)
+            .putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, art)
             .putLong(MediaMetadata.METADATA_KEY_DURATION, (MusicPlayer.duration * 1000).toLong())
             .build())
         // the system's clock runs the position on from here by itself: nothing is said at each tick (iOS pushNowPlaying)
@@ -157,7 +161,8 @@ class MusicService : Service() {
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle(title)   // USER-DATA: the track's own name
-            .setContentText("Montana")
+            .setContentText(t?.artist ?: "Montana")
+            .setLargeIcon(art)
             .setContentIntent(open())
             .setDeleteIntent(PendingIntent.getService(this, CLOSE.hashCode(), Intent(this, MusicService::class.java).setAction(CLOSE), PendingIntent.FLAG_IMMUTABLE))
             .setVisibility(Notification.VISIBILITY_PUBLIC)

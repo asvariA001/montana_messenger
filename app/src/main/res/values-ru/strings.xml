@@ -762,4 +762,11 @@
     <string name="voice_text_refused">Разрешите микрофон в Настройках</string>
     <string name="voice_text_unsupported">Распознавание речи на устройстве недоступно для этого языка</string>
     <string name="voice_text_silent">Речь не распознана</string>
+    <!-- the unfolded player (iOS MTPlayerHead) -->
+    <string name="repeat_track">Повтор трека</string>
+    <string name="repeat_playlist">Повтор плейлиста</string>
+    <string name="repeat_off">Повтор выключен</string>
+    <string name="shuffle_on">Перемешивание включено</string>
+    <string name="shuffle_off">Перемешивание выключено</string>
+    <string name="current_playlist">Текущий плейлист</string>
 </resources>
