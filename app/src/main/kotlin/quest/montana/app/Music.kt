@@ -431,8 +431,39 @@ object MusicPlayer {
     val duration: Double get() = mp?.takeIf { prepared }?.duration?.div(1000.0) ?: (current?.length ?: 0.0)
     val positionMs: Long get() = mp?.takeIf { prepared }?.currentPosition?.toLong() ?: 0L
 
+    /**
+     * THE MUSIC'S LEVEL, once a frame for the cover's waves (iOS VoicePlayer.level, MTFileSound.level, MontanaMedia.swift:349, 926 at
+     * 2311): the platform's own meter on the player's sound (Visualizer in its peak-and-RMS mode), the RMS in decibels laid on 0…1
+     * over the last forty (iOS MTSoundEar.unit); silence while it rests. The meter stands only while the waves ask for it. Refused
+     * (the microphone's leave not given: the platform guards every meter with it), a steady middle stands in, so the long quiet of
+     * beats still lets a wave go every two seconds.
+     */
+    var metering = false
+        set(v) { field = v; if (!v) dropMeter() }
+    private var meter: android.media.audiofx.Visualizer? = null
+    private var meterOf = 0
+    private val heard = android.media.audiofx.Visualizer.MeasurementPeakRms()
+    fun level(): Float {
+        val p = mp?.takeIf { prepared && playing && metering } ?: return 0f
+        if (meterOf != p.audioSessionId) {
+            dropMeter()
+            meterOf = p.audioSessionId
+            meter = runCatching {
+                android.media.audiofx.Visualizer(p.audioSessionId).apply {
+                    measurementMode = android.media.audiofx.Visualizer.MEASUREMENT_MODE_PEAK_RMS; enabled = true
+                }
+            }.getOrNull()
+            android.util.Log.d("Montana", "cover_waves meter=" + if (meter != null) 1 else 0)
+        }
+        val m = meter ?: return 0.3f
+        if (runCatching { m.getMeasurementPeakRms(heard) }.getOrDefault(-1) != android.media.audiofx.Visualizer.SUCCESS) return 0f
+        return ((heard.mRms / 100f + 40f) / 40f).coerceIn(0f, 1f)
+    }
+    private fun dropMeter() { meter?.let { runCatching { it.enabled = false; it.release() } }; meter = null; meterOf = 0 }
+
     private fun release() {
         main.removeCallbacksAndMessages(null)
+        dropMeter()
         // a player still waiting on a track's piece (Streams) lets go off the main thread: its read may stand on the network a while
         mp?.let { old -> Thread { old.release() }.start() }
         mp = null; prepared = false; playing = false
@@ -776,6 +807,8 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     var onQueue: () -> Unit = {}
     private val stage = FrameLayout(ctx).apply { visibility = View.GONE }
     private val stageArt = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.FIT_CENTER; clipToOutline = true }
+    /** The icon on the stage sends out its waves (iOS MTCoverWaves): only while it stands there for want of a cover. */
+    private val waves = CoverWaves(stageArt)
     private val cover = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; clipToOutline = true }
     private var coverCorner = 0f
     private val title = ctx.text("", 17f, bold = true).apply {
@@ -810,6 +843,10 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         isClickable = true   // the air between the plates is the player's (iOS: player air tap -- kept off the page)
         stage.addView(stageArt, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER))
         stage.pressable { toggleCover() }
+        stage.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(v: View) { if (stage.visibility == View.VISIBLE && shownArt == null) waves.start() }
+            override fun onViewDetachedFromWindow(v: View) { waves.stop() }
+        })
         addView(stage, LayoutParams(MATCH, ctx.resources.displayMetrics.heightPixels / 3).apply { bottomMargin = dp(GAP * 2) })
         addView(plate(), LayoutParams(MATCH, WRAP))
         addView(volumeLine(), LayoutParams(MATCH, dp(44)).apply { topMargin = dp(GAP) })
@@ -987,7 +1024,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
             stage.alpha = 0f; stage.scaleX = 0.15f; stage.scaleY = 0.15f
             stage.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(360).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
             stageShows()
-        } else stage.animate().alpha(0f).scaleX(0.15f).scaleY(0.15f).setDuration(260).withEndAction { stage.visibility = View.GONE }.start()
+        } else { waves.stop(); stage.animate().alpha(0f).scaleX(0.15f).scaleY(0.15f).setDuration(260).withEndAction { stage.visibility = View.GONE }.start() }
     }
     /** The stage: the track's own cover whole with a corner of 14, else the app's icon in its own shape, a little under half the stage. */
     private fun stageShows() {
@@ -1007,6 +1044,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         }
         stageArt.layoutParams = (stageArt.layoutParams as FrameLayout.LayoutParams).apply { width = side; height = side }
         stageArt.invalidateOutline()
+        if (own == null) waves.start() else waves.stop()
     }
 
     private fun clock(f: Double) {
@@ -1040,6 +1078,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
             byline.visibility = if (by.isEmpty()) View.GONE else View.VISIBLE
         }
         playGlyph.setImageResource(if (MusicPlayer.playing) R.drawable.ic_pause_fill else R.drawable.ic_play_fill)
+        if (MusicPlayer.playing) waves.wake()
         // the sound's wave breathes while it plays (iOS symbolEffect .variableColor.iterative)
         if (MusicPlayer.playing && waving == null) waving = android.animation.ObjectAnimator.ofFloat(wave, View.ALPHA, 1f, 0.35f).apply {
             duration = 700; repeatMode = android.animation.ValueAnimator.REVERSE; repeatCount = android.animation.ValueAnimator.INFINITE; start()

@@ -6,6 +6,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaMetadataRetriever
@@ -13,6 +14,8 @@ import android.util.LruCache
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -137,7 +140,8 @@ fun queuePage(act: MainActivity, close: () -> Unit, onPlace: () -> Unit): View {
     fill = {
         body.removeAllViews()
         val q = MusicPlayer.queue
-        val rows = q.mapIndexed { i, t -> row(i, t, i == MusicPlayer.index) }
+        // outside the hand's mode a swipe to the left takes a row out (iOS List .onDelete)
+        val rows = q.mapIndexed { i, t -> row(i, t, i == MusicPlayer.index).let { r -> if (editing) r else SwipeOut(c, r) { MusicPlayer.dropFromQueue(t.file) } } }
         if (q.isNotEmpty()) body.section(c.getString(R.string.queue_from, MusicPlayer.from.ifBlank { c.getString(R.string.cf_all) }), null, *rows.toTypedArray())
         // the page opens on the track that plays, in the middle (iOS proxy.scrollTo(file, anchor: .center))
         if (!placed) rows.getOrNull(MusicPlayer.index)?.let { r ->
@@ -181,4 +185,77 @@ private fun drag(handle: View, row: View, i: Int) {
             else -> false
         }
     }
+}
+
+/**
+ * A ROW THAT A SWIPE TO THE LEFT TAKES OUT (iOS List .onDelete outside the edit mode, MTQueuePage): the row slides over the
+ * platform's red with «Delete»; let go past half the row and it is out, past half the red's width and the red stays open --
+ * a tap on it takes the row out, a tap on the row closes it; short of that the row slides back.
+ */
+private class SwipeOut(c: Context, private val row: View, private val out: () -> Unit) : FrameLayout(c) {
+    private val slop = ViewConfiguration.get(c).scaledTouchSlop
+    private val red = c.text(c.getString(R.string.delete), 17f, Color.WHITE).apply {
+        gravity = Gravity.CENTER_VERTICAL or Gravity.END; setPadding(0, 0, dp(20), 0); setBackgroundColor(SysColor.red)
+        visibility = View.INVISIBLE
+    }
+    private val reach = dp(88)
+    private val shown = Rect()
+    private var x0 = 0f; private var y0 = 0f; private var base = 0f
+    private var dragging = false
+
+    init {
+        addView(red, LayoutParams(MATCH, MATCH))
+        addView(row, LayoutParams(MATCH, WRAP))
+    }
+
+    private fun slide(x: Float) {
+        row.translationX = x
+        red.visibility = if (x < 0) View.VISIBLE else View.INVISIBLE
+        shown.set((width + x).toInt(), 0, width, height); red.clipBounds = shown   // the red only where the row has left
+    }
+
+    override fun onInterceptTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> { x0 = e.x; y0 = e.y; base = row.translationX; dragging = false; return base < 0 }   // open: the touch is the red's or the closing's
+            MotionEvent.ACTION_MOVE -> if (!dragging && kotlin.math.abs(e.x - x0) > slop && kotlin.math.abs(e.x - x0) > kotlin.math.abs(e.y - y0)) {
+                dragging = true; parent.requestDisallowInterceptTouchEvent(true); return true
+            }
+        }
+        return false
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: MotionEvent): Boolean {
+        when (e.actionMasked) {
+            MotionEvent.ACTION_DOWN -> return true
+            MotionEvent.ACTION_MOVE -> {
+                if (!dragging && kotlin.math.abs(e.x - x0) > slop) { dragging = true; parent.requestDisallowInterceptTouchEvent(true) }
+                if (dragging) slide((base + e.x - x0).coerceIn(-width.toFloat(), 0f))
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                val x = row.translationX
+                when {
+                    !dragging && e.actionMasked == MotionEvent.ACTION_UP -> if (e.x >= width + x) settle(-width.toFloat(), true) else settle(0f, false)
+                    x < -width / 2f -> settle(-width.toFloat(), true)
+                    x < -reach / 2f -> settle(-reach.toFloat(), false)
+                    else -> settle(0f, false)
+                }
+                dragging = false
+            }
+        }
+        return true
+    }
+
+    private fun settle(to: Float, gone: Boolean) {
+        ValueAnimator.ofFloat(row.translationX, to).apply {
+            duration = 200
+            addUpdateListener { slide(it.animatedValue as Float) }
+            if (gone) doOnEnd { android.util.Log.d("Montana", "music_queue out by=swipe"); out() }
+            start()
+        }
+    }
+
+    private fun ValueAnimator.doOnEnd(f: () -> Unit) = addListener(object : android.animation.AnimatorListenerAdapter() {
+        override fun onAnimationEnd(a: android.animation.Animator) = f()
+    })
 }
