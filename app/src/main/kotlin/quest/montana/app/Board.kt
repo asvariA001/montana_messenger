@@ -2736,7 +2736,10 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
         pressable { act.push { close -> newPostPage(act, close) } }
     }
     init {
-        addView(scroll.apply {
+        // THE COIN'S PULL ON THE WALL TOO (iOS MTFeedTabView stands in MontanaTimePanelList, MontanaBoardViews.swift:2683, whose pull
+        // is the coin's and runs the one pullRefresh of the pages; the author 10.11: «on the wall of thoughts the coin does not follow
+        // the pull»): the feed's scroll is handed to CoinPull as every page under the bar is.
+        addView(CoinPull(c, scroll.apply {
             isVerticalScrollBarEnabled = false
             addView(c.vstack(Gravity.NO_GRAVITY) { addView(goingColumn, lp()); addView(column, lp()); addView(foot, lp(MATCH, dp(120))) })
             val near = android.view.ViewTreeObserver.OnScrollChangedListener { reach(); window() }
@@ -2744,7 +2747,7 @@ class FeedPane(private val act: MainActivity) : FrameLayout(act) {
                 override fun onViewAttachedToWindow(v: View) { v.viewTreeObserver.addOnScrollChangedListener(near) }
                 override fun onViewDetachedFromWindow(v: View) { v.viewTreeObserver.removeOnScrollChangedListener(near) }
             })
-        }, LayoutParams(MATCH, MATCH))
+        }), LayoutParams(MATCH, MATCH))
         addView(empty, LayoutParams(WRAP, WRAP, Gravity.CENTER))
         addView(write, PageCorner.params(c))
         ListFrame.attach(this, "feed", corner = write)
