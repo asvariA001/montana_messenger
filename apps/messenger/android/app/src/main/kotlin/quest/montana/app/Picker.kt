@@ -412,8 +412,12 @@ class Picker(
             this.hint = c.getString(hint)
             setHintTextColor(Color.argb(153, 235, 235, 245)); setTextColor(Color.WHITE)
             textSize = 17f
+            // no correction of the asked word (iOS MTPanelSearchField autocorrectionType .no)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
             isSingleLine = true
             imeOptions = EditorInfo.IME_ACTION_SEARCH
+            // the caret is white, as the message field's (iOS tintColor .white)
+            if (android.os.Build.VERSION.SDK_INT >= 29) textCursorDrawable = android.graphics.drawable.GradientDrawable().apply { setColor(Color.WHITE); setSize(dp(2), 0) }
             background = c.rounded(Color.argb(61, 118, 118, 128), 10)
             setPadding(dp(8), 0, dp(8), 0)
             compoundDrawablePadding = dp(6)
@@ -422,6 +426,29 @@ class Picker(
                 setCompoundDrawablesRelative(g, null, null, null)
             }
             contentDescription = this.hint
+        }
+        // THE CLEAR KEY WHILE TYPING (iOS MTPanelSearchField clearButtonMode .whileEditing): a grey cross at the line's end while the
+        // line holds the keys and a word; its touch empties the line and the answer follows the empty word
+        if (expanded) {
+            val glass = field.compoundDrawablesRelative[0]
+            val clear = c.getDrawable(R.drawable.ic_close)?.mutate()?.apply { setTint(Color.argb(153, 235, 235, 245)); setBounds(0, 0, dp(16), dp(16)) }
+            fun showClear() = field.setCompoundDrawablesRelative(glass, null, if (field.hasFocus() && field.length() > 0) clear else null, null)
+            field.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                override fun afterTextChanged(s: Editable?) { showClear() }
+            })
+            field.setOnFocusChangeListener { _, _ -> showClear() }
+            @Suppress("ClickableViewAccessibility")
+            field.setOnTouchListener { v, e ->
+                val end = field.compoundDrawablesRelative[2] ?: return@setOnTouchListener false
+                val rtl = v.layoutDirection == View.LAYOUT_DIRECTION_RTL
+                val reach = end.bounds.width() + field.paddingEnd + dp(12)   // the cross is drawn 16, taken on a wider reach
+                val onIt = if (rtl) e.x <= reach else e.x >= v.width - reach
+                if (!onIt) return@setOnTouchListener false
+                if (e.action == android.view.MotionEvent.ACTION_UP) { field.setText(""); Log.d("Montana", "picker_search cleared") }
+                true
+            }
         }
         if (expanded) {
             field.addTextChangedListener(object : TextWatcher {
@@ -440,8 +467,9 @@ class Picker(
                 searchWoke = true
                 fun wake(tries: Int) {
                     field.postDelayed({
-                        if (field.requestFocus()) c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0)
+                        if (field.requestFocus()) { c.getSystemService(InputMethodManager::class.java).showSoftInput(field, 0); Log.d("Montana", "picker_search awake") }
                         else if (tries > 1) wake(tries - 1)
+                        else Log.d("Montana", "picker_search refused — the field did not take the keys")
                     }, if (tries == 3) 0L else 330L)
                 }
                 field.post { wake(3) }
