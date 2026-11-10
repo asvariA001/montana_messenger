@@ -1574,7 +1574,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         for ((place, s) in staged.toList().withIndex()) stagedRow.addView(FrameLayout(c).apply {
             carryInTray(this)
             addView(ImageView(c).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
+                // a sticker stands whole on its own ground, a picture fills the plate (iOS aspectRatio .fit / .fill by item.sticker)
+                scaleType = if (Media.isSticker(s.first)) ImageView.ScaleType.FIT_CENTER else ImageView.ScaleType.CENTER_CROP
                 if (s.second != null) setImageBitmap(s.second) else setBackgroundColor(Color.rgb(51, 51, 51))
                 outlineProvider = object : android.view.ViewOutlineProvider() {
                     override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(12).toFloat())
@@ -1659,9 +1660,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val gif = 4 <= bytes.size && String(bytes, 0, 4, Charsets.US_ASCII) == "GIF8"
         val bmp = if (gif) null else android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         if (bmp != null && seeThrough(bmp)) {
+            // A SEE-THROUGH PASTE WAITS IN THE TRAY AS A STICKER (iOS attachPasted, MontanaConversation.swift 3273-3291): kept as PNG,
+            // numbered with the rest, sent by the arrow; it left at once before, past the tray and its cross
             val png = java.io.ByteArrayOutputStream().also { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
-            Media.send(c, ref, Media.Picked(png, "img", "png", Stickers.DOC_NAME), "")
-            MainThread.post { toBottom() }
+            val p = Media.Picked(png, "img", "png", Stickers.DOC_NAME)
+            val face = stagedFace(c, p)
+            MainThread.post { staged.add(p to face); drawStaged(); toBottom() }
             return true
         }
         val p = if (gif) Media.Picked(bytes, "img", "gif", null) else Media.Picked(Media.photoForSend(bytes) ?: return false, "img", "jpg", null)
