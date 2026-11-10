@@ -584,10 +584,16 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     private val playGlyph = ctx.icon(R.drawable.ic_play_fill, Color.rgb(204, 204, 204))
     private val plate = FrameLayout(ctx)
     private val fill = View(ctx).apply { setBackgroundColor(Color.argb(41, 255, 255, 255)) }
-    private val title = ctx.text("", 15f).apply { singleLineEllipsis() }
-    private val side = ctx.text("", 13f, MT.gray)
+    // THE NAME RUNS INSIDE THE PLATE (iOS MTPlayerPlate: MTMarquee .subheadline centred; a still row of the list keeps it still,
+    // semibold and cut); the copy word stands in its room for a moment (MTCopiedWord)
+    private val title = Marquee(ctx, 15f, centred = true).apply { runs = bar }
+    private val copiedWord = ctx.text("", 15f, center = true).apply { typeface = semibold(); visibility = View.GONE }
+    // the position, the remaining time or the speed: subheadline semibold, digits even, the glyphs' colour, centred in 64
+    private val side = ctx.text("", 15f, Color.rgb(204, 204, 204), center = true).apply { typeface = semibold(); fontFeatureSettings = "tnum"; gravity = Gravity.CENTER }
     private var remaining = false
     private var scrub: Double? = null
+    private var shownF = 0.0   // the fill's edge as drawn: a swipe moves it by the finger's travel (iOS grabDX)
+    private var grabDx = 0f
     private var prevBtn: View? = null
     private var nextBtn: View? = null
     private var closeBtn: View? = null
@@ -638,8 +644,9 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
             override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.height / 2f)
         }
         plate.addView(fill, FrameLayout.LayoutParams(0, MATCH))
-        plate.addView(title, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER_VERTICAL).apply { marginStart = dp(16); marginEnd = dp(64) })
-        plate.addView(side, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or Gravity.END).apply { marginEnd = dp(14) })
+        plate.addView(title, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER_VERTICAL).apply { marginStart = dp(12); marginEnd = dp(64 + 2) })
+        plate.addView(copiedWord, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.CENTER_VERTICAL).apply { marginStart = dp(12); marginEnd = dp(64 + 2) })
+        plate.addView(side, FrameLayout.LayoutParams(dp(64), MATCH, Gravity.END))
         addView(plate, LayoutParams(0, h, 1f).apply { marginStart = dp(10) })
         if (bar) {
             nextBtn = square(R.drawable.ic_skip_next) { MusicPlayer.next() }.also { addView(it, LayoutParams(h, h).apply { marginStart = dp(10) }) }
@@ -661,7 +668,6 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
             // 1267-1309 at 2155): the first eight points are the tap's room -- standing in it, the plate's hold copies the name
             // (copyTitle) instead of the platform's old context menu, which 2155 no longer carries; leaving it is a swipe.
             plate.setOnTouchListener { v, e ->
-                val f = (e.x / v.width).toDouble().coerceIn(0.0, 1.0)
                 when (e.actionMasked) {
                     MotionEvent.ACTION_DOWN -> {
                         v.parent.requestDisallowInterceptTouchEvent(true); scrub = null; longPressed = false
@@ -671,7 +677,14 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
                     }
                     MotionEvent.ACTION_MOVE -> {
                         if (scrub == null && kotlin.math.abs(e.x - downX) < dp(8) && kotlin.math.abs(e.y - downY) < dp(8)) true
-                        else { mainHandler.removeCallbacks(longPressRunnable); scrub = f; show(f); true }
+                        else {
+                            // THE PLATE IS TAKEN ANYWHERE (iOS MontanaSliderView grab): leaving the tap's room, the fill's edge keeps
+                            // its distance from the finger and moves by the finger's own travel -- nothing jumps under it
+                            mainHandler.removeCallbacks(longPressRunnable)
+                            if (scrub == null) grabDx = e.x - v.width * shownF.toFloat()
+                            val g = ((e.x - grabDx) / v.width).toDouble().coerceIn(0.0, 1.0)
+                            scrub = g; show(g); true
+                        }
                     }
                     MotionEvent.ACTION_UP -> {
                         mainHandler.removeCallbacks(longPressRunnable)
@@ -706,11 +719,12 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
         context.getSystemService(android.content.ClipboardManager::class.java)
             ?.setPrimaryClip(android.content.ClipData.newPlainText("", name))
         performHapticFeedback(if (android.os.Build.VERSION.SDK_INT >= 30) android.view.HapticFeedbackConstants.CONFIRM else android.view.HapticFeedbackConstants.LONG_PRESS)
-        val check = context.getDrawable(R.drawable.ic_check)?.mutate()?.apply { setTint(Color.WHITE); val k = title.textSize.toInt(); setBounds(0, 0, k, k) }
-        title.setCompoundDrawablesRelative(check, null, null, null); title.compoundDrawablePadding = dp(4)
-        title.text = context.getString(R.string.copied)
+        val check = context.getDrawable(R.drawable.ic_check)?.mutate()?.apply { setTint(Color.WHITE); val k = copiedWord.textSize.toInt(); setBounds(0, 0, k, k) }
+        copiedWord.setCompoundDrawablesRelative(check, null, null, null); copiedWord.compoundDrawablePadding = dp(4)
+        copiedWord.text = context.getString(R.string.copied)
+        copiedWord.visibility = View.VISIBLE; title.visibility = View.INVISIBLE
         copiedUntil = System.currentTimeMillis() + 2000
-        mainHandler.postDelayed({ if (copiedUntil <= System.currentTimeMillis()) { title.setCompoundDrawablesRelative(null, null, null, null); showTitle() } }, 2000)
+        mainHandler.postDelayed({ if (copiedUntil <= System.currentTimeMillis()) { copiedWord.visibility = View.GONE; title.visibility = View.VISIBLE; showTitle() } }, 2000)
     }
 
     private fun square(res: Int, onTap: () -> Unit) = FrameLayout(context).apply {
@@ -765,6 +779,7 @@ class MiniFace(ctx: Context, private val bar: Boolean) : LinearLayout(ctx) {
     }
 
     private fun show(f: Double) {
+        shownF = f
         if (bar && Playing.kind != Playing.Kind.TRACK) side.text = Playing.rateWord()
         else {
             val d = MusicPlayer.duration
@@ -833,22 +848,20 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     private val waves = CoverWaves(stageArt)
     private val cover = android.widget.ImageView(ctx).apply { scaleType = android.widget.ImageView.ScaleType.CENTER_CROP; clipToOutline = true }
     private var coverCorner = 0f
-    private val title = ctx.text("", 17f, bold = true).apply {
-        isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.MARQUEE; marqueeRepeatLimit = -1; isSelected = true
-        isHorizontalFadingEdgeEnabled = true
-    }
+    private val title = Marquee(ctx, 17f, centred = false)   // iOS MTMarquee .body: one pass, then a minute's rest
     private val byline = ctx.text("", 17f, MT.gray).apply { isSingleLine = true; ellipsize = android.text.TextUtils.TruncateAt.END }
     private val wave = ctx.icon(R.drawable.ic_waveform, MT.gray, 17)
     private var waving: android.animation.ObjectAnimator? = null
-    private val elapsed = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
-    private val remain = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum" }
+    // iOS .footnote.weight(.medium).monospacedDigit()
+    private val elapsed = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum"; typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL) }
+    private val remain = ctx.text("", 13f, MT.gray).apply { fontFeatureSettings = "tnum"; typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL) }
     private val line = FrameLayout(ctx)
     private val lineFill = View(ctx).apply { background = ctx.rounded(Color.argb(184, 255, 255, 255), 4) }
     private var scrub: Double? = null
     private val playGlyph = ctx.icon(R.drawable.ic_play_fill, Color.WHITE, 36)
     private val placeNumber = ctx.text("", 13f, MT.gray, bold = true).apply { fontFeatureSettings = "tnum" }
     private val way = ctx.icon(R.drawable.ic_route_phone, MT.blue, 19)
-    private val volume = android.widget.SeekBar(ctx)
+    private val volume = VolumeLine(ctx)
     private val audio = ctx.getSystemService(AudioManager::class.java)
     private val repeatGlyph = ctx.icon(R.drawable.ic_repeat, Color.WHITE, 16)
     private val shuffleGlyph = ctx.icon(R.drawable.ic_shuffle, Color.WHITE, 16)
@@ -907,13 +920,21 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         addView(elapsed, LayoutParams(WRAP, WRAP))
         line.addView(View(ctx).apply { background = ctx.rounded(Color.argb(51, 255, 255, 255), 4) }, FrameLayout.LayoutParams(MATCH, dp(7), Gravity.CENTER_VERTICAL))
         line.addView(lineFill, FrameLayout.LayoutParams(0, dp(7), Gravity.CENTER_VERTICAL))
+        // THE LINE IS TAKEN ANYWHERE (iOS MontanaScrubber grab, MontanaSliderView 234-366): the first eight points are a tap's room
+        // and a lift inside it seeks nothing; leaving it, the fill's edge keeps its distance from the finger and moves by the
+        // finger's own travel, and the player is asked once, at the lift
+        var x0 = 0f; var grabDx = 0f
         line.setOnTouchListener { v, e ->
-            val f = (e.x / v.width).toDouble().coerceIn(0.0, 1.0)
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { v.parent.requestDisallowInterceptTouchEvent(true); scrub = f; clock(f); true }
-                MotionEvent.ACTION_MOVE -> { scrub = f; clock(f); true }
-                MotionEvent.ACTION_UP -> { scrub = null; MusicPlayer.seek(f); true }
-                MotionEvent.ACTION_CANCEL -> { scrub = null; true }
+                MotionEvent.ACTION_DOWN -> { v.parent.requestDisallowInterceptTouchEvent(true); x0 = e.x; scrub = null; true }
+                MotionEvent.ACTION_MOVE -> {
+                    if (scrub == null && kotlin.math.abs(e.x - x0) <= dp(8)) return@setOnTouchListener true
+                    if (scrub == null) grabDx = e.x - v.width * MusicPlayer.fraction.toFloat()
+                    val g = ((e.x - grabDx) / v.width).toDouble().coerceIn(0.0, 1.0)
+                    scrub = g; clock(g); true
+                }
+                MotionEvent.ACTION_UP -> { val held = scrub; scrub = null; if (held != null) MusicPlayer.seek(held); true }
+                MotionEvent.ACTION_CANCEL -> { scrub = null; clock(MusicPlayer.fraction); true }
                 else -> false
             }
         }
@@ -961,16 +982,8 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(14), 0, dp(14), 0)
         addView(ctx.icon(R.drawable.ic_speaker_fill, MT.gray, 12), LayoutParams(dp(12), dp(12)))
-        volume.max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-        volume.progressTintList = android.content.res.ColorStateList.valueOf(Color.argb(184, 255, 255, 255))
-        volume.progressBackgroundTintList = android.content.res.ColorStateList.valueOf(Color.argb(51, 255, 255, 255))
-        volume.thumbTintList = android.content.res.ColorStateList.valueOf(Color.WHITE)
-        volume.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(s: android.widget.SeekBar, v: Int, user: Boolean) { if (user) audio.setStreamVolume(AudioManager.STREAM_MUSIC, v, 0) }
-            override fun onStartTrackingTouch(s: android.widget.SeekBar) { s.parent.requestDisallowInterceptTouchEvent(true) }
-            override fun onStopTrackingTouch(s: android.widget.SeekBar) {}
-        })
-        addView(volume, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(4); marginEnd = dp(4) })
+        volume.contentDescription = ctx.getString(R.string.volume)
+        addView(volume, LayoutParams(0, dp(44), 1f).apply { marginStart = dp(10); marginEnd = dp(10) })
         addView(ctx.icon(R.drawable.ic_speaker_wave3, MT.gray, 12), LayoutParams(dp(12), dp(12)))
     }
 
@@ -1050,7 +1063,8 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     }
     /** The stage: the track's own cover whole with a corner of 14, else the app's icon in its own shape, a little under half the stage. */
     private fun stageShows() {
-        val h = stage.layoutParams.height
+        // the stage's shorter side (iOS MTCoverStage: side = min(width, height)); before its first layout, the head's own width
+        val h = minOf(stage.layoutParams.height, if (stage.width > 0) stage.width else width - paddingLeft - paddingRight)
         val own = shownArt
         val side = if (own != null) h else (h * 0.45f).toInt()
         stageArt.setImageBitmap(own ?: TrackArt.icon(ctx))
@@ -1110,7 +1124,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         repeatGlyph.setImageResource(if (MusicPlayer.repeatOn) R.drawable.ic_repeat_one else R.drawable.ic_repeat)
         repeatGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicPlayer.repeatOn || MusicPlayer.repeatAll) MT.blue else Color.WHITE)
         shuffleGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicPlayer.shuffleOn) MT.blue else Color.WHITE)
-        if (!volume.isPressed) volume.progress = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+        volume.follow()
         val out = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in setOf(
             android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
             android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP, android.media.AudioDeviceInfo.TYPE_USB_HEADSET) }

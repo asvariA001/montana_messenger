@@ -71,6 +71,8 @@ class CoverWaves(private val icon: View) : Drawable(), Choreographer.FrameCallba
     private val place = Matrix()
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; shader = rim }
     private val box = RectF()
+    private val iconBox = RectF()
+    private val hole = android.graphics.Path()
     private val at = IntArray(2)
     private val density = icon.resources.displayMetrics.density
     private var host: View? = null
@@ -133,6 +135,12 @@ class CoverWaves(private val icon: View) : Drawable(), Choreographer.FrameCallba
         val side = icon.width.toFloat()
         val reach = hypot(root.width.toFloat(), root.height.toFloat())
         val now = System.nanoTime() / 1e9
+        // THE RINGS PART FROM UNDER THE ICON (iOS ZStack: the rings, then the icon over them): the icon's own shape is cut out of
+        // the window's layer, so no ring is drawn across the icon
+        val iw = icon.width * icon.scaleX; val ih = icon.height * icon.scaleY
+        iconBox.set(cx - iw / 2, cy - ih / 2, cx + iw / 2, cy + ih / 2)
+        hole.reset(); hole.addRoundRect(iconBox, iw * TrackArt.ICON_CORNER, iw * TrackArt.ICON_CORNER, android.graphics.Path.Direction.CW)
+        c.save(); c.clipOutPath(hole)
         for (w in pulse.waves) {
             val t = (now - w.born) / CoverPulse.LIFE
             if (t < 0 || t >= 1) continue
@@ -146,6 +154,7 @@ class CoverWaves(private val icon: View) : Drawable(), Choreographer.FrameCallba
             paint.alpha = (255 * (0.35 + 0.65 * w.strength) * (1 - t).pow(1.6) * 0.5).toInt().coerceIn(0, 255)
             c.drawRoundRect(box, size * round, size * round, paint)
         }
+        c.restore()
     }
 
     override fun setAlpha(alpha: Int) {}

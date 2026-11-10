@@ -194,6 +194,7 @@
     <string name="no_posts">Posts on your people\'s walls\nwill appear here</string>
     <string name="no_photos">No photos yet</string>
     <string name="no_music">Your music will appear here</string>
+    <string name="volume">Volume</string>
     <string name="track_refused">Could not open the track</string>
     <string name="track_folder_closed">The folder of this track did not open. Lend it again with the plus.</string>
     <!-- The card: the QR code and the link (iOS MontanaCodeView, MontanaCardShare) -->
