@@ -188,7 +188,7 @@ object TrackArt {
     }.also { lock = it }
 
     private fun res(c: Context): android.graphics.Bitmap =
-        android.graphics.BitmapFactory.decodeResource(c.resources, R.drawable.music_icon_art, android.graphics.BitmapFactory.Options().apply { inSampleSize = 2 })
+        android.graphics.BitmapFactory.decodeResource(c.resources, R.drawable.music_icon_art)   // 512 px, iOS AppIconPicture (the coin, 678ff911) drawn down once
     /** Bytes up to the cap, else nothing. */
     private fun read(s: java.io.InputStream): ByteArray? {
         val out = java.io.ByteArrayOutputStream(); val buf = ByteArray(65536)
