@@ -276,7 +276,10 @@ object MusicPlayer {
         app?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(f)
     }
 
-    fun play(c: Context, list: List<Track>, i: Int) {
+    /** Where the queue plays from, as its page heads it (iOS MTQueuePage.from): the one chat's name, the walls, the folders. */
+    var from = ""; private set
+
+    fun play(c: Context, list: List<Track>, i: Int, from: String? = null) {
         if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
         YouTube.rest()   // one sound: YouTube rests where it stands (iOS MontanaMedia 381)
         val a = c.applicationContext
@@ -287,6 +290,7 @@ object MusicPlayer {
             refused?.invoke(R.string.track_folder_closed)
             return
         }
+        from?.let { this.from = it }
         // THE TRACK IN HAND KEEPS ITS MOMENT BEFORE THE NEXT ONE TAKES THE PLAYER (iOS VoicePlayer.toggle:386 at 2155,
         // MTPlayPlaces.keep, the author's word 26.09).
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
