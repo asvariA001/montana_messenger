@@ -150,7 +150,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                         setPadding(dp(16), dp(14), dp(16), dp(14))
                         addView(c.icon(R.drawable.ic_badge, Color.WHITE), lp(dp(26), dp(24)).apply { marginEnd = dp(12) })
                         addView(c.text(c.getString(R.string.choose_callsign), 17f), lp(0, WRAP, 1f))
-                        addView(c.icon(R.drawable.ic_chevron_right, MT.gray))
+                        addView(c.icon(R.drawable.ic_chevron_right, if (onboarding) Color.WHITE else MT.gray))   // on the making only white (iOS a9adf311)
                     }
                     row.pressable { showCallsigns() }
                     addView(row, lp())
@@ -182,7 +182,7 @@ class Profile(private val act: MainActivity, private val onboarding: Boolean, pr
                     addView(c.text(c.getString(R.string.pf_about_footer), 13f, MT.gray).apply { setPadding(dp(16), dp(8), dp(16), 0) })
                 }
                 if (onboarding) {
-                    addView(c.text(c.getString(R.string.profile_onboarding_footer), 13f, MT.gray).apply {
+                    addView(c.text(c.getString(R.string.profile_onboarding_footer), 13f, Color.WHITE).apply {   // iOS a9adf311: no grey on the making
                         setPadding(dp(16), dp(8), dp(16), 0)
                     })
                 }

@@ -151,10 +151,11 @@ class AccentButton(ctx: Context, title: String, onClick: () -> Unit) : LinearLay
  */
 class PathDoor(ctx: Context, title: String, tint: Int? = null, onClick: () -> Unit) : LinearLayout(ctx) {
     private val label = ctx.text(title, 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }
+    private val plate = android.graphics.drawable.GradientDrawable()
     private val spinner = ProgressBar(ctx).apply { indeterminateTintList = ColorStateList.valueOf(Color.WHITE); visibility = View.GONE }
     init {
         orientation = HORIZONTAL; gravity = Gravity.CENTER
-        background = android.graphics.drawable.GradientDrawable().apply {
+        background = plate.apply {
             cornerRadius = ctx.dp(26).toFloat()
             setColor(Color.argb(150, 28, 28, 30))
             // the rim of a clear door is the platform's faint light, of a tinted one its own colour (iOS rim, at 0.45)
@@ -168,7 +169,9 @@ class PathDoor(ctx: Context, title: String, tint: Int? = null, onClick: () -> Un
     }
     fun setTitle(s: String) { label.text = s }
     fun setBusy(busy: Boolean) { spinner.visibility = if (busy) View.VISIBLE else View.GONE; setOn(!busy) }
-    fun setOn(on: Boolean) { isEnabled = on; alpha = if (on) 1f else 0.4f }
+    /** THE WORD NEVER GREYS (iOS a9adf311 MTLoginDoorStyle, the author's picture IMG_3903: «Show Words» dimmed to grey): a door not
+     *  yet open dims its plate and rim alone; its word keeps the full white. */
+    fun setOn(on: Boolean) { isEnabled = on; plate.alpha = if (on) 255 else 102 }
 }
 
 /** iOS Button("Back").font(.caption).foregroundColor(.gray) */
@@ -176,14 +179,14 @@ fun Context.backLink(onClick: () -> Unit) =
     text(getString(R.string.back), 12f, MT.gray, center = true).apply { setPadding(dp(16), dp(8), dp(16), dp(8)); pressable(onClick) }
 
 /** A row with the words on the left and the system switch on the right (SwiftUI Toggle). */
-fun Context.toggleRow(title: String, onChange: (Boolean) -> Unit): LinearLayout {
+fun Context.toggleRow(title: String, size: Float = 15f, onChange: (Boolean) -> Unit): LinearLayout {
     val sw = Switch(this).apply {
         thumbTintList = ColorStateList.valueOf(Color.WHITE)
         trackTintList = ColorStateList(arrayOf(intArrayOf(android.R.attr.state_checked), intArrayOf()), intArrayOf(MT.green, Color.rgb(57, 57, 61)))   // iOS Toggle: the platform's green
         setOnCheckedChangeListener { _, on -> onChange(on) }
     }
     return hstack {
-        addView(text(title, 15f), lp(0, WRAP, 1f))
+        addView(text(title, size), lp(0, WRAP, 1f))
         addView(sw)
         setOnClickListener { sw.toggle() }
     }
@@ -303,7 +306,7 @@ fun Context.loginDoor(glyph: Int, word: String, onClick: () -> Unit): View {
         setPadding(dp(18), 0, dp(18), 0)
         addView(glyphView, lp(dp(26), dp(26)))
         addView(text(word, 17f, Color.WHITE, bold = true, center = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))
-        addView(icon(R.drawable.ic_chevron_right, MT.withAlpha(Color.WHITE, 0.55f), 20))
+        addView(icon(R.drawable.ic_chevron_right, Color.WHITE, 20))   // never grey (iOS a9adf311 MTDoorLabel)
         minimumHeight = dp(52)
     }
     door.isClickable = true
