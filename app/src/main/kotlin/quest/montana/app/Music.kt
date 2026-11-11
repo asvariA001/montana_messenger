@@ -1233,7 +1233,7 @@ class MusicPage(private val act: MainActivity) {
 
     init {
         scroll.addView(rows)
-        view.addView(scroll, FrameLayout.LayoutParams(MATCH, MATCH))
+        view.addView(CoinPull(act, scroll), FrameLayout.LayoutParams(MATCH, MATCH))   // one law for every page under the bar (iOS MontanaTimePanelList at 20f752ae: the coin's pull on the music page, MontanaMusicPlayer 1924 too)
         view.addView(empty, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
         plus.background = act.glassPlate(oval = true)
         plus.addView(plusGlyph, FrameLayout.LayoutParams(act.dp(28), act.dp(28), Gravity.CENTER))

@@ -289,7 +289,9 @@ object Diary {
             .put("lang", java.util.Locale.getDefault().language.take(2)).put("skew_ms", NodeClock.skewMs)
         val body = JSONObject().put("dg", dg).put("file", "tele").put("dev", dev).put("lines", JSONArray(lines))
         val bytes = body.toString().length
-        for (door in Signal.writeOrder("diag")) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"))
+        val doors = Signal.writeOrder("diag", everyDoor = true)
+        if (doors.isEmpty()) android.util.Log.d("Montana", "diag_ship no door lines=" + lines.size)
+        for (door in doors) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"), every door when none lists diag)
             // THE DEADLINE GROWS WITH THE BODY BY THE CARGO ROAD'S ONE RULE (iOS MontanaWakePush 3772-3775, MTNodeWire.cargoTimeoutS 306)
             val (code, answer) = Wire.post(door, "/diag-put", body, Wire.cargoTimeoutMs(bytes))
             if (code == 200) {

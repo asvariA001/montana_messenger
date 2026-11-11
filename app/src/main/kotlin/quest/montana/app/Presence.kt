@@ -175,8 +175,8 @@ object Signal {
     fun elected(): String? = elected ?: Prefs.str(ELECTED, "").ifEmpty { null }?.also { elected = it }
 
     /** The doors of a write (iOS electedFirst 294-297 over the capability's doors, base 300-316): the elected first, elected now if none stands. */
-    fun writeOrder(cap: String): List<String> {
-        val all = Doors.ordered(cap)
+    fun writeOrder(cap: String, everyDoor: Boolean = false): List<String> {
+        val all = if (everyDoor) Doors.bases(cap) else Doors.ordered(cap)
         val e = elected()
         if (e != null && e in all) return listOf(e) + all.filter { it != e }
         val pick = all.firstOrNull { doorAlive(it) } ?: all.firstOrNull() ?: return all

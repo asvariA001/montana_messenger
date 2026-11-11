@@ -111,5 +111,5 @@ fun p2pPane(act: MainActivity): View {
         override fun onViewAttachedToWindow(v: View) { page.post(tick) }
         override fun onViewDetachedFromWindow(v: View) { page.removeCallbacks(tick) }
     })
-    return page
+    return CoinPull(act, page)   // one law for every page under the bar (iOS MontanaTimePanelList at 20f752ae: the coin's pull on the network page, MontanaNetworkView 122 too)
 }
