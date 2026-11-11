@@ -492,7 +492,7 @@ fun chatRow(act: MainActivity, chat: Chat): View {
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(callHandset(act, true, chat.ref), lp(dp(44), dp(44)))   // 15.8 (iOS ChatRow 2143)
-                addView(c.text(chat.shown.ifBlank { c.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(c.text(c.montanaNamed(chat.shown.ifBlank { c.getString(R.string.peer) }, chat.ref, 18), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 addView(callHandset(act, false, chat.ref), lp(dp(44), dp(44)))   // 15.8 (iOS ChatRow 2150)
                 // a muted chat wears the struck bell after its name (iOS ChatRow muted)
                 if (ChatMarks.isMuted(chat.ref)) addView(c.icon(R.drawable.ic_bell_off, MT.gray, 12), lp(dp(12), dp(12)).apply { marginEnd = dp(5) })
@@ -2065,7 +2065,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // ── the bar (iOS chatTop in MTChatTopBar, 8 from each edge): the back on the marks' round, the name's bubble on the rest of the
     // room, a pair's handset at its right ──
     val chat0 = Book.chat(ref)
-    val title = c.text((if (saved) c.getString(R.string.saved_messages) else chat0?.shown?.ifBlank { null }) ?: c.getString(R.string.peer), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
+    val title = c.text(c.montanaNamed((if (saved) c.getString(R.string.saved_messages) else chat0?.shown?.ifBlank { null }) ?: c.getString(R.string.peer), ref, 16), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }   // USER-DATA
     val faceSlot = FrameLayout(c)
     // THE PRESENCE UNDER THE NAME (iOS presenceWord in chatTitleBubble): the words in grey after a dot — green while the person is live
     // («typing…» / «in chat» / «online»), red on «last seen…»; a group's line is its people's count, with no dot
@@ -2120,7 +2120,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     fun drawHead() {
         val ch = Book.chat(ref) ?: return
-        title.text = if (saved) c.getString(R.string.saved_messages) else ch.shown.ifBlank { c.getString(R.string.peer) }
+        title.text = if (saved) c.getString(R.string.saved_messages) else c.montanaNamed(ch.shown.ifBlank { c.getString(R.string.peer) }, ch.ref, 16)
         // Saved Messages wears one's own face (iOS MTChatAvatar: «one's own for the room without an address»)
         val face = if (saved) c.avatar(SelfFace.load(c), Prefs.userName, 36) else c.chatFace(ref, ch.shown, 36)
         faceSlot.removeAllViews(); faceSlot.addView(face, FrameLayout.LayoutParams(c.dp(36), c.dp(36)))

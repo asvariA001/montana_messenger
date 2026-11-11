@@ -936,7 +936,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
     private fun personRow(ch: Chat) = act.hstack {
         setPadding(dp(12), dp(8), dp(12), dp(8))
         addView(act.chatFace(ch.ref, ch.shown, 46), lp(dp(46), dp(46)).apply { marginEnd = dp(12) })
-        addView(act.text(ch.shown.ifBlank { act.getString(R.string.peer) }, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+        addView(act.text(act.montanaNamed(ch.shown.ifBlank { act.getString(R.string.peer) }, ch.ref, 18), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
         pressable { keysAway(); act.push { close -> conversationPage(act, ch.ref, close) } }
     }
     /** A letter found: the face, the name, the hour and the words (iOS messageHitRow); a tap opens the chat on that letter. */
@@ -946,7 +946,7 @@ private class SearchResults(val act: MainActivity) : ScrollView(act) {
         addView(act.vstack(Gravity.NO_GRAVITY) {
             addView(act.hstack {
                 // the chat's own name, whoever wrote the letter (iOS: the one face and the one title of a chat)
-                addView(act.text(ch.shown.ifBlank { act.getString(R.string.peer) }, 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(act.text(act.montanaNamed(ch.shown.ifBlank { act.getString(R.string.peer) }, ch.ref, 16), 15f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
                 addView(act.text(rowTime(act, m.at), 12f, MT.gray))
             }, lp())
             addView(act.text(m.text, 13f, MT.gray).apply { maxLines = 2; ellipsize = android.text.TextUtils.TruncateAt.END }, lp())   // USER-DATA: the letter
