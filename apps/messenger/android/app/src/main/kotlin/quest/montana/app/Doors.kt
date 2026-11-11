@@ -77,6 +77,20 @@ object Doors {
     }
 
     /**
+     * EVERY DOOR STAYS AN ADDRESS (iOS MontanaWakePush.bases(for:) at 20f752ae): the doors holding the capability; when none does,
+     * the doors not yet heard and not silent; when none is left, every door. `ordered` answers «who is proven to hold it» and gives
+     * nothing when the map names none -- so the diary, whose /diag-put no door lists among its capabilities, never left the phone
+     * (A1 911: five doors, none with diag, no diag_ship line at all), while iOS still walked every door and its diaries arrive.
+     */
+    fun bases(cap: String): List<String> {
+        val good = ordered(cap)
+        if (good.isNotEmpty()) return good
+        val all = hosts().map { base(it) }
+        val (known, mute) = synchronized(caps) { HashMap(caps) to HashSet(silent) }
+        return all.filter { it !in known && it !in mute }.ifEmpty { all }
+    }
+
+    /**
      * THE MAP OF WHAT THE DOORS CAN IS WAITED FOR, NOT GUESSED AT (iOS doorsWaited, MontanaGif.swift 381-397 at 2155): when the map has
      * nothing to say of a capability, one round of the doors is run and the map asked again — once, and only then.
      */

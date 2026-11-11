@@ -101,5 +101,5 @@ fun meshPane(act: MainActivity): View {
         override fun onViewAttachedToWindow(v: View) { page.post(tick) }
         override fun onViewDetachedFromWindow(v: View) { page.removeCallbacks(tick) }
     })
-    return page
+    return CoinPull(act, page)   // one law for every page under the bar (iOS MontanaTimePanelList at 20f752ae: the coin's pull on the mesh page, MontanaMeshView 210 too)
 }
