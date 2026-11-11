@@ -777,6 +777,8 @@
     <string name="queue_title">Сейчас играет</string>
     <string name="queue_from">Играет из: %1$s</string>
     <string name="queue_walls">Стены</string>
+    <string name="track_source">Источник</string>
+    <string name="track_chat">Чат</string>
     <string name="queue_show">Показать в плейлисте</string>
     <string name="queue_reverse">Обратный порядок</string>
     <string name="queue_reorder">Изменить порядок</string>

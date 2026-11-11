@@ -777,6 +777,8 @@
     <string name="queue_title">正在播放</string>
     <string name="queue_from">播放来源：%1$s</string>
     <string name="queue_walls">留言墙</string>
+    <string name="track_source">来源</string>
+    <string name="track_chat">聊天</string>
     <string name="queue_show">在播放列表中显示</string>
     <string name="queue_reverse">倒序</string>
     <string name="queue_reorder">调整顺序</string>

@@ -722,7 +722,7 @@ private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearL
     val c: Context = act
     val feed = msgs.reversed()   // the conversation's own order: a queue walks forward from the one tapped
     val days = msgs.groupBy { dayWord(c, it.at) }   // groupBy keeps the order of first appearance: newest day first
-    val tracks = if (tab == Tab.MUSIC) feed.mapNotNull { m -> itemOf(m)?.let { i -> i.file?.let { f -> Track(Uri.fromFile(f), i.name ?: f.name) } } } else emptyList()
+    val tracks = if (tab == Tab.MUSIC) feed.mapNotNull { m -> itemOf(m)?.let { i -> i.file?.let { f -> Track(Uri.fromFile(f), i.name ?: f.name).apply { chat = from; chatTitle = from; mid = m.mid } } } } else emptyList()
     val voices = if (tab == Tab.VOICE) feed.filter { m -> itemOf(m)?.file != null } else emptyList()
     fun playVoice(m: Msg) {
         val f = itemOf(m)?.file ?: return
@@ -764,7 +764,7 @@ private fun paneRows(act: MainActivity, tab: Tab, msgs: List<Msg>, into: LinearL
                     // the one playing pauses and goes on; another starts the queue at itself
                     if (uri != null) {
                         if (MusicPlayer.current?.uri == uri) MusicPlayer.toggle()
-                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i, from) }
+                        else tracks.indexOfFirst { t -> t.uri == uri }.takeIf { i -> i != -1 }?.let { i -> MusicPlayer.play(act, tracks, i) }
                     }
                 }, lp().apply { bottomMargin = c.dp(8) })
             }

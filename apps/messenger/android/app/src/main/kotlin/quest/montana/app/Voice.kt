@@ -521,6 +521,7 @@ fun isTrackLetter(m: Msg, man: JSONObject?): Boolean =
  */
 private fun chatTracks(c: Context, chat: Chat): List<Pair<String, Track>> {
     val app = c.applicationContext
+    val title = roomTitle(c, chat); val ref = chat.ref
     return chat.msgs.toList().mapNotNull { r ->
         val man = Media.manifestOf(r)
         if (!isTrackLetter(r, man) || man == null || OldRecordings.caption(man)) return@mapNotNull null
@@ -529,7 +530,7 @@ private fun chatTracks(c: Context, chat: Chat): List<Pair<String, Track>> {
             val dest = Media.file(app, r.mid, man.optString("e"))
             Streams.address(app, dest, man) { Media.landed(app, chat.ref, r.mid, man, dest, own = r.mine) } ?: return@mapNotNull null
         }
-        r.mid to Track(uri, name).apply { length = man.optDouble("du", 0.0) }
+        r.mid to Track(uri, name).apply { length = man.optDouble("du", 0.0); this.chat = ref; chatTitle = title; mid = r.mid; at = r.at / 1000.0 }
     }
 }
 
