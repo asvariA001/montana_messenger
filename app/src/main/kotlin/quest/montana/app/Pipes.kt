@@ -999,10 +999,15 @@ object Wire {
      */
     private fun mirror(bid: String, data: ByteArray, cargo: String?, last: Boolean, taken: String) {
         val takenHost = android.net.Uri.parse(taken).host
-        val doors = Doors.ordered("blob").filter { Signal.doorAlive(it) }
+        // A RESTING DOOR IS ASKED LAST, NEVER LEFT OUT (iOS restingLast and copyDoor(of:), 996b13f7, T1 10.11 20:32Z): a voice put
+        // 56 s after a change of network found the second machine's door resting, the copy passed it over without a word and the
+        // piece lay on one machine for 52 minutes. A machine with no door at all says so in the diary.
+        val all = Doors.ordered("blob")
+        val doors = all.filter { Signal.doorAlive(it) } + all.filter { !Signal.doorAlive(it) }
         for ((id, hosts) in Doors.machineHosts()) {
             if (takenHost != null && takenHost in hosts) continue
-            val door = doors.firstOrNull { android.net.Uri.parse(it).host in hosts } ?: continue
+            val door = doors.firstOrNull { android.net.Uri.parse(it).host in hosts }
+                ?: run { Log.d("Montana", "blob_bgup no door copy=" + bid.take(8) + " to=" + id); null } ?: continue
             Thread {
                 val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
                 if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
@@ -2717,18 +2722,29 @@ object Post {
         val bids = if (o.has("mref")) listOf(o.optString("mref"))
             else o.optJSONArray("chunks")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("bid") } }.orEmpty()
         if (bids.none { it.isNotEmpty() }) return
+        // ONE QUESTION ABOUT A LETTER'S CARGO AT A TIME (iOS cargoAsking, 996b13f7, T1 10.11 21:24:33Z): two reports in one
+        // millisecond ran two verdicts side by side; a second report waits for the first one's end and is not asked again.
+        if (!cargoAsking.add(lost)) { Log.d("Montana", "cargo_check m=" + lost.take(8) + " already asked — one verdict for a letter"); return }
+        val asked = m.text
         Log.d("Montana", "cargo_lost m=" + lost.take(8) + " receiver reported: cargo gone — verifying against the node now")
         Thread {
-            val have = Wire.blobsHave(bids.filter { it.isNotEmpty() }, everyStore = true) ?: return@Thread
-            val gone = bids.count { it.isNotEmpty() && it !in have }
-            if (gone == 0) return@Thread
-            Log.d("Montana", "cargo_lost m=" + lost.take(8) + " sender check: " + gone + "/" + bids.size + " chunks gone from the node — red if the letter still rides")
-            if (copy != null) { Groups.copyLost(lost); return@Thread }   // a receipted copy has left the group's list: no verdict
-            var red: Msg? = null
-            Book.edit(ref) { c -> c.msgs.find { it.mid == lost && it.mine }?.let { if (it.advance(-1)) red = it } }
-            red?.let { CoinSend.hold(it, ref) }
+            try {
+                val have = Wire.blobsHave(bids.filter { it.isNotEmpty() }, everyStore = true) ?: return@Thread
+                val gone = bids.count { it.isNotEmpty() && it !in have }
+                if (gone == 0) return@Thread
+                Log.d("Montana", "cargo_lost m=" + lost.take(8) + " sender check: " + gone + "/" + bids.size + " chunks gone from the node — red if the letter still rides")
+                if (copy != null) { Groups.copyLost(lost); return@Thread }   // a receipted copy has left the group's list: no verdict
+                // THE VERDICT IS THE ASKED LETTER'S ALONE (iOS sentenced(m, born:)): a letter laid again under the same name while the
+                // node was asked carries another manifest -- the answer describes nothing that rides now
+                var red: Msg? = null
+                var stale = true
+                Book.edit(ref) { c -> c.msgs.find { it.mid == lost && it.mine && it.text == asked }?.let { stale = false; if (it.advance(-1)) red = it } }
+                if (stale) Log.d("Montana", "cargo_check m=" + lost.take(8) + " stale — the letter was laid again while the node was asked; no verdict")
+                red?.let { CoinSend.hold(it, ref) }
+            } finally { cargoAsking.remove(lost) }
         }.start()
     }
+    private val cargoAsking: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
 
     /** The pipe a first letter gives birth to: the chat with the writer's name, the face beside the pipe read, the letter placed and answered. */
     private fun land(secret: ByteArray, root: ByteArray, mid: String, text: String, name0: String): Boolean {
