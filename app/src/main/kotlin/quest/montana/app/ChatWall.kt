@@ -50,9 +50,9 @@ object ChatWall {
         "default" to R.string.wall_default, "black" to R.string.wall_black, "dark" to R.string.wall_dark, "blue" to R.string.wall_blue,
         "sky" to R.string.wall_sky, "dusk" to R.string.wall_dusk, "water" to R.string.wall_water, "aurora" to R.string.wall_aurora,
         "burgundy" to R.string.wall_burgundy, "rose" to R.string.wall_rose, "forest" to R.string.wall_forest)
-    /** THE ONE DEFAULT (iOS MTWallpaper.byDefault): my page's ground is the app's own dark ground with the Montana pattern until
-     *  I choose another (the gold's place until 23.10.2026). */
-    const val BY_DEFAULT = "default"
+    /** THE ONE DEFAULT (iOS MTWallpaper.byDefault, a9adf311, the author's word 11.11.2026: «make the default ground black»): my page's
+     *  ground is the black until I choose another (the patterned dark until 11.11, the gold's place until 23.10.2026). */
+    const val BY_DEFAULT = "black"
     /** Indigo keeps the name it was born with (iOS MTWallpaper.indigo): phones store «aurora» and correspondents receive «n:aurora». */
     const val INDIGO = "aurora"
     /** THE GOLD GROUND IS GONE WHOLE (iOS MTWallpaper.retired, b05ee13f; the author's words 23.10.2026 02:09 and 12:50 MSK: «remove the

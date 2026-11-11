@@ -35,10 +35,11 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     private var nodeHost = ""
     /** The person walked on without the copy: its late answer no longer speaks on this screen. */
     private var walkedOn = false
-    /** ONE INDIGO FROM THE FIRST PAGE TO THE LAST (iOS c093818f at 2351, the author's words 02.11.2026 21:35 MSK: «it must be ONE ON
-     *  ALL PAGES -- INDIGO from the 1st page of creation and login to the last, and not change along the way»): the login, the making
-     *  and the restoring stand on the one indigo, never the burgundy, never switched at «Create»; Appearance changes it afterwards. */
-    private val ground = View(act).apply { background = GroundPaint(act, ChatWall.INDIGO) }
+    /** ONE BLACK FROM THE FIRST PAGE TO THE LAST, EVERY WORD WHITE (iOS a9adf311, the author's word 11.11.2026: «on the whole path of
+     *  creating an identity remove the grey colour of the text and make everything white so that everything reads easily -- make the
+     *  default ground black»; it turns the one indigo of iOS c093818f): the login, the making and the restoring stand on the default
+     *  ground, the black, never switched at «Create»; Appearance changes it afterwards. */
+    private val ground = View(act).apply { background = GroundPaint(act, ChatWall.BY_DEFAULT) }
 
     init {
         view.addView(ground, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -48,7 +49,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
 
     private fun go(step: Int) {
         content.removeAllViews()
-        act.setBackdrop(null)   // the indigo under every step (ground)
+        act.setBackdrop(null)   // the black under every step (ground)
         val page: View = when (step) {
             0 -> if (montanaRoad) intro() else doors()
             1 -> responsibility()
@@ -93,7 +94,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(18)
         addView(c.text("Montana", 40f, Color.WHITE, bold = true, center = true))   // iOS Color.accentColor: white in the dark
         gap(18)
-        addView(c.text(c.getString(R.string.intro_tagline), 15f, MT.gray, center = true).apply { setPadding(dp(20), 0, dp(20), 0) })
+        addView(c.text(c.getString(R.string.intro_tagline), 17f, Color.WHITE, center = true).apply { setPadding(dp(20), 0, dp(20), 0) })
         gap(18)
         addView(c.vstack(Gravity.NO_GRAVITY) {
             privRow(R.drawable.ic_key, R.string.priv_words_title, R.string.priv_words_sub); gap(12)
@@ -110,7 +111,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(18)
         addView(PathDoor(c, c.getString(R.string.open_identity)) { go(4) }, lp())
         gap(18)
-        addView(c.text(versionFooter(c), 11f, MT.withAlpha(MT.gray, 0.7f), center = true))
+        addView(c.text(versionFooter(c), 13f, Color.WHITE, center = true))
     }
 
     // ── 0: the door (the author's design, iOS 29.09; iOS keeps the Montana door alone) ──
@@ -121,13 +122,13 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(22)
         addView(c.text(c.getString(R.string.sign_in_title), 28f, Color.WHITE, bold = true, center = true))
         gap(6)
-        addView(c.text(c.getString(R.string.sign_in_sub), 17f, MT.gray, center = true))
+        addView(c.text(c.getString(R.string.sign_in_sub), 17f, Color.WHITE, center = true))
         spacer()
         addView(c.loginDoor(R.drawable.logo, c.getString(R.string.continue_montana)) {
             montanaRoad = true; go(0)
         }, lp())
         gap(14)
-        addView(c.linkedText(c.getString(R.string.sign_in_footer), 11f, MT.gray, MT.withAlpha(Color.WHITE, 0.8f)) { url ->
+        addView(c.linkedText(c.getString(R.string.sign_in_footer), 13f, Color.WHITE, Color.WHITE) { url ->
             when (url) {
                 "montana://terms" -> act.showTermsSheet()
                 "montana://privacy" -> runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_URL))) }
@@ -140,8 +141,8 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(c.hstack {
             addView(c.icon(iconRes, Color.WHITE), LinearLayout.LayoutParams(dp(24), dp(24)).apply { marginEnd = dp(16) })
             addView(c.vstack(Gravity.NO_GRAVITY) {
-                addView(c.text(c.getString(title), 15f, Color.WHITE, bold = true))
-                addView(c.text(c.getString(sub), 12f, MT.gray))
+                addView(c.text(c.getString(title), 17f, Color.WHITE, bold = true))
+                addView(c.text(c.getString(sub), 15f, Color.WHITE))
             }, lp(0, WRAP, 1f))
         }, lp())
     }
@@ -165,9 +166,9 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
                 } else {
                     bornWords = keys!!.mnemonic
                     MontanaBirth.begun(keys.mnemonic)   // a making until the profile's checkmark (iOS cfc6ec68)
-                    // THE GROUND IS INDIGO, NOT A STEP (iOS cfc6ec68, the author's word 02.11.2026: «by default let the indigo colour be
-                    // set as the page's ground, and remove the step of choosing the ground from the registration completely»)
-                    ChatWall.set(ChatWall.PAGE, ChatWall.Choice.Named(ChatWall.INDIGO))
+                    // THE GROUND IS THE DEFAULT, NOT A STEP (iOS cfc6ec68: «remove the step of choosing the ground from the registration
+                    // completely»; the default is the black since iOS a9adf311): the person is born on the black
+                    ChatWall.set(ChatWall.PAGE, ChatWall.Choice.Named(ChatWall.BY_DEFAULT))
                     go(1)
                 }
             }
@@ -183,9 +184,9 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(18)
         addView(c.text(c.getString(R.string.resp_title), 20f, Color.WHITE, bold = true, center = true))
         gap(18)
-        addView(c.text(c.getString(R.string.resp_body), 15f, MT.gray))
+        addView(c.text(c.getString(R.string.resp_body), 17f, Color.WHITE))
         gap(18)
-        addView(c.toggleRow(c.getString(R.string.resp_toggle)) { next.setOn(it) }, lp())
+        addView(c.toggleRow(c.getString(R.string.resp_toggle), 17f) { next.setOn(it) }, lp())
         spacer()
         next = PathDoor(c, c.getString(R.string.show_words), MT.blue) { go(2) }.apply { setOn(false) }
         addView(next, lp())
@@ -197,7 +198,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         val words = (bornWords ?: MontanaSeed.mnemonic ?: "").split(' ')
         addView(c.text(c.getString(R.string.seed_title), 20f, Color.WHITE, bold = true, center = true))
         gap(14)
-        addView(c.text(c.getString(R.string.seed_hint), 12f, MT.gray, center = true))
+        addView(c.text(c.getString(R.string.seed_hint), 15f, Color.WHITE, center = true))
         gap(14)
         // Two columns read top to bottom, as on iOS: 1 | 13, 2 | 14, …
         val half = (words.size + 1) / 2
@@ -207,7 +208,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             val cell = c.hstack {
                 background = c.rounded(MT.plate, 8)
                 setPadding(dp(7), dp(7), dp(7), dp(7))
-                addView(c.text("${i + 1}.", 15f, MT.gray).apply { gravity = Gravity.END }, lp(dp(26), WRAP))
+                addView(c.text("${i + 1}.", 15f, Color.WHITE).apply { gravity = Gravity.END }, lp(dp(26), WRAP))
                 gap(6)
                 addView(c.text(words[i], 15f, Color.WHITE, bold = true))
             }
@@ -223,7 +224,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(copy, lp())
         gap(10)
         lateinit var done: PathDoor
-        addView(c.toggleRow(c.getString(R.string.seed_saved)) { done.setOn(it) }, lp())
+        addView(c.toggleRow(c.getString(R.string.seed_saved), 17f) { done.setOn(it) }, lp())
         gap(14)
         done = PathDoor(c, c.getString(R.string.seed_done), MT.blue) { go(3) }.apply { setOn(false) }
         addView(done, lp())
@@ -258,7 +259,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(16)
         addView(c.text(c.getString(R.string.recover_title), 20f, Color.WHITE, bold = true, center = true))
         gap(16)
-        addView(c.text(c.getString(R.string.recover_hint), 12f, MT.gray, center = true))
+        addView(c.text(c.getString(R.string.recover_hint), 15f, Color.WHITE, center = true))
         gap(16)
         val input = field(null, 5)
         addView(input, lp(MATCH, dp(130)))
@@ -341,7 +342,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         }
         addView(bar, lp().apply { marginStart = dp(24); marginEnd = dp(24) })
         gap(8)
-        val pct = c.text("", 12f, MT.gray, center = true)
+        val pct = c.text("", 15f, Color.WHITE, center = true)
         addView(pct, lp())
         spacer()
         // The person may walk on without the copy while nothing is being laid into this device: a copy half laid is
