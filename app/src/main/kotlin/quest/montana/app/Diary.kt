@@ -103,6 +103,7 @@ object Diary {
     @Volatile private var lastFailureShip = 0L
     @Volatile private var refused = 0
     @Volatile private var landedOnce = false
+    @Volatile private var toldOff = false
     private fun failure() {
         val now = System.currentTimeMillis()
         if (now - lastFailureShip <= 5000 || refused > 0) return
@@ -214,7 +215,13 @@ object Diary {
 
     /** The finished generations first, the oldest first, each forgotten once it landed whole; then the live file. */
     @Synchronized private fun pass(c: Context) {
-        if (!consented) return   // the one road out asks the person's yes first (iOS MontanaDiagShip.put)
+        if (!consented) {   // the one road out asks the person's yes first (iOS MontanaDiagShip.put)
+            // SAID ONCE A RUN (A1 913: no diag_ship and no diag_tail for minutes read as a dead road; the switch was simply off)
+            if (!toldOff) android.util.Log.d("Montana", "diag_ship off=no-consent -- the Privacy switch is off, nothing leaves")
+            toldOff = true
+            return
+        }
+        toldOff = false
         val d = dir ?: return
         try { shipAll(c, d) } finally { tellTail(d) }
     }
