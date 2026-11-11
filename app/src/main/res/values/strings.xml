@@ -782,6 +782,8 @@
     <string name="queue_title">Now playing</string>
     <string name="queue_from">Playing from %1$s</string>
     <string name="queue_walls">Walls</string>
+    <string name="track_source">Source</string>
+    <string name="track_chat">Chat</string>
     <string name="queue_show">Show in playlist</string>
     <string name="queue_reverse">Reverse order</string>
     <string name="queue_reorder">Reorder</string>

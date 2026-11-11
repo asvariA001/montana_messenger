@@ -2411,6 +2411,33 @@ private fun postEditor(act: MainActivity, p: JSONObject, onClose: () -> Unit): V
 }
 
 /**
+ * THE TRACKS OF THESE POSTS, EACH ONCE BY ITS FILE (iOS MTBoardPlaylist.tracks): a track on this phone from the disk, another on its own
+ * loader (Board.stream); the `touched` one, once whole, is kept by the touch's road (Board.file). Every one is a post's track (inPost),
+ * the source «Walls» of the music's filter.
+ */
+fun boardTracks(posts: List<Board.Item>, touched: String? = null): List<Track> {
+    val once = HashSet<String>()
+    val out = ArrayList<Track>()
+    for (item in posts) {
+        val ms = item.post.optJSONArray("media") ?: continue
+        val id = item.post.optString("id")
+        for (j in 0 until ms.length()) {
+            val mj = ms.optJSONObject(j) ?: continue
+            if (mj.optString("kind") != "aud") continue
+            val nj = Board.fileOf(item.post, j) ?: continue
+            if (!once.add(nj)) continue
+            val hit = nj == touched
+            val uri = Board.here(item.post, j)?.let { android.net.Uri.fromFile(it) }
+                ?: Board.stream(item.wall, mj, id, j) { if (hit) Thread { Board.file(item.wall, item.post, j) }.start() } ?: continue
+            out.add(Track(uri, mj.optString("name").ifEmpty { nj }).apply {
+                length = mj.optDouble("dur", 0.0); inPost = true; at = item.post.optDouble("at", 0.0)
+            })
+        }
+    }
+    return out
+}
+
+/**
  * THE PAGE IS THE PLAYLIST (iOS MTBoardMediaView.open «aud» and MTBoardPlaylist, MontanaBoardViews.swift:797-809, 844-864 at 2155): the
  * one player plays the touched track, its queue every track of the page the post stands on, each once by its file; a post the page no
  * longer holds plays its own. This phone's player reads a whole file and no loader plays from the first pieces: the touched track comes
@@ -2420,32 +2447,14 @@ private fun playTrack(act: MainActivity, wall: String, p: JSONObject, i: Int, in
     // A TRACK PLAYS FROM ITS FIRST PIECES (iOS MTBoardMediaView's queue, MontanaBoardViews.swift:1032-1050 at 2322): a track on this
     // phone from the disk, another on its own loader (Board.stream); the touched one, once whole, is kept by the touch's road (Board.file)
     val name = Board.fileOf(p, i) ?: return
-    fun tracks(posts: List<Board.Item>): List<Track> {
-        val once = HashSet<String>()
-        val out = ArrayList<Track>()
-        for (item in posts) {
-            val ms = item.post.optJSONArray("media") ?: continue
-            val id = item.post.optString("id")
-            for (j in 0 until ms.length()) {
-                val mj = ms.optJSONObject(j) ?: continue
-                if (mj.optString("kind") != "aud") continue
-                val nj = Board.fileOf(item.post, j) ?: continue
-                if (!once.add(nj)) continue
-                val touched = nj == name
-                val uri = Board.here(item.post, j)?.let { android.net.Uri.fromFile(it) }
-                    ?: Board.stream(item.wall, mj, id, j) { if (touched) Thread { Board.file(item.wall, item.post, j) }.start() } ?: continue
-                out.add(Track(uri, mj.optString("name").ifEmpty { nj }).apply { length = mj.optDouble("dur", 0.0) })
-            }
-        }
-        return out
-    }
+    fun tracks(posts: List<Board.Item>) = boardTracks(posts, name)
     Thread {
         var list = tracks(wallPage(wall, inFeed))
         if (list.none { t -> t.uri.lastPathSegment == name }) list = tracks(listOf(Board.Item(wall, p)))
         val k = list.indexOfFirst { t -> t.uri.lastPathSegment == name }
         val queue = list
         Log.d("Montana", "music board queue n=" + queue.size + " at=" + (k + 1) + " in=" + (if (inFeed) "feed" else "wall"))
-        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k, act.getString(R.string.queue_walls)) }
+        if (k != -1) MainThread.post { MusicPlayer.play(act, queue, k) }
     }.start()
 }
 

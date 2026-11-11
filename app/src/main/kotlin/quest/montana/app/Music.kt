@@ -34,6 +34,16 @@ class Track(val uri: Uri, val file: String) {
     /** The picture its folder holds, when it holds one: the cover of a file that carries none (iOS MTMusicFolders.art). */
     @Volatile var art: Uri? = null
     val title: String get() = tagTitle ?: file.substringBeforeLast('.')
+    /** WHERE IT CAME FROM (iOS MusicTrack.chat/chatTitle/msgId/at/inPost): a letter's chat and its name as the person sees it, the
+     *  letter, the moment it appeared (a lent folder's track: the moment its folder was lent), a post's track, the bytes' size. */
+    @Volatile var chat: String? = null
+    @Volatile var chatTitle: String = ""
+    @Volatile var mid: String? = null
+    @Volatile var at: Double = 0.0
+    @Volatile var inPost = false
+    @Volatile var size = 0L
+    /** A lent folder's track: its document stands in a tree the system's picker lent (iOS MTMusicFolders.isLent). */
+    val lent: Boolean get() = DocumentsContract.isTreeUri(uri)
 }
 
 /**
@@ -60,10 +70,16 @@ object MusicFolders {
     fun closed(t: Track, held: Set<Pair<String?, String>>) =
         DocumentsContract.isTreeUri(t.uri) && (t.uri.authority to DocumentsContract.getTreeDocumentId(t.uri)) !in held
 
+    /** The moment each folder was lent (iOS: a lent folder's tracks stand in the library at that moment); a folder lent before
+     *  this was kept has none and stands before every letter. */
+    private fun lentAt(): org.json.JSONObject = runCatching { org.json.JSONObject(Prefs.str(AT_KEY, "{}")) }.getOrDefault(org.json.JSONObject())
+    private const val AT_KEY = "musicFoldersAt"
+
     fun lend(act: MainActivity, tree: Uri) {
         try { act.contentResolver.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch (_: SecurityException) {}
         val all = lent().filter { it != tree } + tree
         Prefs.setStr(KEY, all.joinToString("\n"))
+        Prefs.setStr(AT_KEY, lentAt().put(tree.toString(), System.currentTimeMillis() / 1000.0).toString())
         walk(act, picked = true)
     }
 
@@ -73,9 +89,12 @@ object MusicFolders {
         walking = picked; said(act)
         act.background {
             val found = ArrayList<Track>()
+            val lentWhen = lentAt()
             for (tree in lent().reversed()) {
                 val here = ArrayList<Track>()
                 try { collect(act, tree, DocumentsContract.getTreeDocumentId(tree), here) } catch (_: Exception) {}
+                val at = lentWhen.optDouble(tree.toString(), 0.0)
+                here.forEach { t -> t.at = at }
                 found += here.sortedBy { it.file.lowercase() }
             }
             tracks = found
@@ -98,7 +117,8 @@ object MusicFolders {
 
     private fun collect(c: Context, tree: Uri, doc: String, out: MutableList<Track>) {
         val kids = DocumentsContract.buildChildDocumentsUriUsingTree(tree, doc)
-        val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE)
+        val cols = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE)
         val here = ArrayList<Track>()
         val pictures = ArrayList<Pair<String, String>>()   // a picture's name and its document
         c.contentResolver.query(kids, cols, null, null, null)?.use { cur ->
@@ -108,7 +128,7 @@ object MusicFolders {
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) collect(c, tree, id, out)
                 else if (mime.startsWith("audio/") || ext in audio) {
                     val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
-                    here += known.getOrPut(uri.toString()) { Track(uri, name) }
+                    here += known.getOrPut(uri.toString()) { Track(uri, name) }.also { t -> if (!cur.isNull(3)) t.size = cur.getLong(3) }
                 } else if (ext in picture) pictures += name to id
             }
         }
@@ -276,10 +296,7 @@ object MusicPlayer {
         app?.getSystemService(AudioManager::class.java)?.abandonAudioFocusRequest(f)
     }
 
-    /** Where the queue plays from, as its page heads it (iOS MTQueuePage.from): the one chat's name, the walls, the folders. */
-    var from = ""; private set
-
-    fun play(c: Context, list: List<Track>, i: Int, from: String? = null) {
+    fun play(c: Context, list: List<Track>, i: Int) {
         if (CallSound.refused("music")) return   // the call holds the sound (iOS MontanaMedia 372)
         YouTube.rest()   // one sound: YouTube rests where it stands (iOS MontanaMedia 381)
         val a = c.applicationContext
@@ -290,7 +307,6 @@ object MusicPlayer {
             refused?.invoke(R.string.track_folder_closed)
             return
         }
-        from?.let { this.from = it }
         // THE TRACK IN HAND KEEPS ITS MOMENT BEFORE THE NEXT ONE TAKES THE PLAYER (iOS VoicePlayer.toggle:386 at 2155,
         // MTPlayPlaces.keep, the author's word 26.09).
         mp?.takeIf { prepared }?.let { p -> current?.let { t -> PlayPlaces.keep(t.file, p.currentPosition / 1000.0, p.duration / 1000.0, false) } }
@@ -410,6 +426,12 @@ object MusicPlayer {
         playing?.let { f -> index = queue.indexOfFirst { it.file == f } }
         android.util.Log.d("Montana", "music_queue reversed n=${queue.size} playing_at=${index + 1}")
         said()
+    }
+    /** A source chosen holds the playing track (iOS MTTrackSource.listen): its tracks become the queue, the track plays on where it stands. */
+    fun requeue(list: List<Track>, i: Int) {
+        queue = list; index = i
+        android.util.Log.d("Montana", "music_queue source n=${queue.size} playing_at=${index + 1}")
+        changed()
     }
     /** The playing track's picture landed (TrackArt): the plate and the lock screen take it at once. */
     fun landed() = changed()
@@ -865,6 +887,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
     private val audio = ctx.getSystemService(AudioManager::class.java)
     private val repeatGlyph = ctx.icon(R.drawable.ic_repeat, Color.WHITE, 16)
     private val shuffleGlyph = ctx.icon(R.drawable.ic_shuffle, Color.WHITE, 16)
+    private val filterGlyph = ctx.icon(R.drawable.ic_filter_decrease, Color.WHITE, 16)
     private var shownKey = ""
     private var shownArt: android.graphics.Bitmap? = null
     private var copiedUntil = 0L
@@ -987,9 +1010,8 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         addView(ctx.icon(R.drawable.ic_speaker_wave3, MT.gray, 12), LayoutParams(dp(12), dp(12)))
     }
 
-    /** THE ROUND BUTTONS UNDER THE PLATE (iOS head 599-627): the repeat and the shuffle lit in the platform's blue while on, the
-     *  search, the share -- the same space between every two and at both ends. (iOS's source filter has no other source here:
-     *  the Android music is the lent folders alone.) */
+    /** THE ROUND BUTTONS UNDER THE PLATE (iOS head 599-647): the repeat and the shuffle lit in the platform's blue while on, the
+     *  search, the source's filter, the share -- the same space between every two and at both ends. */
     private fun buttons() = LinearLayout(ctx).apply {
         orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         fun round(glyph: View, act: () -> Unit) = FrameLayout(ctx).apply {
@@ -1012,18 +1034,71 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         space()
         addView(round(ctx.icon(R.drawable.ic_search, Color.WHITE, 16)) { onSearch() }, LayoutParams(dp(44), dp(44)))
         space()
+        lateinit var filter: View
+        filter = round(filterGlyph) { pickSource(filter) }.apply { contentDescription = ctx.getString(R.string.track_source) }
+        addView(filter, LayoutParams(dp(44), dp(44)))
+        space()
         addView(round(ctx.icon(R.drawable.ic_share, Color.WHITE, 16)) { share() }.apply { contentDescription = ctx.getString(R.string.share) }, LayoutParams(dp(44), dp(44)))
         space()
+    }
+
+    /**
+     * THE SOURCE'S FILTER, TO THE RIGHT OF THE SEARCH (iOS MTPlayerHead.filter, MontanaMusicPlayer.swift:667-700 at 956efd5b; the
+     * author's word 30.09 ~00:55): the platform's own menu -- every track, the chats', the walls', the folders', and, when the
+     * letters came from more than one chat, one chat's -- the choice checked; the round glows in the platform's blue while a source
+     * other than every track is chosen. A choice makes that source the queue (MusicSource.listen).
+     */
+    private fun pickSource(anchor: View) {
+        val act = ctx as? MainActivity ?: return
+        val now = MusicSource.chosen
+        val each = MusicSource.chats()
+        val ink = ctx.obtainStyledAttributes(intArrayOf(android.R.attr.textColorPrimary)).let { t -> t.getColorStateList(0).also { t.recycle() } }
+        android.widget.PopupMenu(ctx, anchor).apply {
+            if (29 <= android.os.Build.VERSION.SDK_INT) setForceShowIcon(true)
+            fun item(id: Int, word: Int, icon: Int, s: TrackSource) =
+                menu.add(1, id, id, word).setIcon(icon).setCheckable(true).setChecked(now == s).also { it.iconTintList = ink }
+            item(1, R.string.cf_all, R.drawable.ic_queue_music, TrackSource.All)
+            item(2, R.string.chats, R.drawable.ic_bar_chats, TrackSource.Chats)
+            item(3, R.string.queue_walls, R.drawable.ic_text_below_photo, TrackSource.Walls)
+            item(4, R.string.cf_folders, R.drawable.ic_folder, TrackSource.Folders)
+            menu.setGroupCheckable(1, true, true)
+            if (1 < each.size) {
+                val sub = menu.addSubMenu(2, 5, 5, R.string.track_chat)
+                sub.item.setIcon(R.drawable.ic_quote_bubble).iconTintList = ink
+                // USER-DATA: the chat's name as the person sees it
+                each.forEachIndexed { k, (ref, title) -> sub.add(3, 100 + k, k, title).setCheckable(true).setChecked(now == TrackSource.One(ref)) }
+                sub.setGroupCheckable(3, true, true)
+            }
+            setOnMenuItemClickListener { item ->
+                val s = when (val id = item.itemId) {
+                    1 -> TrackSource.All
+                    2 -> TrackSource.Chats
+                    3 -> TrackSource.Walls
+                    4 -> TrackSource.Folders
+                    in 100 until 100 + each.size -> TrackSource.One(each[id - 100].first)
+                    else -> return@setOnMenuItemClickListener false
+                }
+                android.util.Log.d("Montana", "music_source pick " + (if (s is TrackSource.One) "chat" else s.javaClass.simpleName.lowercase()))
+                MusicSource.listen(act, s)
+                tintFilter()
+                true
+            }
+        }.show()
+    }
+    private fun tintFilter() {
+        filterGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicSource.chosen == TrackSource.All) Color.WHITE else MT.blue)
     }
 
     /** «SHARE» HANDS THE FILE (iOS MontanaPlayerBar.share): the lent track's own document, by the platform's own sheet. */
     private fun share() {
         val t = MusicPlayer.current ?: return
         android.util.Log.d("Montana", "music player share")
-        val send = Intent(Intent.ACTION_SEND).setType(ctx.contentResolver.getType(t.uri) ?: "audio/*")
-            .putExtra(Intent.EXTRA_STREAM, t.uri).putExtra(Intent.EXTRA_TITLE, t.title)   // USER-DATA: the track's own name
+        // a chat's track lies in this app's own files: it leaves through the app's provider, as a film does (FilmActivity.share)
+        val uri = if (t.uri.scheme == "file") t.uri.path?.let { Media.uri(ctx, java.io.File(it)) } ?: return else t.uri
+        val send = Intent(Intent.ACTION_SEND).setType(ctx.contentResolver.getType(uri) ?: "audio/*")
+            .putExtra(Intent.EXTRA_STREAM, uri).putExtra(Intent.EXTRA_TITLE, t.title)   // USER-DATA: the track's own name
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        send.clipData = android.content.ClipData.newRawUri(t.title, t.uri)
+        send.clipData = android.content.ClipData.newRawUri(t.title, uri)
         runCatching { ctx.startActivity(Intent.createChooser(send, null)) }
     }
 
@@ -1124,6 +1199,7 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
         repeatGlyph.setImageResource(if (MusicPlayer.repeatOn) R.drawable.ic_repeat_one else R.drawable.ic_repeat)
         repeatGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicPlayer.repeatOn || MusicPlayer.repeatAll) MT.blue else Color.WHITE)
         shuffleGlyph.imageTintList = android.content.res.ColorStateList.valueOf(if (MusicPlayer.shuffleOn) MT.blue else Color.WHITE)
+        tintFilter()
         volume.follow()
         val out = audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS).any { it.type in setOf(
             android.media.AudioDeviceInfo.TYPE_WIRED_HEADPHONES, android.media.AudioDeviceInfo.TYPE_WIRED_HEADSET,
@@ -1135,7 +1211,8 @@ class PlayerHead(private val ctx: Context) : LinearLayout(ctx) {
 // ─────────────────────────── the music page (iOS MusicTabView) ───────────────────────────
 
 /**
- * THE MUSIC PAGE: every track of the lent folders as a row in the mini's face, newest folder first; the whole row is one
+ * THE MUSIC PAGE: every track of the library (MusicLibrary: the chats' music on this phone and the lent folders) as a row in the
+ * mini's face, newest first; the whole row is one
  * target — a still track plays with the list as its queue, the playing one rests or plays on. The plus at the bottom right
  * lends a folder through the system's own picker and turns while the folder just picked is walked.
  */
@@ -1167,6 +1244,8 @@ class MusicPage(private val act: MainActivity) {
         // the plus (iOS MTChatListFrame numbered, MontanaMusicPlayer.swift:1879 at 2155)
         ListFrame.attach(view, "music", corner = plus, rows = rows)
         MusicFolders.listeners += { if (view.isAttachedToWindow || view.parent != null) fill() }
+        MusicLibrary.listeners += { if (view.isAttachedToWindow || view.parent != null) fill() }
+        MusicLibrary.wanted = { view.isAttachedToWindow }
         MusicPlayer.listeners += { ringChanged() }
         // a track refused while the app is away (the next one, from the shade) is only not played: no window without a page
         MusicPlayer.refused = { word -> if (!act.isFinishing && !act.isDestroyed) AlertDialog.Builder(act).setMessage(word).setPositiveButton(R.string.ok, null).show() }
@@ -1187,22 +1266,25 @@ class MusicPage(private val act: MainActivity) {
      */
     private fun shown(): List<Track> {
         val q = fold(query.trim())
-        if (q.isEmpty()) return MusicFolders.tracks
-        return MusicFolders.tracks.filter { t -> listOf(t.title, t.file, t.artist ?: "", place(t)).any { fold(it).contains(q) } }
+        val all = MusicLibrary.list
+        if (q.isEmpty()) return all
+        return all.filter { t -> listOf(t.title, t.file, t.artist ?: "", place(t)).any { fold(it).contains(q) } }
     }
-    /** Where the track lies: its folder's path inside the lent tree (the document's own id, «primary:Music/Rock/a.mp3»). */
-    private fun place(t: Track): String = try {
+    /** Where the track lies: its chat as it is named now, or its folder's path inside the lent tree (the document's own id,
+     *  «primary:Music/Rock/a.mp3»), as iOS MusicTab.place. */
+    private fun place(t: Track): String = if (!t.lent) t.chat?.let { r -> Book.chat(r)?.let { roomTitle(act, it) } } ?: t.chatTitle else try {
         android.provider.DocumentsContract.getDocumentId(t.uri).substringAfter(':').substringBeforeLast('/', "")
     } catch (_: Exception) { "" }
     /** Letter case and marks aside (iOS localizedStandardContains). */
     private fun fold(s: String) = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{Mn}+"), "")
 
     fun fill() {
+        MusicLibrary.ask(act)   // stale after a change of the letters or the folders: built again, and this page filled once it lands
         val list = shown()
         spinner.visibility = if (MusicFolders.walking) View.VISIBLE else View.GONE
         plusGlyph.visibility = if (MusicFolders.walking) View.GONE else View.VISIBLE
         // an empty narrowing says «Nothing found» (the catalog's own key), an empty library «No music»
-        empty.text = act.getString(if (MusicFolders.tracks.isNotEmpty() && list.isEmpty()) R.string.nothing_found else R.string.no_music)
+        empty.text = act.getString(if (MusicLibrary.list.isNotEmpty() && list.isEmpty()) R.string.nothing_found else R.string.no_music)
         empty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
         rows.removeAllViews()
         list.forEachIndexed { i, t ->
@@ -1211,7 +1293,7 @@ class MusicPage(private val act: MainActivity) {
             val cur = MusicPlayer.current?.uri == t.uri
             face.still(t, cur, cur && MusicPlayer.playing)
             face.setOnClickListener {
-                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i, act.getString(R.string.cf_folders))   // the queue is the list as it stands
+                if (MusicPlayer.current?.uri == t.uri) MusicPlayer.toggle() else MusicPlayer.play(act, list, i)   // the queue is the list as it stands
             }
             face.play.setOnClickListener { face.performClick() }
             rows.addView(face, LinearLayout.LayoutParams(MATCH, WRAP))
@@ -1235,6 +1317,6 @@ class MusicPage(private val act: MainActivity) {
         val now = MusicPlayer.current?.uri?.toString()
         if (now == lastRing && MusicPlayer.playing == lastPlaying) return
         lastRing = now; lastPlaying = MusicPlayer.playing
-        MusicFolders.tracks.forEach { t -> faces[t.uri.toString()]?.still(t, t.uri.toString() == now, t.uri.toString() == now && MusicPlayer.playing) }
+        MusicLibrary.list.forEach { t -> faces[t.uri.toString()]?.still(t, t.uri.toString() == now, t.uri.toString() == now && MusicPlayer.playing) }
     }
 }

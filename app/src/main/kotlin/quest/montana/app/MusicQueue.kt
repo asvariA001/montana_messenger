@@ -142,7 +142,7 @@ fun queuePage(act: MainActivity, close: () -> Unit, onPlace: () -> Unit): View {
         val q = MusicPlayer.queue
         // outside the hand's mode a swipe to the left takes a row out (iOS List .onDelete)
         val rows = q.mapIndexed { i, t -> row(i, t, i == MusicPlayer.index).let { r -> if (editing) r else SwipeOut(c, r) { MusicPlayer.dropFromQueue(t.file) } } }
-        if (q.isNotEmpty()) body.section(c.getString(R.string.queue_from, MusicPlayer.from.ifBlank { c.getString(R.string.cf_all) }), null, *rows.toTypedArray())
+        if (q.isNotEmpty()) body.section(c.getString(R.string.queue_from, MusicSource.from(c, MusicPlayer.queue).ifBlank { c.getString(R.string.cf_all) }), null, *rows.toTypedArray())
         // the page opens on the track that plays, in the middle (iOS proxy.scrollTo(file, anchor: .center))
         if (!placed) rows.getOrNull(MusicPlayer.index)?.let { r ->
             placed = true
