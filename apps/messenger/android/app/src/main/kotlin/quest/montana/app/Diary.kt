@@ -102,6 +102,8 @@ object Diary {
      */
     @Volatile private var lastFailureShip = 0L
     @Volatile private var refused = 0
+    @Volatile private var landedOnce = false
+    @Volatile private var toldOff = false
     private fun failure() {
         val now = System.currentTimeMillis()
         if (now - lastFailureShip <= 5000 || refused > 0) return
@@ -213,7 +215,13 @@ object Diary {
 
     /** The finished generations first, the oldest first, each forgotten once it landed whole; then the live file. */
     @Synchronized private fun pass(c: Context) {
-        if (!consented) return   // the one road out asks the person's yes first (iOS MontanaDiagShip.put)
+        if (!consented) {   // the one road out asks the person's yes first (iOS MontanaDiagShip.put)
+            // SAID ONCE A RUN (A1 913: no diag_ship and no diag_tail for minutes read as a dead road; the switch was simply off)
+            if (!toldOff) android.util.Log.d("Montana", "diag_ship off=no-consent -- the Privacy switch is off, nothing leaves")
+            toldOff = true
+            return
+        }
+        toldOff = false
         val d = dir ?: return
         try { shipAll(c, d) } finally { tellTail(d) }
     }
@@ -290,6 +298,7 @@ object Diary {
         val body = JSONObject().put("dg", dg).put("file", "tele").put("dev", dev).put("lines", JSONArray(lines))
         val bytes = body.toString().length
         val doors = Signal.writeOrder("diag", everyDoor = true)
+        var lastCode = -1
         if (doors.isEmpty()) android.util.Log.d("Montana", "diag_ship no door lines=" + lines.size)
         for (door in doors) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"), every door when none lists diag)
             // THE DEADLINE GROWS WITH THE BODY BY THE CARGO ROAD'S ONE RULE (iOS MontanaWakePush 3772-3775, MTNodeWire.cargoTimeoutS 306)
@@ -304,14 +313,21 @@ object Diary {
                 val lost = o.optInt("dropped", 0)
                 Signal.doorAnswered(door)
                 if (!ok || lost != 0 || kept != lines.size) {
-                    android.util.Log.d("Montana", "diag_ship refused=kept-nothing ok=" + (if (ok) 1 else 0) + " kept=" + kept + " lost=" + lost + " of=" + lines.size)
+                    folded("diag_ship", "refused=kept-nothing ok=" + (if (ok) 1 else 0) + " kept=" + kept + " lost=" + lost + " of=" + lines.size, 300_000)
                     refused++
                     return false
                 }
+                // THE LANDING IS SAID ONCE (A1 912: a 200 was silent and a refusal by every door too, so a quiet log proved nothing):
+                // the first landing of a run, and the first after a refusal; the landings between stay quiet
+                if (!landedOnce || refused > 0) android.util.Log.d("Montana", "diag_ship ok door=" + (android.net.Uri.parse(door).host ?: door) + " lines=" + lines.size + (if (refused > 0) " after_refused=" + refused else ""))
+                landedOnce = true
                 refused = 0; return true
             }
+            lastCode = code
             Signal.doorFailed(door, code)
         }
+        // EVERY DOOR REFUSED IS SAID (iOS MontanaDiagShip.put 4972: markFolded «refused=code N lines=M -- every door», window 300)
+        if (doors.isNotEmpty()) folded("diag_ship", "refused=" + (if (lastCode <= 0) "no-answer" else "code " + lastCode) + " lines=" + lines.size + " doors=" + doors.size + " -- every door", 300_000)
         refused++
         return false
     }
