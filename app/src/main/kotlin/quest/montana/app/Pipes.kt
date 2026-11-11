@@ -975,23 +975,30 @@ object Wire {
      * the bytes only when the node lacks them. A walk that knows its chunks are new (their key was drawn this moment) says so and
      * skips the question; a retry after a road that broke mid-answer asks, so a chunk the node took is not carried twice.
      */
-    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false, bulk: Boolean = cargo != null): Boolean {
+    fun putBlob(bid: String, data: ByteArray, cargo: String? = null, last: Boolean = false, assumeAbsent: Boolean = false, bulk: Boolean = cargo != null,
+                quiet: Boolean = false): Boolean {
+        // the quiet wait first, where a wait holds no body and no place (iOS yieldToPerson before MTBulkPuts, 996b13f7)
+        if (bulk && quiet && !BulkPuts.yieldToPerson("put")) return false
         if (!assumeAbsent && blobsHave(listOf(bid))?.contains(bid) == true) { Log.d("Montana", "blob_put already on the node id=" + bid.take(8)); return true }
         // A CHUNK GOES TO THE NEXT LIVE DOOR THE MOMENT THE FIRST ONE DIES (iOS build 1894): the doors that answered on this path
         // first, a resting one last, and every answer taught to the door book — a dead door held a piece its whole minute
         // THE BULK PUTS OF THE WHOLE PHONE ARE THREE IN FLIGHT (iOS MTBulkPuts, 35eef496: T1 18.10, some 400 held puts let go at once
         // built one letter's 8 MB body again and again and four threads died growing their buffers): the rest wait their turn,
-        // from the body's birth to the answer; a copy for the other machines rides after the permit is given back
-        if (bulk) BULK_PUTS.acquire()
-        val taken = (try { Signal.writeOrder("blob").firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } }
-            finally { if (bulk) BULK_PUTS.release() }) ?: return false   // the elected store first (iOS 2007)
+        // from the body's birth to the answer; a copy for the other machines rides after the permit is given back.
+        // THE PLACE IS THE CARGO'S OWN (iOS MTBulkPuts, 996b13f7): a piece waits behind its own cargo, never behind another's,
+        // and the service's quiet puts never hold the person's places (BulkPuts)
+        val place = cargo ?: if (quiet) BulkPuts.SERVICE else ""
+        if (bulk) BulkPuts.enter(place, quiet)
+        // a resting door stands last in the list, not outside it (iOS restingLast, 996b13f7): the living first, in their order
+        val taken = (try { Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } }
+            .firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } }
+            finally { if (bulk) BulkPuts.leave(place, quiet) }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
         // Only the sender, who has just reached a machine, can lay the piece on the others; a failed copy costs the redundancy alone.
         if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
         return true
     }
-    private val BULK_PUTS = java.util.concurrent.Semaphore(3, true)
     /**
      * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
      * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
@@ -1006,7 +1013,10 @@ object Wire {
         val doors = all.filter { Signal.doorAlive(it) } + all.filter { !Signal.doorAlive(it) }
         for ((id, hosts) in Doors.machineHosts()) {
             if (takenHost != null && takenHost in hosts) continue
+            // the list holds no door of the machine (its doors unverified since the launch): any known door of it not proven
+            // to lack the store (iOS copyDoor's second road)
             val door = doors.firstOrNull { android.net.Uri.parse(it).host in hosts }
+                ?: Doors.notProvenWithout("blob").firstOrNull { android.net.Uri.parse(it).host in hosts }
                 ?: run { Log.d("Montana", "blob_bgup no door copy=" + bid.take(8) + " to=" + id); null } ?: continue
             Thread {
                 val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
@@ -1074,9 +1084,57 @@ object Wire {
     private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean): Boolean {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        val code = post(door, "/blob-put", body, cargoTimeoutMs(data.size)).first
+        val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid)
         if (code == 200) Signal.doorAnswered(door) else Signal.doorFailed(door, code)
         return code == 200
+    }
+
+    /**
+     * THE PULSE OF ONE PUT (iOS MTPutPulse, 996b13f7; T1 10.11.2026): a put was judged by the clock of the whole piece (five seconds
+     * and a second a 16 KB -- 56 s for 836 KB), so a door that never took a byte held the piece for all of it. Silence is read from
+     * the bytes: while the body is leaving, no byte handed to the system for the one post deadline is silence; once the whole body
+     * is handed over, the answer has half the piece's own deadline (at least the post deadline) -- the tail may still be leaving
+     * the system's buffer. A silent door is cut and the next door asked.
+     */
+    private fun putPulsed(door: String, body: JSONObject, pieceMs: Int, bid: String): Int {
+        val raw = body.toString().toByteArray(Charsets.UTF_8)
+        val at = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
+        val whole = java.util.concurrent.atomic.AtomicBoolean(false)
+        val over = java.util.concurrent.atomic.AtomicBoolean(false)
+        val cut = java.util.concurrent.atomic.AtomicBoolean(false)
+        var conn: HttpURLConnection? = null
+        val watch = Thread {
+            while (!over.get()) {
+                try { Thread.sleep(500) } catch (_: InterruptedException) { return@Thread }
+                val patience = if (whole.get()) maxOf(POST_DEADLINE_MS, pieceMs / 2) else POST_DEADLINE_MS
+                if (!over.get() && System.currentTimeMillis() - at.get() > patience) { cut.set(true); conn?.disconnect(); return@Thread }
+            }
+        }.apply { isDaemon = true }
+        return try {
+            val c = URL(door + "/blob-put").openConnection() as HttpURLConnection
+            conn = c
+            c.requestMethod = "POST"; c.doOutput = true
+            c.connectTimeout = POST_DEADLINE_MS; c.readTimeout = pieceMs
+            c.setRequestProperty("content-type", "application/json")
+            c.setFixedLengthStreamingMode(raw.size)
+            watch.start()
+            c.outputStream.use { o ->
+                var off = 0
+                while (off < raw.size) {
+                    val n = minOf(16_384, raw.size - off)
+                    o.write(raw, off, n); off += n
+                    at.set(System.currentTimeMillis())
+                }
+            }
+            whole.set(true); at.set(System.currentTimeMillis())
+            val code = c.responseCode
+            c.disconnect()
+            code
+        } catch (_: Exception) {
+            if (cut.get()) Log.d("Montana", "blob_up silent door=" + (android.net.Uri.parse(door).host ?: door) + " id=" + bid.take(8) +
+                (if (whole.get()) " — no answer" else " — took no byte") + ", the next door is asked")
+            -1
+        } finally { over.set(true); watch.interrupt() }
     }
 
     /**
@@ -2244,7 +2302,10 @@ object Post {
     private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
         // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
-        val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0) ?: return false else text0
+        // a state letter's body (the name, the face, «about», the page's ground, the wall's page to a visitor) is the service's cargo:
+        // it stands aside for the person (iOS quietCargo = kind.isState, MontanaDeliveryEngine.attempt, 996b13f7)
+        val hush = stateOf(text0) != null || text0.startsWith(Board.MARK + "{\"t\":\"page\"")
+        val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0, hush) ?: return false else text0
         var body = letterHead(mid, text)
         val quoted = !qt.isNullOrEmpty()
         if (quoted) {
@@ -2305,16 +2366,16 @@ object Post {
      * same letter -- a drain that comes while the seal is in flight joins it and takes its reference.
      */
     private val sealFlights = HashMap<String, Any>()
-    private fun sealLong(mid: String, text: String): String? {
+    private fun sealLong(mid: String, text: String, hush: Boolean = false): String? {
         val flight = synchronized(sealFlights) { sealFlights.getOrPut(mid) { Any() } }
-        return try { synchronized(flight) { sealLongOnce(mid, text) } } finally { synchronized(sealFlights) { sealFlights.remove(mid) } }
+        return try { synchronized(flight) { sealLongOnce(mid, text, hush) } } finally { synchronized(sealFlights) { sealFlights.remove(mid) } }
     }
-    private fun sealLongOnce(mid: String, text: String): String? {
+    private fun sealLongOnce(mid: String, text: String, hush: Boolean): String? {
         Prefs.str("longRef.$mid", "").takeIf { it.isNotEmpty() }?.let { return it }
         val mk = MtBindings.nativeRandom(32) ?: return null
         val sealed = Wire.seal(mk, mid.toByteArray() + 0 + text.toByteArray()) ?: return null
         val bid = Wire.hex(Wire.sha(sealed))
-        if (!Wire.putBlob(bid, sealed, assumeAbsent = true, bulk = true)) return null   // a key drawn this moment: new by construction
+        if (!Wire.putBlob(bid, sealed, assumeAbsent = true, bulk = true, quiet = hush)) return null   // a key drawn this moment: new by construction
         val link = Marks.LONG + JSONObject().put("r", bid).put("k", Base64.encodeToString(mk, Base64.NO_WRAP))
         Prefs.setStr("longRef.$mid", link)
         return link
