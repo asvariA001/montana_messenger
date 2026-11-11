@@ -176,6 +176,9 @@ object Lane {
         } finally { lock.unlock() }
     }
 
+    /** A piece the person waits for (to look at or to play) is in line (iOS MTCargoLane.wanted): the quiet puts stand aside (BulkPuts). */
+    val wanted: Boolean get() { lock.lock(); try { return asks.values.any { it.need != Need.AHEAD } } finally { lock.unlock() } }
+
     /** A reader waits for a piece another stands in the line for: the ask takes the higher place. */
     fun lift(bid: String, need: Need) {
         lock.lock()

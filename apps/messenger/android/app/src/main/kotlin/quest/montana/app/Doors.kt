@@ -57,6 +57,15 @@ object Doors {
     /** Every door of the list in the network's order, no capability asked (iOS MontanaWakePush.orderedBases: the report's road). */
     fun all(): List<String> = hosts().map { base(it) }
 
+    /**
+     * Every door of the list not proven to lack a capability (iOS copyDoor(of:) 996b13f7: candidates() where capsOf is not false):
+     * a door unverified since the launch may hold it. Only a copy for a machine with no door in ordered(cap) asks this.
+     */
+    fun notProvenWithout(cap: String): List<String> {
+        val known = synchronized(caps) { HashMap(caps) }
+        return all().filter { known[it]?.contains(cap) != false }
+    }
+
     fun ordered(cap: String): List<String> {
         if (System.currentTimeMillis() - verifiedAt > 600_000L) verifyLater()
         val all = hosts().map { base(it) }
