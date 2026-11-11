@@ -1772,10 +1772,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val liveWave = WaveView(c).apply { played = SysColor.red; barDp = 1f }   // iOS MTLiveWave.line = 1 at 2155 (MontanaShapes.swift:268)
     val liveTime = c.text("0:00", 15f, Color.WHITE)
     val dot = View(c).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.red) } }
-    // THE CONTROLS OF A LOCKED TAPE (iOS MTHoldOverlayView barRow): each the bar's round glass on a 44-point target
+    // THE SEATS OF A LOCKED TAPE, ONE SIZE (iOS MTTapeSeats and MTTapeSeatStyle, MontanaShapes.swift at af87a77c; the author's
+    // words 11.11.2026 there, links 18545-18547: «buttons of one size and on one line inside the recording's bubble», «the blue
+    // ring on them», «a tall touch area»): the bar's round glass face of 30 -- the tier of 36 less an inset of 3 on each side --
+    // with a glyph of 15 and the platform's blue ring of 1.5 (iOS MTBlueRing, the ring the coin's key wears, ChatInputBar
+    // coinHint), inside a pressing area one pitch (44) wide and 56 tall; neighbours stand edge to edge, a pitch apart.
+    val seatFace = ChatInputBar.TIER - 2 * 3
     fun ctl(icon: Int, label: Int, work: () -> Unit): FrameLayout = FrameLayout(c).apply {
-        background = c.glassPlate(oval = true); contentDescription = c.getString(label)
-        addView(c.icon(icon, Color.WHITE), FrameLayout.LayoutParams(c.dp(20), c.dp(20), Gravity.CENTER))
+        contentDescription = c.getString(label)
+        val ring = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.TRANSPARENT); setStroke(Math.round(1.5f * c.resources.displayMetrics.density), MT.blue) }
+        addView(c.icon(icon, Color.WHITE).apply {
+            background = android.graphics.drawable.LayerDrawable(arrayOf(c.glassPlate(oval = true), ring))
+            val pad = c.dp((seatFace - 15) / 2f); setPadding(pad, pad, pad, pad)
+        }, FrameLayout.LayoutParams(c.dp(seatFace), c.dp(seatFace), Gravity.CENTER))
         visibility = View.GONE
         pressable(work)
     }
@@ -1807,17 +1816,29 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         paintEar()
     }
     voicePause = ctl(R.drawable.ic_pause_fill, R.string.rec_pause) { VoiceTape.togglePause(); paint(voicePause, VoiceTape.paused) }
-    val recStrip = c.hstack {
+    // THE BUBBLE AND ITS ROW (iOS MTHoldOverlayView barRow at af87a77c): the capsule is the tier's height (36) and wears the field's
+    // glass (montanaFieldGlass); the seats stand over it on its own line, each face 3 inside the capsule's rounding -- the bin and
+    // the ear side by side at its head (headRoom(2) = 3 + 2 * 44 before the wave), the pause at its tail -- in a row 56 tall, so the
+    // whole touch area presses while the capsule stays the tier's.
+    val seatLift = (ChatInputBar.TIER - seatFace) / 2 - (44 - seatFace) / 2   // 3 - 7: a seat's edge before the capsule's, its face 3 inside
+    val recStrip = FrameLayout(c).apply {
         visibility = View.GONE
-        gravity = Gravity.CENTER_VERTICAL
-        background = c.glassPlate()   // iOS: the recording strip's capsule wears the field's glass (montanaFieldGlass)
-        setPadding(dp(10), dp(4), dp(10), dp(4))
-        addView(voiceBin, lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
-        addView(voiceEar, lp(dp(40), dp(40)).apply { marginEnd = dp(10) })
-        addView(dot, lp(dp(10), dp(10)).apply { marginEnd = dp(8) })
-        addView(liveTime, lp(WRAP, WRAP).apply { marginEnd = dp(12) })
-        addView(liveWave, lp(0, WRAP, 1f))
-        addView(voicePause, lp(dp(40), dp(40)).apply { marginStart = dp(10) })
+        clipChildren = false
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            background = c.glassPlate()
+            setPadding(dp(3 + 2 * 44), 0, dp(3 + 44), 0)
+            addView(dot, lp(dp(10), dp(10)).apply { marginEnd = dp(8) })
+            addView(liveTime, lp(WRAP, WRAP).apply { marginEnd = dp(12) })
+            addView(liveWave, lp(0, WRAP, 1f))
+        }, FrameLayout.LayoutParams(MATCH, c.dp(ChatInputBar.TIER), Gravity.CENTER_VERTICAL))
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            addView(voiceBin, lp(dp(44), dp(56)).apply { marginStart = dp(seatLift) })
+            addView(voiceEar, lp(dp(44), dp(56)))
+            addView(View(c), lp(0, dp(56), 1f))
+            addView(voicePause, lp(dp(44), dp(56)).apply { marginEnd = dp(seatLift) })
+        }, FrameLayout.LayoutParams(MATCH, c.dp(56), Gravity.CENTER_VERTICAL))
     }
     // THE LOCK OVER THE KEY (iOS lockPlate): the padlock and the chevron above the held key; the chevron folds as the finger rises
     val padlock = c.icon(R.drawable.ic_lock_open, Color.WHITE)
@@ -1941,7 +1962,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                    notePause,
                    ctl(R.drawable.ic_arrow_circle_up, R.string.send) { bar.stopRecording() }).forEachIndexed { i, k ->
                 k.visibility = View.VISIBLE
-                addView(k, lp(dp(48), dp(48)).apply { if (i > 0) marginStart = dp(22) })
+                addView(k, lp(dp(44), dp(56)).apply { if (i > 0) marginStart = dp(26) })   // the seats' one size (iOS MTTapeSeats.reach), the same spread
             }
         }
         noteControls = controls
@@ -2421,7 +2442,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(mentionPlate, lp().apply { marginStart = dp(8); marginEnd = dp(8); bottomMargin = dp(4) })
             addView(stagedStrip, lp())
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
-            addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
+            addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10) })   // the seats' row is 56 tall: the capsule keeps 10 below
             addView(bar.apply { if ((group && !Groups.fieldOpen(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
             addView(panel.host, lp(MATCH, dp(300)))
             addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
