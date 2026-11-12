@@ -561,6 +561,13 @@ object KeepCopy {
         bulk.execute {
             try {
                 val c = Book.ctx
+                // ONE COPY ON THE SHELF AT A TIME: create clears the shelf, so a copy the person or the home node is making this
+                // moment (its unfinished .part touched in the last ten minutes) is never swept away; the renewal waits ten minutes
+                val busy = MontanaBackup.shelf(c)?.listFiles { f -> f.name.endsWith(".part") && System.currentTimeMillis() - f.lastModified() < 600_000 }
+                if (!busy.isNullOrEmpty()) {
+                    synchronized(lock) { owner().apply { asking = g; triedAt = null }; saveOwner() }
+                    Log.i("Montana", "keep_copy waits: another copy is being made"); later(600); return@execute
+                }
                 val made = MontanaBackup.create(c, CopyInventory.gather(c).scope(CopyPlan.load())) {}
                 if (made !is CopyResult.Made) Log.i("Montana", "keep_copy refused " + ((made as? CopyResult.Refused)?.why?.javaClass?.simpleName ?: "?"))
                 else try { hand(made.file, g, chosen) } finally { made.file.delete() }
