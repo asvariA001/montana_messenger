@@ -23,6 +23,8 @@ object Rooms {
     private const val STALE_MS = 30 * 60 * 1000L
     /** The book of rooms, sealed on this device alone (iOS bookKey, MontanaLocalVault). */
     private const val BOOK_KEY = "mt.rooms.seen"
+    /** The rooms that are over, sealed beside the book (iOS overKey, 39c1d9d6): a run that starts again still refuses a late word. */
+    private const val OVER_KEY = "mt.rooms.over"
     private const val PUB_SIZE = 1184   // ML-KEM-768 public key (iOS MTRoomSeal.pubSize)
 
     /** A group's room as the group's words told it (iOS MTRoomSeen); moments in node milliseconds. */
@@ -36,6 +38,13 @@ object Rooms {
 
     private val lock = Any()
     private var seen: MutableMap<String, Seen>? = null
+    /**
+     * THE ROOMS THAT ARE OVER HERE, by id, with the moment each ended (iOS MTGroupRoom.over, 7935fe7c): the one owner of «this room
+     * has ended». On iOS Messenger 136 a key word of a seat already gone landed 0.13 s after the last one out and bore an empty room
+     * anew. A word of a room that is over is refused; kept for STALE_MS, a word older than that is refused anyway. bury() is the only
+     * door that forgets an ended room. Lifted with the book.
+     */
+    private val over = mutableMapOf<String, Long>()
     @Volatile private var briefs: Map<String, Brief> = emptyMap()
     private val listeners = mutableListOf<() -> Unit>()
 
@@ -78,6 +87,7 @@ object Rooms {
         var laid: JSONObject? = null
         synchronized(lock) {
             val book = book()
+            if (over.containsKey(r)) { Log.i("Montana", "room_refused a word of a room that is over e=$ev"); return }
             val cur = book[gid]
             val known = cur != null && cur.id == r
             var firstSight = false
@@ -125,7 +135,7 @@ object Rooms {
             }
             if (s.people[s.owner] == null && s.people.isNotEmpty()) s.owner = firstIn(s.people)
             s.at = maxOf(s.at, at)
-            if (s.people.isEmpty()) book.remove(gid) else book[gid] = s
+            if (s.people.isEmpty()) bury(book, gid, s.id) else book[gid] = s
             Log.i("Montana", "room_rx e=$ev people=${s.people.size}")
             // THE ROOM IN THE GROUP'S FEED (iOS stage R): begun, once; ended, with how long it lived
             if (firstSight && s.people.isNotEmpty())
@@ -135,6 +145,14 @@ object Rooms {
         }
         laid?.let { Groups.layRoom(gid, it) }
         publish()
+    }
+
+    /** The room ended here (iOS bury): forgotten from the group's view and remembered as over, so no late word bears it again. */
+    private fun bury(book: MutableMap<String, Seen>, gid: String, id: String) {
+        if (book[gid]?.id == id) book.remove(gid)
+        val now = NodeClock.now()
+        over.entries.removeAll { now - it.value >= STALE_MS }
+        over[id] = now
     }
 
     /** A group gone from this phone takes its room with it (iOS groupGone). */
@@ -162,6 +180,11 @@ object Rooms {
         seen ?: mutableMapOf<String, Seen>().also { m ->
             seen = m
             runCatching {
+                val o = JSONObject(String(DeviceVault.get(OVER_KEY) ?: return@runCatching))
+                val now = NodeClock.now()
+                for (id in o.keys()) o.getLong(id).takeIf { now - it < STALE_MS }?.let { over[id] = it }
+            }
+            runCatching {
                 val o = JSONObject(String(DeviceVault.get(BOOK_KEY) ?: return@runCatching))
                 for (gid in o.keys()) {
                     val j = o.getJSONObject(gid)
@@ -180,6 +203,7 @@ object Rooms {
         for ((gid, s) in book) o.put(gid, JSONObject().put("id", s.id).put("m", s.kind).put("k", s.key).put("o", s.owner).put("v", s.video)
             .put("p", JSONObject(s.people as Map<*, *>)).put("si", s.since).put("at", s.at).put("ab", s.askedBy ?: "").put("ks", JSONObject(s.keys as Map<*, *>)))
         DeviceVault.set(BOOK_KEY, o.toString().toByteArray())
+        DeviceVault.set(OVER_KEY, JSONObject(over as Map<*, *>).toString().toByteArray())
     }
 
     /** The bar's first line (iOS MTRoomBar.headline). */
