@@ -2667,6 +2667,7 @@ object Post {
         // correspondence; a row there is the keeping's own, never a letter of the feed
         val keepOf = HashMap<String, String>()
         for ((key, s) in KeepCopy.listening()) for (w in span) { val cw = Wire.convW(s, w); secretOf[cw] = s; keepOf[cw] = key }
+        KeepCopy.tickSoon()   // the owner's rhythm looks again half a minute later (iOS peopleWatch and tickSoon; the box read is its clock here)
         val subs = secretOf.keys.toList()
         if (subs.isEmpty()) { unread(); return }   // nothing was read: the whole read this would have been is still owed
         Log.d("Montana", "box_fetch subs=${subs.size} read=${if (whole) "whole" else "fresh"}")

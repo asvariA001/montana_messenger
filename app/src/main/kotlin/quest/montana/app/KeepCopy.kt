@@ -4,6 +4,7 @@ import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -330,7 +331,9 @@ object KeepCopy {
     }
     private const val HELD = "mt.keep.held"   // NOT-UI: this device's own, sealed under the device key (iOS heldKey)
     private val lock = Any()
-    private val ex = Executors.newSingleThreadExecutor { r -> Thread(r, "keep").apply { isDaemon = true } }
+    private val ex = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "keep").apply { isDaemon = true } }
+    /** The copy made and handed around: minutes of work, on a thread of its own, so the words of the keeping are answered meanwhile. */
+    private val bulk = Executors.newSingleThreadExecutor { r -> Thread(r, "keep-copy").apply { isDaemon = true; priority = Thread.MIN_PRIORITY } }
     private var heldCache: MutableMap<String, Held>? = null
     /** The owner's pieces of a part laid again by this phone, shared by a day's answers (iOS roads). */
     private val roads = HashMap<String, Pair<Double, JSONObject>>()
@@ -364,10 +367,258 @@ object KeepCopy {
     val keptFor: List<String> get() = synchronized(lock) { held().keys.map(::convOf).toSet().sorted() }
     fun bytes(conv: String): Long = synchronized(lock) { held().filter { convOf(it.key) == conv }.values.sumOf { it.bytes } }
 
+    // ── the owner's side (iOS MTKeeping 305-362, 477-651) ──
+    const val MINE = "mt.keep.mine"           // NOT-UI: my copy is kept by the people I write to
+    const val TOLD = "mt.keep.mine.told"      // NOT-UI: the person was told and chose
+    /** ON BY DEFAULT, ASKED AT THE OPENING (iOS mine/told): nothing leaves before the person has been told what each keeper learns. */
+    val mine: Boolean get() = Prefs.bool(MINE, true)
+    val told: Boolean get() = Prefs.bool(TOLD, false)
+    /** The crossed glyph: the person chose to keep no copy with their contacts. */
+    val offShown: Boolean get() = told && !mine
+    /** The answer to the question at the opening. */
+    fun answer(keep: Boolean) { Prefs.setBool(TOLD, true); setMine(keep) }
+
+    /** A keeper of the ring holds the slots of its position and of the next (KeepRing); a keeper of an older build held one. */
+    class Keeper(val slot: Int, var held: Boolean, val slots: List<Int>, var heldSlots: List<Int>) {
+        fun json(): JSONObject = JSONObject().put("slot", slot).put("held", held).put("slots", ints(slots)).put("heldSlots", ints(heldSlots))
+        companion object {
+            fun of(o: JSONObject): Keeper {
+                val slot = o.optInt("slot")
+                return Keeper(slot, o.optBoolean("held"), list(o, "slots") ?: listOf(slot), list(o, "heldSlots") ?: emptyList())
+            }
+        }
+    }
+    /** The owner's state, the fields of iOS Owner by their own names; the light copy's fields ride unread until the light copy comes. */
+    class Owner(var generation: Long = 0L) {
+        var asking: Long? = null              // a renewal asking for keepers
+        var askedAt = 0.0
+        val yes = mutableListOf<String>()     // who said yes to it, in the order they said it
+        var n = 0
+        var keepers = LinkedHashMap<String, Keeper>()
+        var renewedAt = 0.0
+        var short = false                     // the last asking found nobody
+        /** THE ATTEMPT IS THE MOMENT THE RHYTHM COUNTS FROM (iOS triedAt): a renewal refused on the way waits the day as one done. */
+        var triedAt: Double? = null
+        var light = JSONObject()              // lightGen, lightAt, lightTriedAt, lightFace, lightName, lightPeople
+        fun json(): JSONObject = JSONObject(light.toString()).put("generation", generation).put("askedAt", askedAt).put("yes", org.json.JSONArray(yes))
+            .put("n", n).put("keepers", JSONObject().apply { keepers.forEach { (c, k) -> put(c, k.json()) } }).put("renewedAt", renewedAt).put("short", short)
+            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) } }
+        companion object {
+            fun of(o: JSONObject): Owner = Owner(o.optLong("generation")).apply {
+                asking = if (o.has("asking")) o.optLong("asking") else null
+                askedAt = o.optDouble("askedAt", 0.0)
+                o.optJSONArray("yes")?.let { a -> for (i in 0 until a.length()) yes.add(a.optString(i)) }
+                n = o.optInt("n")
+                o.optJSONObject("keepers")?.let { k -> for (c in k.keys()) k.optJSONObject(c)?.let { keepers[c] = Keeper.of(it) } }
+                renewedAt = o.optDouble("renewedAt", 0.0)
+                short = o.optBoolean("short")
+                triedAt = if (o.has("triedAt")) o.optDouble("triedAt") else null
+                light = JSONObject().also { l -> for (k in o.keys()) if (k.startsWith("light")) l.put(k, o.get(k)) }
+            }
+        }
+    }
+    private fun ints(l: List<Int>) = org.json.JSONArray(l)
+    private fun list(o: JSONObject, k: String): List<Int>? = o.optJSONArray(k)?.let { a -> List(a.length()) { a.optInt(it) } }
+    private const val OWNER = "mt.keep.owner"   // NOT-UI: sealed under the device key; the person's own, it leaves with the words
+    private var ownerCache: Owner? = null
+    private fun owner(): Owner = synchronized(lock) {
+        ownerCache ?: (DeviceVault.get(OWNER)?.let { d -> runCatching { Owner.of(JSONObject(String(d, Charsets.UTF_8))) }.getOrNull() } ?: Owner())
+            .also { ownerCache = it }
+    }
+    private fun saveOwner() = synchronized(lock) { DeviceVault.set(OWNER, owner().json().toString().toByteArray(Charsets.UTF_8)) }
+    /** The words leave the phone: the owner's state is the person's (MontanaSeed.clear). The parts held for others are this device's. */
+    fun forget() = synchronized(lock) { DeviceVault.delete(OWNER); ownerCache = null }
+    /** What the screen shows of my copy: who keeps it, whole or not yet, and whether the last asking found nobody. */
+    fun keepers(): Map<String, Boolean> = synchronized(lock) { owner().keepers.mapValues { it.value.held } }
+    val short: Boolean get() = synchronized(lock) { owner().short }
+    val renewedAt: Double get() = synchronized(lock) { owner().renewedAt }
+
+    fun setMine(on: Boolean) {
+        Prefs.setBool(MINE, on)
+        Prefs.setBool(TOLD, true)   // the switch stands under its own explanation
+        ex.execute {
+            synchronized(lock) {
+                val o = owner()
+                if (on) { o.renewedAt = 0.0; o.triedAt = null; saveOwner() }
+                else { o.keepers.keys.forEach { say(it, JSONObject().put("w", "release")) }; ownerCache = Owner(o.generation); saveOwner() }
+            }
+            if (on) tick()
+        }
+    }
+
+    /**
+     * A WORK OF GIGABYTES WAITS FOR THE CHARGER (iOS MontanaPower.bulkHeld, the author's word 04.11.2026): the copy runs only on the
+     * charger, outside the battery saver, at a heat no higher than fair (Android LIGHT and MODERATE) and on a path that is not
+     * metered. Null -- go; else why it waits.
+     */
+    private fun bulkHeld(): String? {
+        val c = Book.ctx
+        if (c.getSystemService(android.os.BatteryManager::class.java)?.isCharging != true) return "battery"
+        val pm = c.getSystemService(android.os.PowerManager::class.java)
+        if (pm?.isPowerSaveMode == true) return "lowpower"
+        if (android.os.Build.VERSION.SDK_INT >= 29 && (pm?.currentThermalStatus ?: 0) >= android.os.PowerManager.THERMAL_STATUS_SEVERE) return "thermal"
+        if (c.getSystemService(android.net.ConnectivityManager::class.java)?.isActiveNetworkMetered != false) return "metered"
+        return null
+    }
+    @Volatile private var renewing = false
+    @Volatile private var tickPending = false
+    private var heldSaid: String? = null
+    private fun heldOnce(what: String, why: String) { if (heldSaid != what + why) { heldSaid = what + why; Log.d("Montana", what + " held: " + why + " -- the copy waits for the charger") } }
+    /** The rhythm looks again in half a minute (iOS tickSoon): the box read and the launch call it, many calls make one look. */
+    fun tickSoon() {
+        if (tickPending || !mine || !told) return
+        tickPending = true
+        ex.schedule({ tickPending = false; tick() }, 30, TimeUnit.SECONDS)
+    }
+    private fun later(seconds: Long) { ex.schedule({ tick() }, seconds, TimeUnit.SECONDS) }
+    /**
+     * THE OWNER'S RHYTHM (iOS tick): a renewal is due a day after the last; it asks the people I write to, waits ten minutes for
+     * one yes at least (a full ring goes at once), and an hour without one leaves the copy where it stands until tomorrow.
+     */
+    private fun tick() {
+        if (!mine || !told || !agrees || !MontanaSeed.hasSeed || renewing) return
+        val t = now()
+        val o = owner()
+        val g = synchronized(lock) { o.asking }
+        if (g != null) {
+            val yes = synchronized(lock) { o.yes.size }
+            if (yes >= KeepRing.MOST || (yes > 0 && t - o.askedAt >= 600)) return renew(g)
+            if (t - o.askedAt >= 3600) {
+                synchronized(lock) { o.short = true; o.asking = null; o.yes.clear(); o.renewedAt = t; saveOwner() }
+                return Unit.also { Log.i("Montana", "keep_ask nobody said yes in an hour") }
+            }
+            return later(120)
+        }
+        if (t - maxOf(o.renewedAt, o.triedAt ?: 0.0) < 86_400) return
+        bulkHeld()?.let { return heldOnce("keep_ask", it) }
+        ask()
+    }
+    private fun ask() {
+        val people = people().take(2 * KeepRing.MOST)   // twice a full ring, so that the ring fills when some stay silent
+        val t = now()
+        val o = owner()
+        if (people.isEmpty()) {
+            synchronized(lock) { o.short = true; o.renewedAt = t; saveOwner() }
+            return Unit.also { Log.i("Montana", "keep_ask people=0: nobody to ask") }
+        }
+        val g = o.generation + 1
+        synchronized(lock) { o.asking = g; o.askedAt = t; o.yes.clear(); saveOwner() }
+        for (conv in people) say(conv, JSONObject().put("w", "ask").put("g", g))
+        Log.i("Montana", "keep_ask g=$g people=${people.size}")
+        later(120)
+    }
+    /** The people I write to, the latest first: a correspondence of a person -- never my own twin, a group, or someone I block. */
+    private fun people(): List<String> {
+        val twin = MontanaSeed.twin ?: ""
+        val last = HashMap<String, Long>()
+        for (ref in Book.refs()) {
+            if (ref == twin || ref == Book.SAVED || Groups.isKey(ref) || PeerSafety.isBlocked(ref)) continue
+            val chat = Book.chat(ref) ?: continue
+            last[ref] = chat.msgs.lastOrNull()?.at ?: 0L
+        }
+        return last.keys.sortedByDescending { last[it] }
+    }
+    private fun tookYes(conv: String, w: JSONObject) {
+        val g = (w.opt("g") as? Number)?.toLong() ?: return
+        val o = owner()
+        val full = synchronized(lock) {
+            val a = o.asking ?: return
+            if (g != a || conv in o.yes) return
+            o.yes.add(conv); saveOwner()
+            o.yes.size >= KeepRing.MOST
+        }
+        if (full) renew(g)
+    }
+    /** The keeper's own word: only this makes a part «held» on my screen; a keeper of the ring is whole once it holds every slot of its place. */
+    private fun tookHeld(conv: String, w: JSONObject) {
+        val g = (w.opt("g") as? Number)?.toLong() ?: return
+        val s = (w.opt("k") as? Number)?.toInt()
+        synchronized(lock) {
+            val o = owner()
+            val k = o.keepers[conv] ?: return
+            if (g != o.generation) return
+            if (s != null) {
+                val have = (k.heldSlots + s).toSortedSet()
+                k.heldSlots = have.toList()
+                k.held = have.containsAll(k.slots)
+            } else k.held = true   // a keeper of an older build holds one part and names no slot
+            saveOwner()
+            Log.i("Montana", "keep_held slot=${s ?: k.slot} whole=${k.held}")
+        }
+    }
+    private fun renew(g: Long) {
+        if (renewing) return
+        val o = owner()
+        if (synchronized(lock) { o.yes.isEmpty() }) return
+        bulkHeld()?.let { heldOnce("keep_copy", it); return later(300) }
+        renewing = true
+        val chosen = synchronized(lock) {
+            o.asking = null; o.triedAt = now(); saveOwner()
+            // THE RING IN THE ORDER OF THE LATEST LETTER (Network): the people written to last stand first, a full ring at most
+            val rank = people().withIndex().associate { it.value to it.index }
+            o.yes.sortedBy { rank[it] ?: Int.MAX_VALUE }.take(KeepRing.MOST)
+        }
+        bulk.execute {
+            try {
+                val c = Book.ctx
+                val made = MontanaBackup.create(c, CopyInventory.gather(c).scope(CopyPlan.load())) {}
+                if (made !is CopyResult.Made) Log.i("Montana", "keep_copy refused " + ((made as? CopyResult.Refused)?.why?.javaClass?.simpleName ?: "?"))
+                else try { hand(made.file, g, chosen) } finally { made.file.delete() }
+            } catch (e: Throwable) { Log.w("Montana", "keep_copy " + e.javaClass.simpleName) }
+            finally { renewing = false }
+        }
+    }
+    /**
+     * THE COPY HANDED AROUND THE RING (iOS hand): cut at the sixteen slots of a group, every share laid on the nodes ONCE and its road
+     * handed to each keeper of its slot -- the ring costs the network a copy and a third, whatever the number of keepers.
+     */
+    private fun hand(copy: File, g: Long, keepers: List<String>) {
+        val n = KeepCode.GROUP
+        val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) } ?: return
+        val key = KeepDerive.keepKey(master) ?: return
+        val dir = File(Book.ctx.noBackupFilesDir, "MontanaKeepCut").apply { mkdirs(); listFiles()?.forEach { it.delete() } }
+        // the shares are a third more than the copy, and the pieces of one share are laid beside them
+        if (dir.usableSpace < copy.length() / KeepCode.DATA * (KeepCode.GROUP + 1) + 64L * 1_048_576) return Unit.also { Log.i("Montana", "keep_cut refused: no room") }
+        val cut = KeepCode.cut(copy, n, dir) ?: return Unit.also { Log.i("Montana", "keep_cut refused n=$n") }
+        try {
+            val roads = HashMap<Int, JSONObject>()
+            for (k in 0 until n) {
+                // the charger taken away, the phone grown hot, a metered path: the rest of the copy waits for the next renewal
+                val why = bulkHeld()
+                if (why != null) { Log.i("Montana", "keep_hand held at share $k of $n: $why -- the rest waits for the next renewal"); return }
+                Keeping.lay(cut.shares[k])?.let { roads[k] = it }
+            }
+            val sent = LinkedHashMap<String, Keeper>()
+            var parts = 0
+            for ((i, conv) in keepers.withIndex()) {
+                val slots = KeepRing.slots(i, keepers.size).filter { roads[it] != null }
+                for (k in slots) {
+                    val secret = KeepDerive.slotSecret(master, k) ?: continue
+                    val road = roads[k] ?: continue
+                    val head = KeepDerive.Head(k, n, g, cut.length, cut.digest, cut.shareDigests[k])
+                    val o = JSONObject().put("w", "part").put("k", k).put("n", n).put("s", Base64.encodeToString(secret, Base64.NO_WRAP))
+                        .put("h", Wire.hex(head.bytes)).put("e", Wire.hex(KeepDerive.seal(key, head)))
+                    for (a in road.keys()) o.put(a, road.get(a))
+                    say(conv, o)
+                    parts++
+                }
+                slots.firstOrNull()?.let { sent[conv] = Keeper(it, false, slots, emptyList()) }
+            }
+            if (sent.isEmpty()) return Unit.also { Log.i("Montana", "keep_hand no part left the phone") }
+            synchronized(lock) {
+                val o = owner()
+                for (conv in o.keepers.keys) if (conv !in sent) say(conv, JSONObject().put("w", "release"))
+                o.keepers = sent; o.n = n; o.generation = g; o.yes.clear(); o.short = false; o.renewedAt = now()
+                saveOwner()
+            }
+            Log.i("Montana", "keep_hand g=$g keepers=${sent.size} parts=$parts laid=${roads.size} bytes=${cut.length}")
+        } finally { cut.shares.forEach { it.delete() } }
+    }
+
     // ── the words (iOS MTKeeping 446-476) ──
     /** A word of the keeping to a correspondent: a silent letter of the queue (Marks.SILENT), never a row. */
     private fun say(conv: String, o: JSONObject) { Post.send(conv, Marks.mintMid(), Keeping.MARK + o.toString()) }
-    /** A keeping word landed in a correspondence (Pipes): never a row, answered here. The owner's side has no road here yet. */
+    /** A keeping word landed in a correspondence (Pipes): never a row, answered here. «back» and «given» come with the road back. */
     fun heard(text: String, conv: String) {
         if (!agrees) return
         val o = Keeping.word(text) ?: return
@@ -375,6 +626,8 @@ object KeepCopy {
         Log.d("Montana", "keep_word w=" + w + " conv=" + conv.take(10))
         when (w) {
             "ask" -> answerAsk(conv, o)
+            "yes" -> ex.execute { tookYes(conv, o) }
+            "held" -> ex.execute { tookHeld(conv, o) }
             "part" -> ex.execute { runCatching { takePart(conv, o) }.onFailure { Log.w("Montana", "keep_part " + it.javaClass.simpleName) } }
             "release" -> drop(conv)
         }
