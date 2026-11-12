@@ -181,7 +181,7 @@ object LetterSeal {
      * (restored from the archive, «arc:») wears none.
      */
     fun gematria(mid: String): Int? {
-        if (mid.isEmpty() || mid.startsWith("arc:")) return null
+        if (mid.isEmpty() || Archive.isRestored(mid)) return null
         kept.get(mid)?.let { return it }
         val g = Board.gematria(seal(CoinSend.wire(mid)) ?: return null)
         kept.put(mid, g)

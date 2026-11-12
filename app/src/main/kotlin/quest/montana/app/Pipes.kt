@@ -1690,7 +1690,7 @@ object Book {
             val name0 = c.name
             work(c); save(c)
             for (m in c.msgs) {
-                if (m.mid.startsWith("arc:")) continue   // a row the archive gave back is the archive's already (iOS applyRestored)
+                if (Archive.isRestored(m.mid)) continue   // a row the archive gave back is the archive's already (iOS applyRestored)
                 val had = before[m.mid]
                 val media = m.text.startsWith(Marks.MEDIA)
                 if ((had == null && (!media || m.file != null)) || (had == false && media && m.file != null)) born.add(m)
@@ -1920,7 +1920,7 @@ object Book {
 
     /** My hand's name on every row here, null where it set none (iOS MTNameBook.manual — a copy carries it as «manualNames»). */
     fun pins(): Map<String, String?> = synchronized(lock) {
-        ensure(); chats.values.filter { !it.ref.startsWith("arc:") }.associate { it.ref to it.pin?.ifBlank { null } }
+        ensure(); chats.values.filter { !Archive.isTranscript(it.ref) }.associate { it.ref to it.pin?.ifBlank { null } }
     }
 
     /**
@@ -3184,7 +3184,7 @@ object Post {
         Log.i("Montana", "pipe_closed kept")
     }
     /** The other side closed this conversation: it is read, not answered (iOS closedChats). */
-    fun closed(ref: String) = ref.startsWith("arc:") || Prefs.bool("pipeClosed." + ref, false)   // a recovered history is read, never answered
+    fun closed(ref: String) = Archive.isTranscript(ref) || Prefs.bool("pipeClosed." + ref, false)   // a recovered history is read, never answered
 
     /** «Delivered» for a letter of theirs — under its own name, so the queue holds one per letter (iOS receiptMid). */
     // THE ONE RECEIPT DOOR also says the letter stands whole here: its name rides every presence word after «K» (iOS HeldLetters.note)
