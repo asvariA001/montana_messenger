@@ -476,9 +476,19 @@ object KeepCopy {
      * one yes at least (a full ring goes at once), and an hour without one leaves the copy where it stands until tomorrow.
      */
     private fun tick() {
-        if (!mine || !told || !agrees || !MontanaSeed.hasSeed || renewing) return
+        if (!mine || !told || !agrees || !MontanaSeed.hasSeed) return
         val t = now()
         val o = owner()
+        // THE LIGHT COPY'S RHYTHM (iOS tick 513-521): once a day; one's own name or face moved -- a minute; the people and the
+        // groups -- ten minutes; a light engine older than the card's -- once more at once (iOS 0be1c720)
+        val (face, name) = profileTags()
+        val l = synchronized(lock) { JSONObject(o.light.toString()) }
+        val moved = l.optString("lightFace", "") != face || l.optString("lightName", "") != name || l.optInt("lightEngine", -1) != Card.ENGINE
+        val since = t - maxOf(l.optDouble("lightAt", 0.0), l.optDouble("lightTriedAt", 0.0))
+        val people = peopleTag()
+        val met = l.optString("lightPeople", "") != people
+        if (!lighting && (since >= 86_400 || (moved && since >= 60) || (met && since >= 600))) layLight(face, name, people)
+        if (renewing) return
         val g = synchronized(lock) { o.asking }
         if (g != null) {
             val yes = synchronized(lock) { o.yes.size }
@@ -620,6 +630,67 @@ object KeepCopy {
             }
             Log.i("Montana", "keep_hand g=$g keepers=${sent.size} parts=$parts laid=${roads.size} bytes=${cut.length}")
         } finally { cut.shares.forEach { it.delete() } }
+    }
+
+    // ── the light copy (iOS MTKeeping 652-702, 0be1c720): «everything else back by the words» ──
+    @Volatile private var lighting = false
+    const val LIGHT_NAME = "light"   // NOT-UI: the name the pipe of light is heard and sent under (iOS lightName)
+    /** One's own face and name as their tags -- the very tags a correspondent's word compares (iOS profileTags, Presence.heardHeld). */
+    fun profileTags(): Pair<String, String> =
+        Presence.wireTag(SelfFace.bytes(Book.ctx)) to Presence.wireTag(Prefs.userName.trim().takeIf { it.isNotEmpty() }?.toByteArray(Charsets.UTF_8))
+    /**
+     * The correspondents' names and faces and the groups as one digest (iOS peopleTag): it moves when a person is met, a group is
+     * born, or someone shows a new name or face. A face stands by its file's moment and length: the digest is read only here.
+     */
+    fun peopleTag(): String {
+        val refs = Book.refs().sorted()
+        val names = refs.map { it + "=" + (Book.chat(it)?.name ?: "") }
+        val faces = refs.mapNotNull { r -> Book.face(r).takeIf { it.exists() }?.let { r + "=" + it.lastModified() + "." + it.length() } }
+        val all = (names + listOf("") + faces + listOf("") + Groups.keys().sorted()).joinToString("\n")
+        return Wire.hex(MessageDigest.getInstance("SHA-256").digest(all.toByteArray(Charsets.UTF_8)))
+    }
+    /**
+     * THE COPY WITHOUT ITS ATTACHMENTS (iOS layLight) -- every letter, every room, the profile, the faces and the head of every
+     * correspondence -- sealed as every copy is, laid on the nodes and named by one letter in the pipe of light, once a day while the
+     * copy is kept. The pieces live a week there and the letter in the box as long, so a phone lost today is opened by the words
+     * alone tomorrow. It waits behind a renewal on the same thread: create clears the shelf, two copies never stand on it at once.
+     */
+    private fun layLight(face: String, name: String, people: String) {
+        if (lighting) return
+        lighting = true
+        val g = synchronized(lock) { owner().let { o -> o.light.put("lightTriedAt", now()); saveOwner(); o.light.optLong("lightGen", 0L) + 1 } }
+        bulk.execute {
+            try {
+                val c = Book.ctx
+                val busy = MontanaBackup.shelf(c)?.listFiles { f -> f.name.endsWith(".part") && System.currentTimeMillis() - f.lastModified() < 600_000 }
+                if (!busy.isNullOrEmpty()) { Log.i("Montana", "keep_light waits: another copy is being made"); return@execute }
+                val s = CopyInventory.gather(c).scope(CopyPlan.load())
+                // every letter, no attachment: the attachments come from the keepers
+                val scope = CopyScope(s.skipConvs, CopyKind.values().toSet(), s.skipFiles, s.owner, s.skipPeople, s.skipFaces)
+                val made = MontanaBackup.create(c, scope) {}
+                if (made !is CopyResult.Made) Log.i("Montana", "keep_light refused " + ((made as? CopyResult.Refused)?.why?.javaClass?.simpleName ?: "?"))
+                else try { nameLight(made, g, face, name, people) } finally { made.file.delete() }
+            } catch (e: Throwable) { Log.w("Montana", "keep_light " + e.javaClass.simpleName) }
+            finally { lighting = false }
+        }
+    }
+    private fun nameLight(made: CopyResult.Made, g: Long, face: String, name: String, people: String) {
+        val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }
+        val secret = master?.let { KeepDerive.lightSecret(it) }
+        val digest = shaHex(made.file)
+        val road = if (secret == null || digest == null) null else Keeping.lay(made.file)
+        if (secret == null || road == null) return Unit.also { Log.i("Montana", "keep_light the light copy did not reach the nodes") }
+        road.put("w", "light").put("g", g).put("d", digest).put("v", Archive.writerHex() ?: "")   // the device that laid it
+            .put("a", Book.ctx.packageName)   // and the app on it: two apps of one phone are two writers of the same words
+        // The sender of the pipe of light is named «light», never this person's own reference: a phone opening the same words reads
+        // the box under that reference, and a letter of its own name the node would keep from it.
+        if (!Keeping.knock(secret, road, LIGHT_NAME)) return Unit.also { Log.i("Montana", "keep_light no door boxed the road") }
+        synchronized(lock) {
+            owner().light.put("lightGen", g).put("lightAt", now()).put("lightFace", face).put("lightName", name)
+                .put("lightPeople", people).put("lightEngine", Card.ENGINE)
+            saveOwner()
+        }
+        Log.i("Montana", "keep_light named g=$g bytes=${made.file.length()} chats=${made.tally.chats}")
     }
 
     // ── the words (iOS MTKeeping 446-476) ──
