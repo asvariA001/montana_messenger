@@ -52,7 +52,7 @@ object Archive {
             Log.w("Montana", "archive: the frozen vectors of the Canon do not reproduce — history is not written")
             return null
         }
-        Log.i("Montana", "canon: heal=${if (Wire.HealKeys.agree()) 1 else 0}")   // iOS audit_canon heal=, beside the gate
+        Log.i("Montana", "canon: heal=${if (Wire.HealKeys.agree()) 1 else 0} keep=${if (KeepCopy.agrees) 1 else 0}")   // iOS audit_canon heal=, MTKeeping.agrees, beside the gate
         val ent = MtBindings.nativeMnemonicToEntropy(words) ?: return null
         val hk = MtBindings.nativeHistoryKey(ent) ?: return null
         val mk = MtBindings.nativeMediaKey(ent) ?: return null
