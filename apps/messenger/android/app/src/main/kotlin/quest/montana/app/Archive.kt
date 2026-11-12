@@ -22,6 +22,14 @@ object Archive {
     private const val DEVICE = "mt.history.device"       // this install's sixteen bytes (iOS writerTag16, local)
     private const val PUSHED = "mt.history.pushed"       // folder → the next block number the twin has not been handed (iOS cursorKey 612)
     private const val FACE_KEY = "mt.archive.face"       // the archive's face at its last whole reading (iOS archiveFaceKey; Prefs leave with the person)
+    /** A TRANSCRIPT'S KEY, ONE OWNER (iOS ChatStore.transcriptHead/transcriptKey, 4c20068e): the head and the folder of a conversation
+     *  nobody on this phone holds -- «Recovered history», read, never answered. */
+    private const val TRANSCRIPT_HEAD = "arc:"
+    fun transcriptKey(folder: String) = TRANSCRIPT_HEAD + folder
+    fun isTranscript(ref: String) = ref.startsWith(TRANSCRIPT_HEAD)
+    /** A ROW THE ARCHIVE GAVE BACK, ONE OWNER (iOS MTRestoredMid.archive): its mid's head. */
+    private const val RESTORED_MID = "arc:"
+    fun isRestored(mid: String) = mid.startsWith(RESTORED_MID)
     private val q = Executors.newSingleThreadExecutor { r -> Thread(r, "archive").apply { isDaemon = true } }
     @Volatile private var keys: Keys? = null
 
@@ -232,7 +240,7 @@ object Archive {
         for (it in items.sortedBy { it.at }) {
             val sig = it.at.toString() + "|" + (if (it.mine) 1 else 0) + "|" + it.text
             if (!seen.add(sig)) continue
-            val mid = "arc:" + Wire.hex(Wire.sha(sig.toByteArray()).copyOf(12))
+            val mid = RESTORED_MID + Wire.hex(Wire.sha(sig.toByteArray()).copyOf(12))
             val state = if (it.mine) 1 else 3
             if (!it.text.startsWith(Marks.MEDIA)) { out.add(Msg(mid, it.text, it.mine, it.at * 1000, state = state)); continue }
             val rec = runCatching { JSONObject(it.text.removePrefix(Marks.MEDIA)) }.getOrNull() ?: continue
@@ -272,7 +280,7 @@ object Archive {
     /**
      * EVERY FOLDER OPENED UNDER THE SEED (iOS restore 1015-1077): the head gives the conversation back — «s:» re-establishes the pipe,
      * «x:» names it without reviving it, «a:» and a bare name of an older build name it when the book holds it, «n:» is its name; a
-     * folder without a head is named by the book's own labels. Rows go only into conversations the feed holds no row of — the feed is
+     * folder without a usable head is named by its blocks' own conversation (convBook). Rows go only into conversations the feed holds no row of — the feed is
      * the truth, its edits and deletions are never resurrected (iOS 3036-3043); a folder nobody can answer is «Recovered history».
      */
     private fun restore(only: List<String>?) {
@@ -285,15 +293,14 @@ object Archive {
         // (a block written, a chat born or emptied, a pipe, a row unasked) changes the face, and the archive is read
         val face = if (only == null) face(chatsDir, folders) else null
         if (face != null && face == Prefs.str(FACE_KEY, "")) { Log.d("Montana", "archive_same chats=" + Book.held().size); return }
-        val book = HashMap<String, String>()
-        for (r in Book.refs()) book[label(k, r)] = r
-        book[label(k, Book.SAVED)] = Book.SAVED   // the room without an address has a folder and no secret (iOS: the book holds it)
-        var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0
+        val book = convBook()
+        var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0; var retired = 0
         // THE ROAD BACK FLOORS BY THE LATER DAY (iOS MTPipeBook.recoveryDay, 67332869, decision 188, E): the device's day or the trusted
         // mark M, whichever is later, so a clock behind keeps no secret a node's Date says is past its floor
         val backDay = FloorGuard.recoveryDay()
         for (folder in folders) {
             var ref: String? = null
+            var named: String? = null   // the conversation the blocks name (convBook)
             var name: String? = null
             var secret: ByteArray? = null
             var closedThere = false
@@ -301,6 +308,7 @@ object Archive {
             for (sealed in readLog(File(File(chatsDir, folder), "conversation.mtlog"))) {
                 val plain = MtBindings.nativeArchiveOpenBlock(k.hk, k.owner, sealed) ?: continue
                 for (r in opened(plain)) {
+                    if (named == null) named = book[Wire.hex(r.conv)]
                     val s = String(r.content, Charsets.UTF_8)
                     if (r.dir == HEAD_DIR) {
                         when {
@@ -318,20 +326,16 @@ object Archive {
             secret?.let { sec ->
                 ref = if (closedThere) Wire.reference(sec).also { Prefs.setBool("pipeClosed." + it, true) } else Book.establish(sec)
             }
-            if (ref == null) ref = book[folder]
-            // THE LOCAL ROOM'S FOLDER IS NOT A STRANGER'S (build 427 read it as «Recovered history» while its head named a room with no
-            // secret): a row of it born so leaves the list -- the folder stays, it is the room's own
-            if (ref != null && Book.isLocal(ref!!) && Book.chat("arc:$folder") != null) { Book.discard("arc:$folder"); Log.d("Montana", "archive_heal folder named again") }
-            // A GROUP'S FOLDER IS THE GROUP'S (its head is «a:» and the group's key, no pipe's secret): the builds before 470 read it as «Recovered
-            // history» at every first launch and laid the group's rows as a second chat -- that one leaves; a group gone from this
-            // phone is the group store's word, its archive never brings the chat back
-            if (ref != null && Groups.isKey(ref!!)) {
-                if (Book.chat("arc:$folder") != null) { Book.discard("arc:$folder"); Log.d("Montana", "archive_heal group folder") }
-                if (Book.chat(ref!!) == null) continue
-            }
+            // No head, or none this device can use: the blocks' own name of their conversation is the answer (iOS 4c20068e)
+            if (ref == null) ref = named
+            // A FOLDER THAT NAMES ITS CONVERSATION HAS NO TRANSCRIPT (iOS retireTranscripts, 4c20068e; build 427 did it for the local
+            // room, 470 for a group with an «a:» head): one an older pass laid for it is that conversation's second name and leaves
+            if (ref != null && Book.chat(transcriptKey(folder)) != null) { Book.discard(transcriptKey(folder)); retired++ }
+            // a group gone from this phone is the group store's word, its archive never brings the chat back
+            if (ref != null && Groups.isKey(ref!!) && Book.chat(ref!!) == null) continue
             if (items.isEmpty() && ref == null) continue
             if (ref != null) headed++
-            val key = ref ?: ("arc:" + folder)
+            val key = ref ?: transcriptKey(folder)
             val feed = Book.chat(key)?.msgs?.toList().orEmpty()
             if (feed.isNotEmpty()) {
                 // THE ARCHIVE IS MEASURED AGAINST THE FEED (iOS restoreFromArchive 3008-3035, atom 2b8069c63096): a letter the archive
@@ -374,9 +378,24 @@ object Archive {
         // A FACE THE ARCHIVE HOLDS FOR MORE THAN ONE CORRESPONDENT NAMES NONE OF THEM (iOS restore, 4a24b66c): a copy an older build
         // sealed stays out of the book, and its true owner is asked for it
         if (0 < faces) Book.dropSharedFaces()
+        if (0 < retired) Log.d("Montana", "archive_named transcripts=" + retired)
         if (0 < gapRows) Log.d("Montana", "archive_gap total chats=" + gapChats + " rows=" + gapRows)
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
         if (face != null) Prefs.setStr(FACE_KEY, face)
+    }
+
+    /**
+     * THE CONVERSATION A FOLDER IS, ONE OWNER (iOS MontanaArchive.convBook, 4c20068e): every block names its conversation by the hash
+     * of its reference (append: conv), matched against every conversation this phone holds -- its pipes, its feed, its groups, its
+     * own Saved Messages. The book of the pipes' folder labels stood here: a group's folder matched none and came back as a second
+     * chat, «Recovered history», beside the group. A transcript is only a folder whose conversation nobody here holds.
+     */
+    private fun convBook(): HashMap<String, String> {
+        val all = LinkedHashSet<String>()
+        all.addAll(Book.refs()); all.addAll(Book.held()); all.addAll(Groups.keys()); all.add(Book.SAVED)
+        val m = HashMap<String, String>()
+        for (c in all) if (c.isNotEmpty() && !isTranscript(c)) m[Wire.hex(conv(c))] = c
+        return m
     }
 
     /**
@@ -386,7 +405,7 @@ object Archive {
      */
     private fun face(chatsDir: File, folders: List<String>): String {
         val parts = arrayListOf("feed=" + Book.held().sorted().joinToString(","), "pipes=" + Book.refs().size,
-            "asked=" + Twin.askedCount(), "day=" + FloorGuard.recoveryDay())
+            "asked=" + Twin.askedCount(), "day=" + FloorGuard.recoveryDay(), "held=" + Groups.keys().size)
         for (f in folders.sorted()) {
             val log = File(File(chatsDir, f), "conversation.mtlog")
             parts.add(f + ":" + (if (log.isFile) log.length() else -1) + ":" + log.lastModified())

@@ -914,7 +914,20 @@ object CallLine {
 
     // ── where the sound goes (iOS MontanaAudioRoute 7214-7285) ──
 
-    data class Face(val caption: Int, val icon: Int, val lit: Boolean, val menu: Boolean)
+    /** shown false: no device outside and no earpiece -- nowhere to switch, no button (iOS Face.shown, 0996c386, decision 861 = a). */
+    data class Face(val caption: Int, val icon: Int, val lit: Boolean, val menu: Boolean, val shown: Boolean = true)
+
+    /**
+     * A DEVICE WITH NO EARPIECE HAS NO SWITCH (iOS MontanaAudioRoute.hasEarpiece, 0996c386, decision 861 = a: on the iPad the speaker
+     * «does not turn off»): a tablet has no voice at the ear, the sound always stands in its own loudspeaker, and a «Speaker» lit
+     * forever moved nothing. The one place that knows whether this device has an earpiece: the system's own list of its outputs.
+     */
+    private val hasEarpiece: Boolean by lazy {
+        am()?.getDevices(AudioManager.GET_DEVICES_OUTPUTS)?.any { it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE } ?: true
+    }
+
+    /** The loudspeaker's switch of the phone alone; on a device without an earpiece it is not shown (iOS Face.speaker). */
+    private fun speakerFace(lit: Boolean) = Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, lit, false, hasEarpiece)
     class Way(val name: String, val chosen: Boolean, val take: () -> Unit)
 
     // the devices outside the phone that carry a call (iOS externalPorts: headphones, Bluetooth, a car, USB)
@@ -928,10 +941,10 @@ object CallLine {
      */
     fun face(): Face {
         val am = am()
-        if (am == null || Build.VERSION.SDK_INT < 31) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, speaker, false)
+        if (am == null || Build.VERSION.SDK_INT < 31) return speakerFace(speaker)
         val now = am.communicationDevice
         val onSpeaker = now?.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
-        if (am.availableCommunicationDevices.none { it.type in OUTSIDE }) return Face(R.string.call_speaker, R.drawable.ic_speaker_wave3, onSpeaker, false)
+        if (am.availableCommunicationDevices.none { it.type in OUTSIDE }) return speakerFace(onSpeaker)
         val ext = now?.takeIf { it.type in OUTSIDE }
         val icon = if (ext != null) glyphOf(ext.type) else if (onSpeaker) R.drawable.ic_speaker_wave3 else R.drawable.ic_route_phone
         return Face(R.string.call_audio, icon, ext != null || onSpeaker, true)

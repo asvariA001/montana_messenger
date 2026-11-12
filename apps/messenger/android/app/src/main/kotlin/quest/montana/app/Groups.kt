@@ -326,6 +326,8 @@ object Groups {
 
     fun isKey(chat: String) = chat.startsWith(KEY_HEAD)
     fun key(id: String) = KEY_HEAD + id
+    /** Every group and channel this phone holds, by its key (iOS MTGroup.shared.groups.keys.map(key(of:))): the archive names their folders. */
+    fun keys(): List<String> = synchronized(lock) { if (ready()) groups.keys.map { key(it) } else emptyList() }
     /** [I-14]: a letter's link card on the wire, at most -- the pair's leg (iOS cardLimit). [I-15]: how long a card that outran its letter waits for it (iOS cardWait). */
     private const val CARD_LIMIT = 16_384
     private const val PASSPORT_LIMIT = 4_096          // iOS passportLimit: a sticker's passport, never a carrier of anything else
