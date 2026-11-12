@@ -610,6 +610,17 @@ object Presence {
             Book.openChat?.let { sayChat(it, true) }   // the chat on the screen greets again at once
         }.start()
     }
+    /**
+     * THE BOOK GREW UNDER A GREETING ALREADY SAID (iOS E2E.peersGrew, 3ed661fa, OZ 1 p.2.5: «the faces of the people come back at once
+     * with the restore»): the archive stood the correspondences up after the greeting had left, so the newcomers were neither greeted
+     * nor asked for their faces (faceTail) until each chat was opened. The greeting is said again to the grown book, the ask riding
+     * it, while the application stands before the person; nobody greeted yet -- the greeting still to come reads the grown book itself.
+     */
+    fun peersGrew() {
+        if (appSaid != true || !shown) return
+        log("presence_grew the book grew under a greeting -- said again")
+        MainThread.post { appPresence(open = true, again = true) }
+    }
     @Volatile private var awayPending = false
     private fun sayAway(why: String) {
         appSaid = false

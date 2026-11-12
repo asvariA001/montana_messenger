@@ -294,6 +294,7 @@ object Archive {
         val face = if (only == null) face(chatsDir, folders) else null
         if (face != null && face == Prefs.str(FACE_KEY, "")) { Log.d("Montana", "archive_same chats=" + Book.held().size); return }
         val book = convBook()
+        val pipesBefore = Book.refs().size
         var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0; var retired = 0
         // THE ROAD BACK FLOORS BY THE LATER DAY (iOS MTPipeBook.recoveryDay, 67332869, decision 188, E): the device's day or the trusted
         // mark M, whichever is later, so a clock behind keeps no secret a node's Date says is past its floor
@@ -380,6 +381,7 @@ object Archive {
         if (0 < faces) Book.dropSharedFaces()
         if (0 < retired) Log.d("Montana", "archive_named transcripts=" + retired)
         if (0 < gapRows) Log.d("Montana", "archive_gap total chats=" + gapChats + " rows=" + gapRows)
+        if (Book.refs().size > pipesBefore) Presence.peersGrew()   // the grown book is greeted and asked for its faces at once (iOS 3ed661fa)
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
         if (face != null) Prefs.setStr(FACE_KEY, face)
     }

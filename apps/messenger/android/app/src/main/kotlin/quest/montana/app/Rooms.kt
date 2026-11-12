@@ -93,7 +93,13 @@ object Rooms {
             var firstSight = false
             val s: Seen
             if (known) s = cur!! else {
-                if (ev == "out" || ev == "end" || key == null) return   // nothing is known of the room and the word does not bring it
+                if (ev == "out" || ev == "end" || key == null) {
+                    // AN END HEARD BEFORE ITS ROOM (iOS 3ed661fa): a box hands a room's words in no order; an end of a room not known
+                    // here was dropped, so the room's older words landing after it bore it again. The end buries it at once -- its late
+                    // words are refused like those of any room that is over.
+                    if (ev == "end") { bury(book, gid, r); keep(book); Log.i("Montana", "room_refused an end before its room: buried") }
+                    return   // nothing is known of the room and the word does not bring it
+                }
                 val born = Seen(r, kind, key, e.optString("o").ifEmpty { seat }, e.optInt("v") == 1, mutableMapOf(), came, at)
                 // TWO ROOMS OF ONE GROUP (opened at once): the earlier stands -- by its moment, by its id for a tie -- on every phone
                 if (cur != null && cur.people.isNotEmpty() && fresh(cur) && (if (cur.since != born.since) cur.since < born.since else cur.id < born.id)) return
