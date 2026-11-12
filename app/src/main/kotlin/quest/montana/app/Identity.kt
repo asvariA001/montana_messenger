@@ -138,8 +138,20 @@ object MontanaSeed {
         clear()
         val stored = DeviceVault.set(MN, keys.mnemonic.toByteArray(Charsets.UTF_8))
         Log.i("Montana", "seed write: words=${keys.mnemonic.split(' ').size} stored=$stored (value not logged)")
+        if (stored) Prefs.setStr(ENTERED, System.currentTimeMillis().toString())   // the past ends here (iOS 3ed661fa, decision 865 a)
         return stored
     }
+
+    /**
+     * THE MOMENT THIS PERSON CAME IN ON THIS PHONE (iOS MontanaSeed.entered, 3ed661fa, decision 865 = a): a word born before it -- a
+     * group's letter, a room's word, an invitation -- is what this phone catches up on after the 24 words, never news: carried on, it
+     * rings nobody. Written by enter alone, never by a copy (the past would be judged by another phone's moment); a person who came
+     * in before builds knew the moment has none, and nothing is judged by it.
+     */
+    private const val ENTERED = "mt.seed.entered"
+    val entered: Long? get() = Prefs.str(ENTERED, "").toLongOrNull()?.takeIf { it > 0 }
+    /** Whether a word born at [born] (Marks.birthMs) is older than this person's coming in on this phone. */
+    fun before(born: Long?): Boolean { val b = born ?: return false; val e = entered ?: return false; return b < e }
 
     fun clear() {
         DeviceVault.delete(MN)

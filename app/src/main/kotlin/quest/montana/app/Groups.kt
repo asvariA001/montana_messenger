@@ -2147,7 +2147,7 @@ object Groups {
         // other device heard it as the member's and refused it without end. A word this person signed is done here as the hand did
         // it there (handleOwn) -- never judged as a stranger's, never answered: the device that spoke carries it.
         if (w != null && isLabel(w.optString("g")) && ownWord(w, pipe)) { handleOwn(text, pipe); return }
-        val verdict = if (w != null && isLabel(w.optString("g"))) synchronized(lock) { take(w, pipe) }
+        val verdict = if (w != null && isLabel(w.optString("g"))) synchronized(lock) { take(w, pipe, sid) }
             else Verdict.REFUSED.also { Log.i("Montana", "group_refused unreadable from=${pipe.take(10)}") }
         if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
     }
@@ -2323,10 +2323,10 @@ object Groups {
         return landed
     }
 
-    private fun take(w: JSONObject, pipe: String): Verdict {
+    private fun take(w: JSONObject, pipe: String, copy: String): Verdict {
         if (!ready()) return Verdict.WAIT   // the copy knocks again once the store opens
         return when (val t = w.optString("t")) {
-            "inv" -> invited(w, pipe)
+            "inv" -> invited(w, pipe, copy)
             "say" -> said(w, pipe)
             "sig" -> answered(w, pipe)
             "out" -> dropped(w, pipe)
@@ -2352,7 +2352,7 @@ object Groups {
      * AN INVITATION (iOS invited): the group stands on this phone, owned by the pipe the word came by. A second invitation of the
      * same owner renews the title, the words, the count and the face; another pipe naming a group held here is refused.
      */
-    private fun invited(w: JSONObject, pipe: String): Verdict {
+    private fun invited(w: JSONObject, pipe: String, copy: String): Verdict {
         val owner = SamePair.root(pipe)
         val kind = w.optString("k")
         val title = clean(w.optString("ti"), TITLE_LIMIT)
@@ -2390,6 +2390,12 @@ object Groups {
             if (renamed) lay(had, event("named", actor, t = title))
             if (newFace && hadFace && !back) lay(had, event("face", actor))
             return Verdict.HELD
+        }
+        // A RESTORE'S CATCH-UP IS THE PAST (iOS 3ed661fa, decision 865 a): an invitation sent before this person came in on this phone
+        // births no group -- the groups the person held come back with the archive; an invitation sent later is born as before.
+        if (MontanaSeed.before(Marks.birthMs(copy))) {
+            Log.i("Montana", "group_refused invitation older than this person's coming in")
+            return Verdict.REFUSED
         }
         val g = State(id, kind, title, clean(w.optString("ds"), ABOUT_LIMIT), owner, seat, mutableListOf(), count,
             if (ownerName.isEmpty()) mutableMapOf() else mutableMapOf(OWNER_SEAT to ownerName), System.currentTimeMillis(), faceTag = tag,
@@ -2506,7 +2512,8 @@ object Groups {
         // a media letter's file is gathered from the pieces every member reads; its copy was receipted already (handle)
         if (landed && words.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, key, id, words)
         // the banner a running app owes its person: the group's title over who wrote and what (a channel speaks as itself)
-        val past = w.optInt("hs") == 1 || w.optInt("sl") == 1   // the group's past handed to one just added (G.4), and a channel's silent post: no banner
+        val caughtUp = MontanaSeed.before(Marks.birthMs(id))   // a restore's catch-up (iOS 3ed661fa, 865 a): silent here and on its way on
+        val past = w.optInt("hs") == 1 || w.optInt("sl") == 1 || caughtUp   // the group's past handed to one just added (G.4), and a channel's silent post: no banner
         if (landed && Book.openChat != key && !past && !OldRecordings.notice(words)) Notify.letter(key, words, if (g.kind == GROUP) speakerName(Book.ctx, sp) else null,
             mentioned = g.kind == GROUP && mentionsMe(words))   // a mention rings through the mute (iOS presentGroup mentioned)
         if (landed && Book.openChat == key && g.kind == GROUP) readSoon(key)   // read before the eyes: the speaker hears it (B.13)
@@ -2518,6 +2525,7 @@ object Groups {
             w.optString("sf").ifEmpty { null }?.let { on.put("sf", it) }   // the speaker's own face goes on with their letter, unchanged
             if (quote != null) on.put("qt", quote)
             w.optString("qm").ifEmpty { null }?.let { on.put("qm", it) }
+            if (caughtUp) on.put("hs", 1)   // the past carried on rings nobody (iOS 3ed661fa: T2 and T3 rang after the restore)
             spread(on, g, seat, own = false)
         }
         return Verdict.HELD
@@ -2549,6 +2557,7 @@ object Groups {
         if (g.mine) {
             val on = JSONObject().put("t", "room").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
             w.optString("n").ifEmpty { null }?.let { on.put("n", it) }
+            if (MontanaSeed.before(Marks.birthMs(id))) on.put("hs", 1)   // a restore's catch-up rings nobody (iOS 3ed661fa, 865 a)
             val ts = w.optJSONArray("ts")
             if (ts != null && ts.length() <= 32) {
                 // a targeted word: to the seats it names alone -- ringing there if it is an invitation (a word naming no ring is one)

@@ -273,7 +273,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(16)
         lateinit var restore: PathDoor
         restore = PathDoor(c, c.getString(R.string.restore), MT.blue) {
-            val words = input.text.toString().lowercase().split(' ', '\n', ',').filter { it.isNotEmpty() }
+            val words = input.text.toString().lowercase().split(Regex("[\\s\\p{Z},]+")).filter { it.isNotEmpty() }   // tab, U+00A0 and CR LF part words too (iOS 3ed661fa)
             fun say(s: String) { error.text = s; error.visibility = View.VISIBLE }
             if (words.size != 24) { say(c.getString(R.string.words_count, words.size)); return@PathDoor }
             error.visibility = View.GONE
