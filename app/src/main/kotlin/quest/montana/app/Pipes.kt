@@ -1219,7 +1219,7 @@ object Marks {
      */
     private val SILENT = listOf(READ, DELIVERED, TYPING, REACTION, AVATAR, NAME, ABOUT, "​​PG:", "​​QC:", DELETE,
         CONVDEL_MARK, "​​DF:", "​​WH:", "​​PA:", "​​EX:", "​​CG:", Presence.WATCH, PLAYED,
-        Presence.APP, EDIT, PIN_MARK, "​​SP:", "​​WL:", SAME_ASK, SAME_YES, "​​PX:", LiveDraft.MARK)
+        Presence.APP, EDIT, PIN_MARK, "​​SP:", "​​WL:", SAME_ASK, SAME_YES, "​​PX:", LiveDraft.MARK, Keeping.MARK)
     fun isSilent(t: String) = SILENT.any { t.startsWith(it) } || ChessLetter.silent(t)
 
     /** A letter's name: t<birth ms>-<UUID> (iOS ChatStore.mintMid). */
@@ -2663,6 +2663,10 @@ object Post {
         Twin.secret()?.let { s ->
             for (w in span) { val cw = Wire.convW(s, w); Twin.sid(cw)?.let { sid -> secretOf[cw] = s; twinSid[cw] = sid } }
         }
+        // THE PIPES OF THE SLOTS THIS PHONE HOLDS (iOS MTKeeping.listening, MontanaWakePush.fetchBox): read beside every
+        // correspondence; a row there is the keeping's own, never a letter of the feed
+        val keepOf = HashMap<String, String>()
+        for ((key, s) in KeepCopy.listening()) for (w in span) { val cw = Wire.convW(s, w); secretOf[cw] = s; keepOf[cw] = key }
         val subs = secretOf.keys.toList()
         if (subs.isEmpty()) { unread(); return }   // nothing was read: the whole read this would have been is still owed
         Log.d("Montana", "box_fetch subs=${subs.size} read=${if (whole) "whole" else "fresh"}")
@@ -2700,6 +2704,8 @@ object Post {
                 val plain = (if (pipeRef != null) Book.openBoxedLetter(sealed, pipeRef, l.optLong("at"))
                     else Wire.openBoxed(sealed, secret, l.optLong("at"))) ?: continue
                 // the history of this seed's other devices: filed there, never a letter of the feed (iOS restash → twinTakes)
+                val keepKey = keepOf[cw]
+                if (keepKey != null) { KeepCopy.takes(keepKey, Wire.fields(plain).getOrElse(1) { "" }); if (m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw)))); continue }
                 if (cw in twinSid) { val f = Wire.fields(plain); Twin.takes(f[1], f[0]); if (m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw)))); continue }
                 val ok = invOf[cw]?.let { inv -> first(plain, inv) } ?: chatOf[cw]?.let { ref -> letter(ref, plain) } ?: false
                 if (ok && m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw))))
@@ -3081,6 +3087,9 @@ object Post {
             // A DRAFT WORD BY THE QUEUE (iOS ChatStore 3884-3898): the daily link, a checkpoint, an ask — read as the live lane reads
             // it (Presence.hear), never a row; the durable link rode here and was dropped unread
             text.startsWith(LiveDraft.MARK) -> Presence.hear(ref, text)
+            // A WORD OF THE KEEPING (iOS MTKeeping.heard): a question, a part, a release of the copy kept with correspondents --
+            // receipted, never a row
+            text.startsWith(Keeping.MARK) -> { receipt(ref, sid); KeepCopy.heard(text, ref) }
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
             // A STEP OF A GAME (iOS MTChessLetter.isStep): the board reads it; no bubble, no unread, the closing letter alone rings

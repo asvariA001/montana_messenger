@@ -1,6 +1,9 @@
 package quest.montana.app
 
+import android.util.Base64
 import android.util.Log
+import org.json.JSONObject
+import java.util.concurrent.Executors
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
@@ -298,5 +301,168 @@ object KeepCopy {
         val ring = KeepRing.agrees()
         Log.i("Montana", "keep_canon code=${if (code) 1 else 0} derive=${if (derive) 1 else 0} ring=${if (ring) 1 else 0}")
         code && derive && ring
+    }
+
+    // ── the person's choices, settings of this device (iOS MTKeeping 305-325) ──
+    const val OTHERS = "mt.keep.others"       // NOT-UI: this phone keeps parts for the people who write to me
+    const val BUDGET = "mt.keep.budget.mb"    // NOT-UI: what this phone keeps for others, in megabytes
+    val others: Boolean get() = Prefs.bool(OTHERS, true)
+    val budget: Long get() = Prefs.dbl(BUDGET, 1024.0).toLong() * 1_048_576L
+
+    // ── the keeper's side (iOS MTKeeping 365-372, 796-914) ──
+    /** A part held for a correspondent: its slot of n, the slot's pipe secret, the head and its seal, and the owner's road on the nodes. */
+    class Held(val slot: Int, val n: Int, val secret: ByteArray, val head: ByteArray, val seal: ByteArray, val bytes: Long, val at: Double,
+               var answeredAt: Double = 0.0, val road: Map<String, String>? = null, val roadAt: Double? = null) {
+        val generation: Long get() = KeepDerive.Head.of(head)?.generation ?: 0L
+        fun json(): JSONObject = JSONObject().put("slot", slot).put("n", n).put("secret", Wire.hex(secret)).put("head", Wire.hex(head))
+            .put("seal", Wire.hex(seal)).put("bytes", bytes).put("at", at).put("answeredAt", answeredAt)
+            .apply { road?.let { put("road", JSONObject(it)) }; roadAt?.let { put("roadAt", it) } }
+        companion object {
+            fun of(o: JSONObject): Held? {
+                val secret = unhex(o.optString("secret")) ?: return null
+                val head = unhex(o.optString("head")) ?: return null
+                val seal = unhex(o.optString("seal")) ?: return null
+                val road = o.optJSONObject("road")?.let { r -> r.keys().asSequence().associateWith { r.optString(it) } }
+                return Held(o.optInt("slot"), o.optInt("n"), secret, head, seal, o.optLong("bytes"), o.optDouble("at", 0.0),
+                    o.optDouble("answeredAt", 0.0), road, if (o.has("roadAt")) o.optDouble("roadAt") else null)
+            }
+        }
+    }
+    private const val HELD = "mt.keep.held"   // NOT-UI: this device's own, sealed under the device key (iOS heldKey)
+    private val lock = Any()
+    private val ex = Executors.newSingleThreadExecutor { r -> Thread(r, "keep").apply { isDaemon = true } }
+    private var heldCache: MutableMap<String, Held>? = null
+    /** The owner's pieces of a part laid again by this phone, shared by a day's answers (iOS roads). */
+    private val roads = HashMap<String, Pair<Double, JSONObject>>()
+    private fun held(): MutableMap<String, Held> = synchronized(lock) {
+        heldCache ?: HashMap<String, Held>().also { m ->
+            DeviceVault.get(HELD)?.let { d -> runCatching { JSONObject(String(d, Charsets.UTF_8)) }.getOrNull() }?.let { o ->
+                for (k in o.keys()) o.optJSONObject(k)?.let { Held.of(it) }?.let { m[k] = it }
+            }
+            heldCache = m
+        }
+    }
+    private fun saveHeld() = synchronized(lock) {
+        val o = JSONObject(); held().forEach { (k, h) -> o.put(k, h.json()) }
+        DeviceVault.set(HELD, o.toString().toByteArray(Charsets.UTF_8))
+    }
+    private fun now() = System.currentTimeMillis() / 1000.0
+
+    /** THE PARTS THIS PHONE KEEPS FOR OTHERS lie in a folder of their own, outside this person's copy and the vendor's backup (iOS folder). */
+    private fun folder(): File? = runCatching { File(Book.ctx.noBackupFilesDir, "MontanaKeeping").apply { mkdirs() } }.getOrNull()
+    private fun partFile(key: String): File? {
+        val name = key.toByteArray(Charsets.UTF_8).joinToString("") { b ->
+            val c = (b.toInt() and 0xff).toChar(); if (c.isLetterOrDigit() && c.code < 128) c.toString() else "%%%02X".format(b.toInt() and 0xff)
+        }
+        if (name.isEmpty()) return null
+        return folder()?.let { File(it, "$name.keep") }
+    }
+    fun keyOf(conv: String, k: Int) = conv + "#" + k
+    fun convOf(key: String) = key.substringBefore('#')
+    private fun heldBytes(except: String) = synchronized(lock) { held().filter { convOf(it.key) != except }.values.sumOf { it.bytes } }
+    /** The people whose parts this phone holds, and how much of each (iOS keptFor, bytes(for:)). */
+    val keptFor: List<String> get() = synchronized(lock) { held().keys.map(::convOf).toSet().sorted() }
+    fun bytes(conv: String): Long = synchronized(lock) { held().filter { convOf(it.key) == conv }.values.sumOf { it.bytes } }
+
+    // ── the words (iOS MTKeeping 446-476) ──
+    /** A word of the keeping to a correspondent: a silent letter of the queue (Marks.SILENT), never a row. */
+    private fun say(conv: String, o: JSONObject) { Post.send(conv, Marks.mintMid(), Keeping.MARK + o.toString()) }
+    /** A keeping word landed in a correspondence (Pipes): never a row, answered here. The owner's side has no road here yet. */
+    fun heard(text: String, conv: String) {
+        if (!agrees) return
+        val o = Keeping.word(text) ?: return
+        val w = o.optString("w")
+        Log.d("Montana", "keep_word w=" + w + " conv=" + conv.take(10))
+        when (w) {
+            "ask" -> answerAsk(conv, o)
+            "part" -> ex.execute { runCatching { takePart(conv, o) }.onFailure { Log.w("Montana", "keep_part " + it.javaClass.simpleName) } }
+            "release" -> drop(conv)
+        }
+    }
+    /** A question is answered only by a phone whose person allows keeping and whose budget has room; anything else is silence. */
+    private fun answerAsk(conv: String, o: JSONObject) {
+        val g = o.opt("g") as? Number
+        if (!others || g == null || heldBytes(conv) >= budget) { Log.d("Montana", "keep_quiet conv=" + conv.take(10)); return }
+        say(conv, JSONObject().put("w", "yes").put("g", g.toLong()))
+    }
+    private fun takePart(conv: String, o: JSONObject) {
+        fun refuse(why: String = "refused in silence") { Log.d("Montana", "keep_part " + why) }
+        if (!others) return refuse()
+        val k = (o.opt("k") as? Number)?.toInt() ?: return refuse()
+        val n = (o.opt("n") as? Number)?.toInt() ?: return refuse()
+        val secret = runCatching { Base64.decode(o.optString("s"), Base64.DEFAULT) }.getOrNull()?.takeIf { it.size == 32 } ?: return refuse()
+        val hd = unhex(o.optString("h")) ?: return refuse()
+        val head = KeepDerive.Head.of(hd)?.takeIf { it.slot == k && it.n == n } ?: return refuse()
+        val seal = unhex(o.optString("e"))?.takeIf { it.size == 32 } ?: return refuse()
+        val size = (o.opt("z") as? Number)?.toLong()?.takeIf { it > 0 } ?: return refuse()
+        val key = keyOf(conv, k)
+        // the budget counts every other person's parts and this person's parts of the same copy: an older copy leaves below
+        val sameCopy = synchronized(lock) { held().filter { convOf(it.key) == conv && it.key != key && it.value.generation == head.generation }.values.sumOf { it.bytes } }
+        if (heldBytes(conv) + sameCopy + size > budget) return refuse()
+        val dest = partFile(key) ?: return refuse()
+        val landing = File(dest.path + ".part")
+        if (!Keeping.fetch(o, landing) || shaHex(landing) != Wire.hex(head.shareDigest)) { landing.delete(); return refuse("the part did not come whole") }
+        dest.delete()
+        if (!landing.renameTo(dest)) { landing.delete(); return }
+        val t = now()
+        val road = HashMap<String, String>().apply { put("z", size.toString()); for (name in listOf("bk", "mref", "mk")) put(name, o.optString(name)) }
+        synchronized(lock) {
+            // A RENEWAL REPLACES (Network): this person's parts of an older copy leave as the newer one arrives
+            for ((old, h) in held().toList()) if (convOf(old) == conv && old != key && h.generation < head.generation) dropKey(old)
+            held()[key] = Held(k, n, secret, hd, seal, size, t, road = road, roadAt = t)
+            roads.remove(key)
+            saveHeld()
+        }
+        say(conv, JSONObject().put("w", "held").put("g", head.generation).put("d", Wire.hex(head.shareDigest)).put("k", k))
+        Log.i("Montana", "keep_part held slot=$k of $n bytes=$size")
+    }
+    private fun dropKey(key: String) = synchronized(lock) { held().remove(key); roads.remove(key); partFile(key)?.delete() }
+    fun drop(conv: String) {
+        val c = convOf(conv)
+        val keys = synchronized(lock) { held().keys.filter { convOf(it) == c } }
+        if (keys.isEmpty()) return
+        synchronized(lock) { keys.forEach(::dropKey); saveHeld() }
+        Log.i("Montana", "keep_drop conv=" + c.take(10) + " parts=" + keys.size)
+    }
+    fun setOthers(on: Boolean) { Prefs.setBool(OTHERS, on); if (!on) keptFor.forEach(::drop) }
+
+    /** The pipes of the slots this phone holds, read in the box beside every correspondence (iOS listening; Pipes box fetch). */
+    fun listening(): Map<String, ByteArray> {
+        val h = synchronized(lock) { held().mapValues { it.value.secret } }
+        return if (h.isEmpty() || !agrees) emptyMap() else h
+    }
+    /** A row of the box under the pipe of a slot is this file's own: a call is answered, and the row is in hand either way. */
+    fun takes(key: String, text: String) {
+        if (Keeping.word(text)?.optString("w") == "call") ex.execute { runCatching { answerCall(key) }.onFailure { Log.w("Montana", "keep_answer " + it.javaClass.simpleName) } }
+    }
+    private fun answerCall(key: String) {
+        val h = synchronized(lock) { held()[key] } ?: return
+        val file = partFile(key)?.takeIf { it.exists() } ?: return
+        if (!others) return
+        val t = now()
+        if (t - h.answeredAt < 600) return   // a call repeats every two minutes; one answer serves ten
+        val r = h.road; val at = h.roadAt
+        val road: JSONObject = if (r != null && at != null && t - at < 6 * 86_400 && r["z"]?.toLongOrNull() == h.bytes) {
+            JSONObject().put("z", h.bytes).put("bk", r["bk"] ?: "").put("mref", r["mref"] ?: "").put("mk", r["mk"] ?: "")   // the owner's pieces, alive a week
+        } else synchronized(lock) { roads[key]?.takeIf { t - it.first < 86_400 }?.second }?.let { JSONObject(it.toString()) } ?: run {
+            val fresh = Keeping.lay(file) ?: return Unit.also { Log.d("Montana", "keep_answer the part did not reach the nodes") }
+            synchronized(lock) { roads[key] = t to fresh }
+            JSONObject(fresh.toString())
+        }
+        road.put("w", "answer").put("h", Wire.hex(h.head)).put("e", Wire.hex(h.seal))
+        val twin = MontanaSeed.twin ?: return
+        if (!Keeping.knock(h.secret, road, twin)) return Unit.also { Log.d("Montana", "keep_answer no door boxed it") }
+        synchronized(lock) { h.answeredAt = t; saveHeld() }
+        Log.i("Montana", "keep_answer slot=${h.slot} of ${h.n}")
+    }
+
+    private fun shaHex(f: File): String? = runCatching {
+        val md = MessageDigest.getInstance("SHA-256")
+        FileInputStream(f).use { s -> val b = ByteArray(65536); while (true) { val r = s.read(b); if (r < 0) break; md.update(b, 0, r) } }
+        Wire.hex(md.digest())
+    }.getOrNull()
+    private fun unhex(h: String): ByteArray? {
+        if (h.length % 2 != 0 || h.isEmpty()) return null
+        return runCatching { ByteArray(h.length / 2) { h.substring(2 * it, 2 * it + 2).toInt(16).toByte() } }.getOrNull()
     }
 }
