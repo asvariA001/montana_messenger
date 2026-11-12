@@ -81,7 +81,7 @@ object Groups {
         val barred: MutableList<String> = mutableListOf(),
         /** SLOW MODE (iOS slow, the reference's «Slowmode»): the seconds a member waits between letters; 0 -- off. */
         var slow: Int = 0,
-        /** CHAT HISTORY FOR NEW MEMBERS (iOS history, G.4, the reference's «Visible» / «Hidden»): true -- one added reads the group's newest words; false -- hidden, the reference's default. The owner's choice, never on the wire. */
+        /** CHAT HISTORY FOR NEW MEMBERS (iOS history, G.4, the reference's «Visible» / «Hidden»): true -- one added reads the group's newest words; false -- hidden. A group is born with it visible (iOS 99825581, create); the owner may hide it. The owner's choice, never on the wire. */
         var history: Boolean = false,
         /** THE PEOPLE KEPT OUT (iOS banned, G.7, the reference's «Removed Users»): everyone the owner or an administrator took out, by seat and pipe; the owner's alone, never on the wire. */
         val banned: MutableList<Member> = mutableListOf(),
@@ -929,6 +929,7 @@ object Groups {
             }.toMutableList()
             val g = State(id, if (channel) CHANNEL else GROUP, name, clean(about, ABOUT_LIMIT), "", OWNER_SEAT, members, members.size + 1,
                 mutableMapOf(), System.currentTimeMillis())
+            if (g.kind == GROUP) g.history = true   // A NEW GROUP SHOWS ITS PAST TO NEW MEMBERS (iOS 99825581, the author's word 20455 p.2)
             groups[id] = g
             save()
             stand(g, face)

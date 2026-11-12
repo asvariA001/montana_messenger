@@ -2193,7 +2193,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         redraw()
     }
     // «SEARCH» OF THE GROUP'S PAGE (iOS perform(.search), MontanaPeerInfoScreen.swift:634-639): the page goes down to its chat and asks it
-    val openPage = { hideKeys(); act.push { close -> if (group) groupPage(act, ref, close, pageLanding, onSearch = { close(); openSearch() }) else peerInfoPage(act, ref, close, pageLanding) } }
+    // THE MONTANA ROOM'S FACE OPENS A CHANNEL'S PAGE (iOS 74747b38 chatTitlePage, the author's word 20455 p.3); every other chat its settings
+    val openPage = { hideKeys(); act.push { close -> if (Book.isMontana(ref)) montanaRoomPage(act, close) else if (group) groupPage(act, ref, close, pageLanding, onSearch = { close(); openSearch() }) else peerInfoPage(act, ref, close, pageLanding) } }
     // THE CHESS MARK'S TAP (iOS chessMark 1975-1986): an invitation waiting for my answer is answered in the feed, a played game opens
     // its board; with none the platform's question asks for a new game — no stake and no balance (iOS 480cd898)
     fun chessTap() {
@@ -2238,7 +2239,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 addView(title, lp(WRAP, WRAP))
                 addView(presenceRow, lp(WRAP, WRAP).apply { topMargin = dp(1) })
             }, lp(0, WRAP, 1f))
-            if (!local) pressable { openPage() }   // the room without an address has no correspondent's page behind its name
+            if (!local || Book.isMontana(ref)) pressable { openPage() }   // Saved Messages has no page behind its name; the Montana room its channel's page
             setOnLongClickListener { v ->
                 PopupMenu(c, v).apply {
                     menu.add(R.string.copy_name)
@@ -3728,7 +3729,7 @@ private fun saveMediaFiles(row: List<Msg>): List<Pair<java.io.File, Boolean>>? {
  * SAVED TO THE LIBRARY, the notebook and the one road (iOS MontanaSavedToPhotos, MontanaMedia.swift:1275+, the author's word
  * 11.09): the badge asks here, saves here, and a saved name shows no badge again.
  */
-private object SavedMedia {
+internal object SavedMedia {
     private fun key(name: String) = "savedToPhotos.$name"
     fun has(name: String): Boolean = Prefs.bool(key(name), false)
     fun save(c: Context, f: java.io.File, video: Boolean): Boolean {
@@ -4449,4 +4450,31 @@ private fun claimsTap(v: View, x: Float, y: Float, top: Boolean = true): Boolean
         if (0f <= cx && 0f <= cy && cx < ch.width && cy < ch.height && claimsTap(ch, cx, cy, false)) return true
     }
     return false
+}
+
+/**
+ * THE MONTANA ROOM IS A CHANNEL (iOS MTMontanaRoomPage, 74747b38; the author's word 20455 p.3, 12.11.2026): the room's face, its name
+ * with the seal, «channel», the edition's own description and its own site -- each read from its one owner (R.string.intro_tagline,
+ * the first screen's words; supportSite), so nothing here keeps a copy of either.
+ */
+fun montanaRoomPage(act: MainActivity, onClose: () -> Unit): View {
+    val c: Context = act
+    val ch = Book.chat(Book.MONTANA)
+    return settingsPage(act, "", onClose) {
+        addView(c.vstack(Gravity.CENTER_HORIZONTAL) {
+            setPadding(0, dp(16), 0, dp(8))
+            addView(c.chatFace(Book.MONTANA, ch?.shown ?: Book.MONTANA_TITLE, 96), lp(dp(96), dp(96)))
+            addView(c.text(c.montanaNamed(ch?.shown ?: Book.MONTANA_TITLE, Book.MONTANA, 20), 22f, Color.WHITE, bold = true, center = true).apply { maxLines = 1 },
+                lp(WRAP, WRAP).apply { topMargin = dp(8) })
+            addView(c.text(c.getString(R.string.channel_word), 15f, MT.gray, center = true), lp(WRAP, WRAP).apply { topMargin = dp(8) })
+        }, lp())
+        section(c.getString(R.string.description), null, c.text(c.getString(R.string.intro_tagline), 17f, Color.WHITE).apply { setPadding(dp(16), dp(12), dp(16), dp(12)) })
+        section(c.getString(R.string.website), null, c.hstack {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            gravity = Gravity.CENTER_VERTICAL
+            addView(c.icon(R.drawable.ic_language, Color.WHITE), lp(dp(24), dp(24)).apply { marginEnd = dp(12) })
+            addView(c.text(supportSite, 17f, Color.WHITE))   // USER-DATA: an address
+            pressable { runCatching { act.startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(supportSite))) } }
+        })
+    }
 }

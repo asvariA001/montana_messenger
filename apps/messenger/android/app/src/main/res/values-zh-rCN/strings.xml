@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Taken from the iOS String Catalog (Code/Montana/Localizable.xcstrings) — one wording on both platforms. -->
 <resources>
-    <string name="intro_tagline">私密通讯工具。您的身份源自您的助记词，聊天内容在您的设备上加密。</string>
+    <string name="intro_tagline">新一代通信。您的身份源自您的助记词，您发送的一切都在您的设备上加密。</string>
     <string name="priv_words_title">由 24 个词构成的身份</string>
     <string name="priv_words_sub">只有您持有密钥</string>
     <string name="priv_e2e_title">端到端加密</string>
@@ -743,4 +743,8 @@
     <string name="queue_show">在播放列表中显示</string>
     <string name="queue_reverse">倒序</string>
     <string name="queue_reorder">调整顺序</string>
+    <string name="channel_word">频道</string>
+    <string name="description">描述</string>
+    <string name="save_photo">保存</string>
+    <string name="saved_photo">已保存</string>
 </resources>

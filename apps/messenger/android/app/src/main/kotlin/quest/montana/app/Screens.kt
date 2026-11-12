@@ -312,7 +312,7 @@ fun termsGate(act: MainActivity, onAgree: (() -> Unit)?, onClose: (() -> Unit)? 
         addView(c.plate {
             addView(link(R.drawable.ic_email, "contact@montana.one", Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:contact@montana.one"))), lp())
             divider()
-            addView(link(R.drawable.ic_language, "https://montana.xxx", Intent(Intent.ACTION_VIEW, Uri.parse("https://montana.xxx"))), lp())
+            addView(link(R.drawable.ic_language, supportSite, Intent(Intent.ACTION_VIEW, Uri.parse(supportSite))), lp())
         }, lp())
     }
     // the terms stand on my page's ground, as the drawer and my page wear it (iOS MontanaTermsView 118)

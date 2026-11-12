@@ -2,7 +2,7 @@
 <!-- Taken from the iOS String Catalog (Code/Montana/Localizable.xcstrings) — one wording on both platforms. -->
 <resources>
     <string name="app_name" translatable="false">Montana</string>
-    <string name="intro_tagline">A private messenger. Your identity comes from your secret phrase, and your chats are encrypted on your device.</string>
+    <string name="intro_tagline">Next-generation communication. Your identity comes from your secret phrase, and everything you send is encrypted on your device.</string>
     <string name="priv_words_title">Identity from 24 words</string>
     <string name="priv_words_sub">Only you hold the key</string>
     <string name="priv_e2e_title">End-to-end encryption</string>
@@ -748,4 +748,8 @@
     <string name="queue_show">Show in playlist</string>
     <string name="queue_reverse">Reverse order</string>
     <string name="queue_reorder">Reorder</string>
+    <string name="channel_word">channel</string>
+    <string name="description">Description</string>
+    <string name="save_photo">Save</string>
+    <string name="saved_photo">Saved</string>
 </resources>
