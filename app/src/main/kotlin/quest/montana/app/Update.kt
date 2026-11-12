@@ -341,9 +341,23 @@ object Release {
     /**
      * THE ROOM'S LETTER IS A SCROLL (iOS MTReleaseScroll, MontanaBubble.swift:3595-3680): the app's glass icon and the version at its
      * head, the room's crowned name under them, a fading rule, the changes as points; past three the chevron unrolls the rest in
-     * place; the one act is the path's door, «Update», which brings the newest from the site (Update.take). The plate is the room's
+     * place; the door «Update» stands under it (door). The plate is the room's
      * own: a dark fall from white 0.22 to 0.09 under the accent's rim.
      */
+    /**
+     * THE DOOR TO UPDATE STANDS UNDER THE SCROLL, A BUTTON OF ITS OWN, A PERMANENT LINK TO THE SOURCE (iOS 4c20068e, the author's words
+     * 19359 and 19364): it stood inside the plate, only before a build newer than the one in hand and only with the letter's own copy of
+     * the address, so once every phone took the newest it was gone everywhere. It stands under every scroll and leads to the one source
+     * of updates (Update.take: the site, or the store where the site is off); the source offers the newest.
+     */
+    fun door(c: Context, m: Msg): android.view.View? {
+        val i = of(m.text) ?: return null
+        return PathDoor(c, c.getString(R.string.update_now)) {
+            Log.d("Montana", "release tap build=" + i.build + " own=" + Update.own(c))
+            (c as? Activity)?.let { Update.take(it) }
+        }
+    }
+
     fun body(c: Context, m: Msg, into: LinearLayout) {
         val i = of(m.text) ?: return
         into.background = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM,
@@ -393,11 +407,6 @@ object Release {
                 }
             }, LinearLayout.LayoutParams(MATCH, c.dp(44)))
         }
-        // the door to update stands only before a build newer than the one in hand; the room's own row has none (iOS ada594f9)
-        if (Update.own(c) < i.build && i.url.isNotEmpty()) col.addView(PathDoor(c, c.getString(R.string.update_now)) {
-            Log.d("Montana", "release tap build=" + i.build)
-            (c as? Activity)?.let { Update.take(it) }
-        }, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = c.dp(3) })
         // THE SCROLL IS AS WIDE AS ITS WORDS, UP TO FOUR FIFTHS OF THE WINDOW (iOS bubbleCeiling, MontanaBubble.swift:596): a whole sentence
         // in a fixed 250 dp ran to eight lines. The width is counted here and given exactly: a column that wraps would measure each
         // point once at its own width and keep that height.

@@ -3106,6 +3106,8 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }.also { row -> foldOpens?.let { hold -> row.visibility = View.GONE; hold { row.visibility = View.VISIBLE } } }, lp(if (note) MATCH else WRAP, WRAP).apply { if (voice) { topMargin = dp(8); if (!mine) gravity = Gravity.START } })
             if (edge) edgeLay(this, onPlate) else docLay(this)
         }, lp(WRAP, WRAP))
+        // THE MONTANA ROOM'S SCROLL WEARS ITS DOOR TO UPDATE UNDER IT, A BUTTON OF ITS OWN (iOS MTReleaseScroll, 4c20068e)
+        Release.door(c, m)?.let { addView(it, lp(MATCH, WRAP).apply { topMargin = dp(8) }) }
         // A POST'S COMMENTS (iOS MontanaBubble 506-541, the reference's «Leave a Comment»): under the post a plate of the bubble's own
         // fill across its width -- the bubble, «Leave a Comment» or «N Comments», the chevron; the touch opens the post's comments
         if (Groups.isKey(chat.ref) && Groups.talks(chat.ref)) {
