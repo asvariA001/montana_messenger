@@ -424,8 +424,12 @@ object Groups {
         val name = Marks.mintMid()
         copies[name] = Copy(w.getString("g"), letter, pipe, own, 1)
         saveCopies()
-        // the past (G.4) and a channel's silent post ring nothing on the wire; a room's word rings only where it is an invitation (iOS carry ring, 07.10)
-        Post.send(pipe, name, MARK + w.toString(), quiet = w.optInt("hs") == 1 || w.optInt("sl") == 1 || ring == false)
+        // WHETHER A WORD RINGS, ONE ANSWER (iOS MTRing.groupWord, 4c20068e): a letter (say) that is neither the past (G.4) nor a
+        // channel's silent post, or a room's invitation to the very seat it is carried to -- nothing else: an invitation into the
+        // group, a renewal of its face, title or rights, an administrator named, an answer, a leaving, a taking out are all silent
+        val t = w.optString("t")
+        val rings = w.optInt("hs") != 1 && w.optInt("sl") != 1 && ring != false && (t == "say" || (t == "room" && ring == true))
+        Post.send(pipe, name, MARK + w.toString(), quiet = !rings)
         Log.i("Montana", "group_tx mid=" + name.take(14) + " t=" + w.optString("t") + " to=" + pipe.take(10))
         return name
     }
