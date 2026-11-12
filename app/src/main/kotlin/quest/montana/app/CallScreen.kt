@@ -676,17 +676,19 @@ object CallScreen {
         val face = FrameLayout(c).apply { addView(icon, FrameLayout.LayoutParams(dp(26), dp(26), Gravity.CENTER)) }
         val caption = c.text("", 15f, Color.WHITE, center = true).apply { singleLineEllipsis() }
         var shown: CallLine.Face? = null
+        var col: View? = null
         fun paint() {
             val f = CallLine.face()
             if (f == shown) return
             shown = f
+            // no earpiece and nothing outside: no button, and the row closes up around the rest (iOS 0996c386)
+            col?.visibility = if (f.shown) View.VISIBLE else View.GONE
             icon.setImageResource(f.icon)
             icon.setColorFilter(if (f.lit) Color.BLACK else barGlyph)
             face.background = if (f.lit) c.rounded(Color.WHITE, SIDE / 2) else c.glassPlate(oval = true)
             caption.text = c.getString(f.caption)
             face.contentDescription = caption.text
         }
-        paint()
         face.pressable {
             val f = CallLine.face()
             if (!f.menu) {
@@ -703,12 +705,14 @@ object CallScreen {
                 setOnMenuItemClickListener { item -> ways.getOrNull(item.itemId)?.take?.invoke(); paint(); true }
             }.show()
         }
-        val col = c.vstack(Gravity.CENTER_HORIZONTAL) {
+        val stack = c.vstack(Gravity.CENTER_HORIZONTAL) {
             addView(face, lp(dp(SIDE), dp(SIDE)))
             gap(8)
             addView(caption, lp())
         }
-        return col to { paint() }
+        col = stack
+        paint()
+        return stack to { paint() }
     }
 
     /** iOS gridBtn: the circle with its glyph, white when lit, and its one-line caption under it; the press answers under the finger. */
@@ -840,18 +844,22 @@ private class CallGrid(c: Context, private val buttons: List<View>) : ViewGroup(
             (face.getChildAt(0).layoutParams as FrameLayout.LayoutParams).apply { width = glyphPx; height = glyphPx }
             btn.measure(MeasureSpec.makeMeasureSpec(colPx, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED))
         }
-        rowH = buttons[0].measuredHeight
+        rowH = buttons.maxOf { it.measuredHeight }
         val width = if (landscape) 6 * colPx + 5 * gapPx else 3 * colPx + 2 * gapPx
         val height = if (landscape) rowH else rowH * 2 + dp(30)   // iOS VStack(spacing: 30), 6890
         setMeasuredDimension(width, height)
     }
     override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
         val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        var x = 0; var y = 0
-        buttons.forEachIndexed { i, btn ->
-            if (!landscape && i == 3) { x = 0; y = rowH + dp(30) }
-            btn.layout(x, y, x + colPx, y + rowH)
-            x += colPx + gapPx
+        // A BUTTON NOT SHOWN LEAVES NO HOLE (iOS 0996c386: the row closes up around the rest): each row's shown buttons stand
+        // centred in the row's width
+        val rows = if (landscape) listOf(buttons) else listOf(buttons.take(3), buttons.drop(3))
+        val width = r - l
+        rows.forEachIndexed { ri, row ->
+            val seen = row.filter { it.visibility != View.GONE }
+            var x = (width - (seen.size * colPx + (seen.size - 1).coerceAtLeast(0) * gapPx)) / 2
+            val y = if (ri == 0) 0 else rowH + dp(30)
+            for (btn in seen) { btn.layout(x, y, x + colPx, y + rowH); x += colPx + gapPx }
         }
     }
 }
