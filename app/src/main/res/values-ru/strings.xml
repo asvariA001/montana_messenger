@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Taken from the iOS String Catalog (Code/Montana/Localizable.xcstrings) — one wording on both platforms. -->
 <resources>
-    <string name="intro_tagline">Приватный мессенджер. Личность — из вашей секретной фразы, переписка зашифрована на вашем устройстве.</string>
+    <string name="intro_tagline">Связь нового поколения. Личность — из вашей секретной фразы, всё, что вы отправляете, зашифровано на вашем устройстве.</string>
     <string name="priv_words_title">Личность из 24 слов</string>
     <string name="priv_words_sub">Ключ держите только вы</string>
     <string name="priv_e2e_title">Сквозное шифрование</string>
@@ -743,4 +743,8 @@
     <string name="queue_show">Показать в плейлисте</string>
     <string name="queue_reverse">Обратный порядок</string>
     <string name="queue_reorder">Изменить порядок</string>
+    <string name="channel_word">канал</string>
+    <string name="description">Описание</string>
+    <string name="save_photo">Сохранить</string>
+    <string name="saved_photo">Сохранено</string>
 </resources>

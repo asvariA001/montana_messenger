@@ -2019,20 +2019,8 @@ private fun openTile(act: MainActivity, wall: String, p: JSONObject, i: Int, inF
     Thread {
         val f = Board.file(wall, p, i) ?: return@Thread
         if (kind == "vid") { MainThread.post { FilmActivity.open(act, f) }; return@Thread }
-        fun pictures(posts: List<Board.Item>): List<File> {
-            val once = HashSet<String>()
-            val out = ArrayList<File>()
-            for (item in posts) {
-                if (!once.add(item.post.optString("id"))) continue
-                val ms = item.post.optJSONArray("media") ?: continue
-                for (j in 0 until ms.length()) if (ms.optJSONObject(j)?.optString("kind") == "img") Board.here(item.post, j)?.let { out.add(it) }
-            }
-            return out
-        }
-        var among = pictures(wallPage(wall, inFeed))
-        if (among.none { it.path == f.path }) among = pictures(listOf(Board.Item(wall, p)))
-        val album = among
-        MainThread.post { openPictures(act, f, album) }
+        // EVERY PICTURE IS SEEN ON ITS OWN (iOS ca301892, the author's word 20455 p.4): no album of the wall's pictures
+        MainThread.post { openPictures(act, f) }
     }.start()
 }
 
