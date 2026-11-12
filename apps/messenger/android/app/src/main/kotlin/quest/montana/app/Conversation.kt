@@ -3271,10 +3271,11 @@ private fun speakerHead(c: Context, who: String, ref: String?): View = c.hstack 
     }
 }
 /**
- * THE SPEAKER'S FACE AT THE FOOT OF THEIR RUN (iOS MTSpeakerFace): the person's own picture where this phone holds their pipe, else
- * their initial on the colour every phone gives them.
+ * THE SPEAKER'S FACE AT THE FOOT OF THEIR RUN (iOS MTSpeakerFace → MTGroup.speakerFace, 4c20068e): the face the person gave the group
+ * on their own letter, else their picture where this phone holds their pipe, else their initial on the colour every phone gives them.
  */
 private fun speakerFace(c: Context, ref: String, name: String): View {
+    Groups.speakerFace(ref)?.let { f -> SmallPicture.of(f)?.let { return c.avatar(it, name, SPEAKER_FACE) } }
     val pipe = Groups.speakerPipe(ref)
     if (pipe != null) return c.peerFace(SamePair.root(pipe), name, SPEAKER_FACE)
     return c.avatar(null, name, SPEAKER_FACE).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Groups.tint(ref)) } }
