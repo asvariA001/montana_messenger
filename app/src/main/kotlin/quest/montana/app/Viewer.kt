@@ -16,7 +16,6 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.ImageView
-import org.json.JSONObject
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.max
@@ -25,69 +24,75 @@ import kotlin.math.min
 // ─────────────────────────── the pictures of a conversation, full screen (iOS PhotoPresenter: the platform's viewer) ───────────────────────────
 
 /**
- * THE PICTURES OF THE CONVERSATION a picture belongs to (iOS mtGalleryFiles): every picture of that chat whose file is on this
- * phone, in the feed's order. A video is not a page of it (the author's word 28.09): it opens in the player.
- */
-fun picturesBeside(f: File): List<File> {
-    val chat = Book.rooms().firstOrNull { ch -> ch.msgs.any { it.file == f.path } } ?: return listOf(f)
-    return chat.msgs.mapNotNull { m ->
-        val file = m.file?.let { File(it) }?.takeIf { it.exists() } ?: return@mapNotNull null
-        val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
-        if (man?.optString("k") == "img") file else null
-    }.ifEmpty { listOf(f) }
-}
-
-/**
- * THE ALBUM (iOS MontanaPhotoViewer through PhotoPresenter.present(_:among:), MontanaProfile 1641-1875; MontanaMedia 3085-3114):
- * the conversation's pictures as pages — the page follows the finger sideways and settles; a tap in the outer 15 % of the
- * width turns the page, a tap elsewhere hides or shows the strip; pinch and a double tap enlarge; a pull down lets the picture
- * go and closes. Under the pages the strip of covers: the centred cover is the page, a tap on a cover turns to it, and the
- * picture fits above the strip's band, never under it. No buttons: the platform's back closes it, as the pull does.
+ * EVERY PICTURE IS SEEN ON ITS OWN (iOS PhotoPresenter + MontanaPhotoViewer after ca301892; the author's word 20455 p.4, 12.11.2026:
+ * «no Montana gallery while viewing a photo anywhere again»): a tap on a picture -- a chat's, a post's, a correspondent's page --
+ * opens that one picture: pinch and a double tap enlarge, a pull down lets it go and closes, a tap hides or shows Share and Save at
+ * the bottom. No strip of covers. The moments' gallery (titles: iOS MTMomentsViewer over the platform's viewer, untouched by
+ * ca301892) still pages across its moments with its bar -- close, the moment's conversation, share -- and no strip either.
  */
 fun openPictures(act: MainActivity, start: File, among: List<File>? = null, films: Set<String> = emptySet(), titles: List<String>? = null) {
     val c: Context = act
-    // A POST'S PICTURE OPENS AMONG ITS PAGE'S (iOS MTBoardMediaView.open, PhotoPresenter.present(_:among:), MontanaBoardViews.swift:
-    // 773-774 at 2155): the caller's album when it holds the one touched, else the conversation's
-    val files = among?.takeIf { l -> l.any { it.path == start.path } } ?: picturesBeside(start)
+    val files = titles?.let { among?.takeIf { l -> l.size == it.size && l.any { f -> f.path == start.path } } } ?: listOf(start)
     val paged = 1 < files.size
     var at = files.indexOfFirst { it.path == start.path }.coerceAtLeast(0)
     lateinit var close: () -> Unit
     var chrome = true
-    var foot = c.dp(34)
-    val strip = if (paged) CoverStrip(act, files, at, films) else null
     // THE MOMENTS' BAR (iOS DocPreviewQL in its navigation controller, MontanaFeeds.swift:2702-2716 at 2155, the gallery's viewer
-    // MTMomentsViewer 2758): the close on the left, the moment's conversation in the middle, the share on the right -- the
-    // gallery's album alone carries it (titles), and it hides and shows with the strip
-    val head = titles?.takeIf { it.size == files.size }
+    // MTMomentsViewer 2758): the close on the left, the moment's conversation in the middle, the share on the right
+    val head = titles?.takeIf { paged }
     val name = head?.let { c.text(it[at], 17f, Color.WHITE, center = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END } }   // USER-DATA: the conversation's name
-    val pager = PicturePager(act, files, at, films) { at = it; strip?.follow(it); if (head != null) name?.text = head[it] }
-    // the strip owns a band at the bottom and the photo fits above it (iOS stripBand: 120 + 10 + the safe inset)
-    var bar: View? = null
-    fun lay() {
-        pager.setPadding(0, 0, 0, if (strip != null && chrome) c.dp(130) + foot else 0)
-        strip?.animate()?.alpha(if (chrome && !pager.zoomed) 1f else 0f)?.setDuration(220)?.start()
-        bar?.animate()?.alpha(if (chrome) 1f else 0f)?.setDuration(220)?.withEndAction { bar?.visibility = if (chrome) View.VISIBLE else View.INVISIBLE }?.start()
-        if (chrome) bar?.visibility = View.VISIBLE
+    val pager = PicturePager(act, files, at, films) { at = it; if (head != null) name?.text = head[it] }
+    fun mark(glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
+        background = c.glassPlate(oval = true)
+        contentDescription = c.getString(label)
+        addView(c.icon(glyph, Color.WHITE, 22), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+        pressable(work)
     }
+    // the file through the app's door to the system's share (iOS MTShare.present / QLPreviewController's share item)
+    fun share() {
+        val f = files[at]
+        val uri = Media.uri(act, f)
+        val send = Intent(Intent.ACTION_SEND).setType(act.contentResolver.getType(uri) ?: if (f.path in films) "video/*" else "image/*")
+            .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        runCatching { act.startActivity(Intent.createChooser(send, null)) }
+    }
+    var bar: View? = null
     if (name != null) {
-        fun mark(glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
-            background = c.glassPlate(oval = true)
-            contentDescription = c.getString(label)
-            addView(c.icon(glyph, Color.WHITE, 22), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
-            pressable(work)
-        }
         bar = FrameLayout(c).apply {
             addView(mark(R.drawable.ic_close, R.string.film_close) { close() }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.START).apply { leftMargin = c.dp(16) })
             addView(name, FrameLayout.LayoutParams(MATCH, c.dp(44), Gravity.CENTER).apply { setMargins(c.dp(72), 0, c.dp(72), 0) })
             name.gravity = Gravity.CENTER
-            addView(mark(R.drawable.ic_share, R.string.share) {
-                // the viewer's share: the moment's own file through the app's door (iOS QLPreviewController's share item)
-                val f = files[at]
-                val uri = Media.uri(act, f)
-                val send = Intent(Intent.ACTION_SEND).setType(act.contentResolver.getType(uri) ?: if (f.path in films) "video/*" else "image/*")
-                    .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                runCatching { act.startActivity(Intent.createChooser(send, null)) }
-            }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.END).apply { rightMargin = c.dp(16) })
+            addView(mark(R.drawable.ic_share, R.string.share) { share() }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.END).apply { rightMargin = c.dp(16) })
+        }
+    }
+    // SAVE AND SHARE UNDER ONE PICTURE (iOS MontanaPhotoViewer onShare/onSave, ca301892): Share at the left, Save at the right; Save
+    // lays the file into the library by the one road (SavedMedia, iOS MontanaSavedToPhotos) and turns to the checkmark, done
+    val foot: FrameLayout? = if (paged) null else FrameLayout(c).apply {
+        addView(mark(R.drawable.ic_share, R.string.share) { share() }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.START).apply { leftMargin = c.dp(24) })
+        var saved = SavedMedia.has(start.name)
+        lateinit var save: FrameLayout
+        fun dress() {
+            (save.getChildAt(0) as? android.widget.ImageView)?.setImageResource(if (saved) R.drawable.ic_check else R.drawable.ic_save_media)
+            save.contentDescription = c.getString(if (saved) R.string.saved_photo else R.string.save_photo)
+            save.isEnabled = !saved
+        }
+        save = mark(R.drawable.ic_save_media, R.string.save_photo) {
+            if (saved || !save.isEnabled) return@mark
+            save.isEnabled = false
+            Thread {
+                val ok = SavedMedia.save(c, start, false)
+                android.util.Log.i("Montana", "save_photos ok=" + (if (ok) 1 else 0) + " video=0")
+                MainThread.post { saved = ok; save.isEnabled = true; dress() }
+            }.start()
+        }
+        addView(save, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.END).apply { rightMargin = c.dp(24) })
+        dress()
+    }
+    fun lay() {
+        for (v in listOfNotNull(bar, foot)) {
+            val shown = chrome && !pager.zoomed
+            v.animate().alpha(if (shown) 1f else 0f).setDuration(220).withEndAction { v.visibility = if (chrome && !pager.zoomed) View.VISIBLE else View.INVISIBLE }.start()
+            if (shown) v.visibility = View.VISIBLE
         }
     }
     pager.onTapAt = { x ->
@@ -98,27 +103,25 @@ fun openPictures(act: MainActivity, start: File, among: List<File>? = null, film
         else if (files[at].path in films) FilmActivity.open(act, files[at])
         else { chrome = !chrome; lay() }
     }
-    pager.onPull = { f -> strip?.alpha = if (chrome && f < 0.01f) 1f else 0f }   // steps aside the moment the hands work
-    pager.onZoomed = { strip?.animate()?.alpha(if (chrome && !it) 1f else 0f)?.setDuration(220)?.start() }
+    pager.onPull = { f -> foot?.alpha = if (chrome && f < 0.01f) 1f else 0f }   // steps aside the moment the hands work
+    pager.onZoomed = { lay() }
     pager.onGone = { close() }
-    strip?.onPick = { i -> pager.goTo(i) }
     val page = FrameLayout(c).apply {
         setBackgroundColor(Color.BLACK)
         isClickable = true
         addView(pager, FrameLayout.LayoutParams(MATCH, MATCH))
-        if (strip != null) addView(strip, FrameLayout.LayoutParams(MATCH, c.dp(120), Gravity.BOTTOM))
+        foot?.let { addView(it, FrameLayout.LayoutParams(MATCH, c.dp(44), Gravity.BOTTOM)) }
         bar?.let { addView(it, FrameLayout.LayoutParams(MATCH, c.dp(44), Gravity.TOP)) }
         setOnApplyWindowInsetsListener { _, ins ->
-            foot = max(ins.getInsets(android.view.WindowInsets.Type.systemBars()).bottom, c.dp(16))
-            (strip?.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = foot; strip?.layoutParams = it }
-            (bar?.layoutParams as? FrameLayout.LayoutParams)?.let { it.topMargin = ins.getInsets(android.view.WindowInsets.Type.systemBars()).top + c.dp(8); bar?.layoutParams = it }
-            lay(); ins
+            val sys = ins.getInsets(android.view.WindowInsets.Type.systemBars())
+            (foot?.layoutParams as? FrameLayout.LayoutParams)?.let { it.bottomMargin = max(sys.bottom, c.dp(16)) + c.dp(8); foot.layoutParams = it }
+            (bar?.layoutParams as? FrameLayout.LayoutParams)?.let { it.topMargin = sys.top + c.dp(8); bar?.layoutParams = it }
+            ins
         }
     }
     pager.ground = page
     close = act.overlay(page)
     page.requestApplyInsets()
-    lay()
 }
 
 /**
@@ -346,107 +349,5 @@ class PicturePager(private val act: MainActivity, private val files: List<File>,
             })
             start()
         }
-    }
-}
-
-/** The strip's covers, small pictures born off the frame and kept for the album's life (iOS mtCoverCache, 256 px). */
-private val stripCovers = Caches.kept("strip_covers", object : android.util.LruCache<String, Bitmap>(16 * 1024 * 1024) { override fun sizeOf(key: String, value: Bitmap) = value.byteCount })
-
-/**
- * THE STRIP OF COVERS (iOS MontanaPhotoViewer.thumbStrip, MontanaProfile 1822-1873): the album covers' own scroll — the centred
- * cover large and flat, its neighbours turned in perspective and receding, overlapping by more than a quarter; the scroll snaps
- * to a cover, and the centred cover IS the page; a tap on a cover turns to it. 96 points a cover, 120 the strip.
- */
-class CoverStrip(private val act: MainActivity, private val files: List<File>, start: Int, private val films: Set<String> = emptySet()) : FrameLayout(act) {
-    var onPick: (Int) -> Unit = {}
-    private val side = act.dp(96)
-    private val step = side * 0.72f   // iOS HStack(spacing: -side * 0.28)
-    private var pos = start.toFloat()
-    private val covers = HashMap<Int, ImageView>()
-    private var downX = 0f
-    private var lastX = 0f
-    private var moved = false
-    private var tracker: VelocityTracker? = null
-    private var glide: ValueAnimator? = null
-    private val slop = ViewConfiguration.get(act).scaledTouchSlop
-
-    override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) { super.onLayout(changed, l, t, r, b); place() }
-
-    /** The page turned by a swipe or an edge tap: the strip follows it to its cover. */
-    fun follow(i: Int) { if (glide == null && tracker == null && i.toFloat() != pos) slide(i, tell = false) }
-
-    private fun cover(i: Int): ImageView = covers.getOrPut(i) {
-        ImageView(act).apply {
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            setBackgroundColor(Color.rgb(51, 51, 51))
-            outlineProvider = object : android.view.ViewOutlineProvider() {
-                override fun getOutline(v: View, o: android.graphics.Outline) = o.setRoundRect(0, 0, v.width, v.height, v.dp(6).toFloat())
-            }
-            clipToOutline = true
-            cameraDistance = 8000 * resources.displayMetrics.density
-            this@CoverStrip.addView(this, LayoutParams(side, side, Gravity.CENTER_VERTICAL or Gravity.START))
-            val f = files[i]
-            val kept = stripCovers.get(f.path)
-            if (kept != null) setImageBitmap(kept)
-            else act.background {
-                val b = Media.preview(act, f, if (f.path in films) "vid" else "img", 256) ?: return@background
-                stripCovers.put(f.path, b)
-                act.onMain { setImageBitmap(b) }
-            }
-        }
-    }
-
-    private fun place() {
-        val w = width
-        if (w == 0) return
-        val reach = w / 2f / step + 2
-        val first = max(0, (pos - reach).toInt())
-        val last = min(files.size - 1, (pos + reach).toInt() + 1)
-        covers.keys.filter { it < first || last < it }.forEach { k -> removeView(covers.remove(k)) }
-        for (i in first..last) {
-            val v = cover(i)
-            val cx = w / 2f + (i - pos) * step
-            v.translationX = cx - side / 2f
-            // the distance from the strip's centre, -1…1 across one cover: the centred cover flat and full, a neighbour turned away
-            val t = ((cx - w / 2f) / (side * 1.1f)).coerceIn(-1f, 1f)
-            v.rotationY = -t * 55f
-            v.scaleX = 1 - 0.28f * abs(t); v.scaleY = v.scaleX
-            v.alpha = 1 - 0.35f * abs(t)
-            v.translationZ = -abs(i - pos) * act.dp(4)
-        }
-    }
-
-    private fun slide(to: Int, tell: Boolean) {
-        glide?.cancel()
-        glide = ValueAnimator.ofFloat(pos, to.toFloat()).apply {
-            duration = 240
-            addUpdateListener { pos = it.animatedValue as Float; place() }
-            addListener(object : android.animation.AnimatorListenerAdapter() {
-                override fun onAnimationEnd(a: android.animation.Animator) { glide = null; pos = to.toFloat(); place(); if (tell) onPick(to) }
-            })
-            start()
-        }
-    }
-
-    override fun onTouchEvent(e: MotionEvent): Boolean {
-        if (tracker == null) tracker = VelocityTracker.obtain()
-        tracker?.addMovement(e)
-        when (e.actionMasked) {
-            MotionEvent.ACTION_DOWN -> { glide?.cancel(); glide = null; downX = e.x; lastX = e.x; moved = false; parent?.requestDisallowInterceptTouchEvent(true) }
-            MotionEvent.ACTION_MOVE -> {
-                if (slop < abs(e.x - downX)) moved = true
-                if (moved) { pos = (pos - (e.x - lastX) / step).coerceIn(-0.4f, files.size - 0.6f); place() }
-                lastX = e.x
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                tracker?.computeCurrentVelocity(1000)
-                val vx = tracker?.xVelocity ?: 0f
-                tracker?.recycle(); tracker = null
-                // a drag snaps to the cover it carries to; a tap turns to the cover under the finger
-                val to = if (moved) Math.round(pos - vx / step * 0.25f) else Math.round(pos + (e.x - width / 2f) / step)
-                slide(to.coerceIn(0, files.size - 1), tell = true)
-            }
-        }
-        return true
     }
 }
