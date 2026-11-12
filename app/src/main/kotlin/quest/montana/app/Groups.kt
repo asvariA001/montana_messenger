@@ -39,6 +39,10 @@ object Groups {
     private const val NAME_LIMIT = 64
     private const val FACE_LIMIT = 24_000
     private const val FACE_SIDE = 160   // iOS faceSide
+    /** A speaker's face on its letter (iOS speakerFaceSide, MTGroupWord.sf): the feed's face at three pixels a point. */
+    private const val SPEAKER_FACE_SIDE = 96
+    /** A speaker gives its face again a day after it last did (iOS faceAgain): one who came in since is not left with an initial. */
+    private const val FACE_AGAIN = 24 * 3600 * 1000L
     /** [I-14]: a group is bounded by the people its owner carries to (iOS peopleLimit). */
     private const val PEOPLE_LIMIT = 200
     /** [I-14]: the posts one word of a channel's views names (iOS viewsBatch). */
@@ -55,6 +59,8 @@ object Groups {
     class Request(val pipe: String, val name: String, val at: Long)
     /** One deed of a channel, as its owner's phone wrote it (iOS MTChannelAct): what, about whom by the names known then, when (ms). */
     class Act(val e: String, val p: List<String>?, val t: String?, val at: Long)
+    /** The face this phone last gave a group on a letter of its own (iOS MTFaceGiven): its tag, the people counted then, when (ms). */
+    class FaceGiven(val tag: String, val count: Int, val at: Long)
 
     /** A group as this phone holds it (iOS MTGroupState): `owner` — the pipe to the owner, empty on the owner's phone; `me` — this phone's seat. */
     class State(
@@ -98,6 +104,12 @@ object Groups {
         var talks: Boolean = false,
         /** THE OWNER'S NEXT POSTS GO WITHOUT SOUND (iOS silent, the bell in a channel's field, the reference's «Silent Broadcast»). The owner's alone, never in an invitation. */
         var silent: Boolean = false,
+        /** THE FACES OF THE GROUP'S PEOPLE, EACH AS THE PERSON GAVE IT ON THEIR OWN LETTER (iOS faces/faceTags, MTGroupWord.sf, 4c20068e):
+         *  by seat, a name of the faces folder (Book.face), and the tag it came under. Never on the wire. */
+        val faces: MutableMap<String, String> = mutableMapOf(),
+        val faceTags: MutableMap<String, String> = mutableMapOf(),
+        /** The face this phone last gave the group on a letter of its own (iOS faceGiven, MTGroup.dress). */
+        var faceGiven: FaceGiven? = null,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -111,6 +123,8 @@ object Groups {
             .put("rq", JSONArray().apply { requests.forEach { put(JSONObject().put("p", it.pipe).put("n", it.name).put("at", it.at)) } })
             .put("lk", link ?: "").put("sg", signs).put("rx", reacts).put("dc", talks).apply { reactList?.let { put("rl", JSONArray(it)) } }
             .put("as", actsJson(acts, 1L)).put("sl", silent)
+            .put("fs", JSONObject(faces.toMap())).put("fq", JSONObject(faceTags.toMap()))
+            .apply { faceGiven?.let { put("fg", JSONObject().put("t", it.tag).put("c", it.count).put("at", it.at)) } }
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -128,7 +142,10 @@ object Groups {
                 o.optString("iv").ifEmpty { null }, o.optBoolean("ap"),
                 o.optJSONArray("rq")?.let { a -> MutableList(a.length()) { i -> a.getJSONObject(i).let { Request(it.getString("p"), it.optString("n"), it.optLong("at")) } } } ?: mutableListOf(),
                 o.optString("lk").ifEmpty { null }, o.optBoolean("sg"), o.optBoolean("rx", true),
-                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L), o.optBoolean("dc"), o.optBoolean("sl"))
+                reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L), o.optBoolean("dc"), o.optBoolean("sl"),
+                o.optJSONObject("fs")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
+                o.optJSONObject("fq")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
+                o.optJSONObject("fg")?.let { FaceGiven(it.optString("t"), it.optInt("c"), it.optLong("at")) })
         }
     }
 
@@ -382,6 +399,17 @@ object Groups {
         val pipe = if (!g.mine && parts[1] == OWNER_SEAT) g.owner else g.members.firstOrNull { it.seat == parts[1] }?.pipe
         return pipe?.ifEmpty { null }
     }
+    /**
+     * THE FACE A SPEAKER GAVE THE GROUP ON THEIR OWN LETTER (iOS MTGroup.speakerFace, 4c20068e; the author's words 19316 p.1, 19387): the
+     * feed reads it first and the pipe's face only without it -- a member's phone holds a pipe to the owner alone, so every other
+     * speaker wore an initial there.
+     */
+    fun speakerFace(ref: String?): java.io.File? {
+        val parts = ref?.takeIf { it.startsWith(SPEAKER_HEAD) }?.removePrefix(SPEAKER_HEAD)?.split("/", limit = 2) ?: return null
+        if (parts.size != 2) return null
+        val name = state(key(parts[0]))?.faces?.get(parts[1]) ?: return null
+        return Book.face(name).takeIf { it.exists() }
+    }
     /** THE SPEAKER'S ROLE (iOS MTSpeakerHead.Role): 1 -- the group's owner, 2 -- an administrator the owner named, 0 -- neither. */
     fun roleOf(ref: String?): Int {
         val parts = ref?.takeIf { it.startsWith(SPEAKER_HEAD) }?.removePrefix(SPEAKER_HEAD)?.split("/", limit = 2) ?: return 0
@@ -479,6 +507,7 @@ object Groups {
                 val w = word("say", g).put("id", mid).put("s", g.me).put("tx", piece)
                 if (first && !qt.isNullOrEmpty()) w.put("qt", qt)
                 if (first && !qm.isNullOrEmpty()) w.put("qm", qm)
+                dress(w, g)
                 // a group of its owner alone holds the letter here (iOS MTGroup.alone, b4cf7d10); else nobody to carry to: honest red
                 if (spread(w, g, null, own = true) == 0) Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(if (alone(g)) 2 else -1) }
                 if (first && lead == null) lead = mid to piece
@@ -590,7 +619,7 @@ object Groups {
                 Log.i("Montana", "group_refused media -- group=" + (if (g == null) 0 else 1))
                 return false
             }
-            val n = spread(word("say", g).put("id", mid).put("s", g.me).put("tx", letter), g, null, own = true)
+            val n = spread(word("say", g).put("id", mid).put("s", g.me).put("tx", letter).also { dress(it, g) }, g, null, own = true)
             if (n == 0 && alone(g)) { Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(2) }; return true }   // held here (A.2)
             return n > 0
         }
@@ -598,6 +627,37 @@ object Groups {
 
     /** A group of its owner alone (iOS MTGroup.alone, the checklist's A.2): nobody to carry to, so a letter is held where it was written, never red. */
     private fun alone(g: State): Boolean = g.mine && g.kind == GROUP && g.members.isEmpty()
+
+    /**
+     * MY FACE RIDES MY OWN LETTER WHERE THE GROUP'S PEOPLE MAY LACK IT (iOS MTGroup.dress, 4c20068e): a new face, a person counted since,
+     * a day since -- else the letter goes bare and the face costs nothing.
+     */
+    private fun dress(w: JSONObject, g: State) {
+        if (g.kind != GROUP) return
+        val img = SelfFace.bytes(Book.ctx) ?: return
+        val tag = img.size.toString() + "-" + java.util.Arrays.hashCode(img).toString(16)
+        val now = System.currentTimeMillis()
+        g.faceGiven?.let { if (it.tag == tag && it.count == g.count && now - it.at < FACE_AGAIN) return }
+        val small = thumb(img, SPEAKER_FACE_SIDE) ?: return
+        w.put("sf", small)
+        g.faceGiven = FaceGiven(tag, g.count, now)
+        save()
+    }
+    /** A speaker's face taken from their own letter, by seat (iOS takeFace): a repeat lays no second file, a new face takes the old one's place. */
+    private fun takeFace(b64: String?, seat: String, g: State): Boolean {
+        if (b64.isNullOrEmpty() || g.kind != GROUP) return false
+        val mark = tagOfFace(b64)
+        if (g.faceTags[seat] == mark) return false
+        val d = face(b64) ?: return false
+        val name = "gsf_" + g.id + "_" + seat + "_" + Integer.toHexString(mark.hashCode())
+        if (runCatching { Book.face(name).writeBytes(d) }.isFailure) return false
+        g.faces[seat]?.takeIf { it != name }?.let { runCatching { Book.face(it).delete() } }
+        g.faces[seat] = name
+        g.faceTags[seat] = mark
+        return true
+    }
+    /** The tag a face on the wire is known by -- its length and its tail (iOS tag(ofFace:)): a repeat of the same word lays no second file. */
+    private fun tagOfFace(b64: String) = b64.length.toString() + "-" + b64.takeLast(16)
 
     /**
      * A REACTION, AN EDIT OR A DELETION OF MINE (iOS MTGroup.signal): carried to every phone of the group like a letter and applied
@@ -1955,11 +2015,11 @@ object Groups {
     private fun mintId() = UUID.randomUUID().toString().replace("-", "").lowercase()
     private fun mintSeat() = mintId().take(8)
     /** The face an invitation carries (iOS thumb): small, so the word stays a letter and not a file. */
-    private fun thumb(face: ByteArray): String? {
+    private fun thumb(face: ByteArray, sideOut: Int = FACE_SIDE): String? {
         val b = BitmapFactory.decodeByteArray(face, 0, face.size) ?: return null
         val side = minOf(b.width, b.height)
         val square = Bitmap.createBitmap(b, (b.width - side) / 2, (b.height - side) / 2, side, side)
-        val small = Bitmap.createScaledBitmap(square, FACE_SIDE, FACE_SIDE, true)
+        val small = Bitmap.createScaledBitmap(square, sideOut, sideOut, true)
         val out = ByteArrayOutputStream()
         small.compress(Bitmap.CompressFormat.JPEG, 70, out)
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP).takeIf { it.length <= FACE_LIMIT }
@@ -2222,7 +2282,7 @@ object Groups {
         takeRights(w, g)
         takeAdmins(w, g)
         val fc = w.optString("fc").ifEmpty { null }
-        val tag = fc?.let { it.length.toString() + "-" + it.takeLast(16) }
+        val tag = fc?.let(::tagOfFace)
         val newFace = tag != null && tag != g.faceTag
         if (newFace) g.faceTag = tag
         groups[id] = g
@@ -2299,7 +2359,7 @@ object Groups {
         val count = w.optInt("c", 2).coerceIn(2, PEOPLE_LIMIT + 1)
         val ownerName = clean(w.optString("n"), NAME_LIMIT)
         val fc = w.optString("fc").ifEmpty { null }
-        val tag = fc?.let { it.length.toString() + "-" + it.takeLast(16) }
+        val tag = fc?.let(::tagOfFace)
         val id = w.getString("g")
         val had = groups[id]
         if (had != null) {
@@ -2415,7 +2475,9 @@ object Groups {
             seat = s0
         }
         val name = clean(w.optString("n"), NAME_LIMIT)
-        if (name.isNotEmpty() && g.names[seat] != name) { g.names[seat] = name; save() }
+        var told = takeFace(w.optString("sf").ifEmpty { null }, seat, g)   // the speaker's own face, as their name (iOS MTGroupWord.sf)
+        if (name.isNotEmpty() && g.names[seat] != name) { g.names[seat] = name; told = true }
+        if (told) save()
         if (id in gone) return Verdict.HELD
         val key = key(g.id)
         if (Book.chat(key)?.msgs?.any { it.mid == id } == true) return Verdict.HELD   // a repeat: the row stands
@@ -2451,6 +2513,7 @@ object Groups {
         if (landed && g.mine) {
             val on = JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
             if (name.isNotEmpty()) on.put("n", name)
+            w.optString("sf").ifEmpty { null }?.let { on.put("sf", it) }   // the speaker's own face goes on with their letter, unchanged
             if (quote != null) on.put("qt", quote)
             w.optString("qm").ifEmpty { null }?.let { on.put("qm", it) }
             spread(on, g, seat, own = false)
