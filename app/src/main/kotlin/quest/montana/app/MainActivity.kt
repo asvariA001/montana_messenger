@@ -32,6 +32,8 @@ class MainActivity : Activity() {
      *  screen-edge pan, ContentView.swift:817-910); null when the current back target has no page to slide — the
      *  drawer's own close, a search field closing (Home.kt:320, Screens.kt:215). */
     private var slidingPage: View? = null
+    private var backDragging = false   // the system's back is dragging the page now (between onBackStarted and its end)
+    private var backHeardAt = 0L   // the back's last word: a back the system never ended does not hold the page off its place
 
     // The screen's state (iOS RootView @State)
     private var hasSeed = false
@@ -430,6 +432,7 @@ class MainActivity : Activity() {
         // THE PAGE'S TRANSITION, MEASURED (iOS MTPageMeter, MontanaPeerHeader.swift:507-528; moveBegan/moveEnded named
         // «motion», MontanaMessageFeed.swift:349-355): one diary line per push and back, to the slide's own end.
         Motion.moveBegan(page)
+        movingUntil[page] = android.os.SystemClock.uptimeMillis() + ms + 60
         page.animate().translationX(to).setDuration(ms).setInterpolator(android.view.animation.DecelerateInterpolator(1.6f))
             .withEndAction { Motion.moveEnded("page:" + (if (out) "back" else "push")); onDone?.invoke() }.start()
     }
@@ -447,24 +450,51 @@ class MainActivity : Activity() {
             override fun onBackStarted(e: android.window.BackEvent) {
                 if (YouTube.whole) return   // the back leaves the player's whole screen, the page stays (commitBack)
                 keysDown()
+                backDragging = true; backHeardAt = android.os.SystemClock.uptimeMillis()
                 slidingPage?.animate()?.cancel()
                 edgeOpens = back == null && slidingPage == null && e.swipeEdge == android.window.BackEvent.EDGE_LEFT && drawer != null
                 if (edgeOpens) drawer?.edgeBegin()
             }
             override fun onBackProgressed(e: android.window.BackEvent) {
                 if (YouTube.whole) return
+                backHeardAt = android.os.SystemClock.uptimeMillis()
                 if (edgeOpens) { drawer?.edgeMove(e.touchX); return }
                 // the left edge drags the page one to one with the finger; the right edge has no such finger on the page — its progress
                 slidingPage?.let { it.translationX = if (e.swipeEdge == android.window.BackEvent.EDGE_RIGHT) e.progress * surface.width else e.touchX.coerceAtLeast(0f) }
             }
-            override fun onBackInvoked() = commitBack()
+            override fun onBackInvoked() {
+                backDragging = false
+                val p = slidingPage
+                commitBack()
+                // A PAGE THE BACK DRAGGED AND DID NOT TAKE AWAY GOES HOME (A1 13.11.2026, the author: the screen stood at half after a
+                // swipe): the back may belong to something over the page (a menu, a sheet, the keys) and close that alone -- the page
+                // the finger dragged stayed where it was let go, half over the one under it
+                if (p != null && slidingPage === p && p.translationX != 0f) settle(p, surface.width.toFloat(), out = false)
+            }
             override fun onBackCancelled() {
+                backDragging = false
                 if (edgeOpens) { edgeOpens = false; drawer?.edgeEnd(false); return }
                 slidingPage?.let { settle(it, surface.width.toFloat(), out = false) }
             }
         } else android.window.OnBackInvokedCallback { commitBack() }
         onBackInvokedDispatcher.registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
     }
+    /**
+     * NO PAGE STANDS HALFWAY (A1 13.11.2026, the author: «such must not be»): a touch that lands while the top page rests off its
+     * place -- no back dragging it, no slide moving it -- brings it home first, whatever road left it there.
+     */
+    override fun dispatchTouchEvent(e: android.view.MotionEvent): Boolean {
+        if (e.actionMasked == android.view.MotionEvent.ACTION_DOWN && !(backDragging && android.os.SystemClock.uptimeMillis() - backHeardAt < 500)) slidingPage?.let { p ->
+            val w = surface.width.toFloat()
+            if (p.translationX > 0f && p.translationX < w && android.os.SystemClock.uptimeMillis() > (movingUntil[p] ?: 0L)) {
+                android.util.Log.w("Montana", "page_halfway at=" + p.translationX.toInt() + " of=" + w.toInt() + " -- brought home")
+                settle(p, w, out = false)
+            }
+        }
+        return super.dispatchTouchEvent(e)
+    }
+    private val movingUntil = java.util.WeakHashMap<View, Long>()   // when each page's slide ends: a cut slide never holds it
+
     /** A page's own back stroke (Conversation.kt's TabPan, iOS MTTabPan): only the page a back would take away now may be dragged. */
     fun panOwns(page: View) = slidingPage === page && back != null
     fun panBegin(page: View) { keysDown(); page.animate().cancel(); Motion.moveBegan(page) }
