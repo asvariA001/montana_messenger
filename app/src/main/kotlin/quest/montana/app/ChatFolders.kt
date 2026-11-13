@@ -66,12 +66,16 @@ object ChatFolders {
     val KINDS = listOf(CONTACTS, NON_CONTACTS, GROUPS, CHANNELS)
     private const val KEY = "chatFolders"
 
+    /**
+     * THE THREE PAGES' FOLDERS, ONE OWNER EACH (iOS MTChatFolder.chats / .groups / .channels, 25d91347, OZ 1 p.1.11; the author's
+     * word 21137: «in the chats only chats, in the groups only groups and in the channels only channels»): the first folders and
+     * the pages read these, none states them again.
+     */
+    val CHATS_FOLDER = ChatFolder("chats", preset = CONTACTS, kinds = listOf(CONTACTS, NON_CONTACTS))
+    val GROUPS_FOLDER = ChatFolder("groups", preset = GROUPS, kinds = listOf(GROUPS))
+    val CHANNELS_FOLDER = ChatFolder("channels", preset = CHANNELS, kinds = listOf(CHANNELS))
     /** THE FIRST FOLDERS (17.10.2026): All, the chats, the groups, the channels. */
-    private val firstFolders = listOf(
-        ChatFolder(ALL, leaves = emptyList()),
-        ChatFolder("chats", preset = CONTACTS, kinds = listOf(CONTACTS, NON_CONTACTS)),
-        ChatFolder("groups", preset = GROUPS, kinds = listOf(GROUPS)),
-        ChatFolder("channels", preset = CHANNELS, kinds = listOf(CHANNELS)))
+    private val firstFolders = listOf(ChatFolder(ALL, leaves = emptyList()), CHATS_FOLDER, GROUPS_FOLDER, CHANNELS_FOLDER)
 
     private var held: List<ChatFolder>? = null
     fun folders(): List<ChatFolder> = synchronized(this) {
