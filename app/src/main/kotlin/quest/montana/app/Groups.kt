@@ -116,6 +116,11 @@ object Groups {
         var seats: List<String>? = null,
         /** The owner's phone told this group its seats (iOS rostered, keepRoster): a group born before the seats rode is told them once. */
         var rostered: Boolean = false,
+        /** THE CARDS THE GROUP'S PEOPLE LAID (iOS cards, 07d5fc70, OZ 1 p.8): by seat, each member's permanent link, laid with their
+         *  name («pc»); one met by it is written to without being a contact. The owner keeps them to hand on. */
+        val cards: MutableMap<String, String> = mutableMapOf(),
+        /** The seat and the name this phone last laid its own card under (iOS cardGiven, giveCards): a new seat or a new name lays it again. */
+        var cardGiven: String? = null,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -132,6 +137,7 @@ object Groups {
             .put("fs", JSONObject(faces.toMap())).put("fq", JSONObject(faceTags.toMap()))
             .apply { faceGiven?.let { put("fg", JSONObject().put("t", it.tag).put("c", it.count).put("at", it.at)) } }
             .apply { seats?.let { put("ps", JSONArray(it)) } }.put("ro", rostered)
+            .put("pc", JSONObject(cards.toMap())).put("cg", cardGiven ?: "")
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -153,7 +159,9 @@ object Groups {
                 o.optJSONObject("fs")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONObject("fq")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONObject("fg")?.let { FaceGiven(it.optString("t"), it.optInt("c"), it.optLong("at")) },
-                o.optJSONArray("ps")?.let { a -> List(a.length()) { a.getString(it) } }, o.optBoolean("ro"))
+                o.optJSONArray("ps")?.let { a -> List(a.length()) { a.getString(it) } }, o.optBoolean("ro"),
+                o.optJSONObject("pc")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
+                o.optString("cg").ifEmpty { null })
         }
     }
 
@@ -248,7 +256,11 @@ object Groups {
                 .put("adminTaken", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("ranks", JSONObject(g.ranks.toMap()))
                 .put("approval", g.approval).put("history", g.history).put("banned", seats(g.banned))
                 .put("requests", JSONArray().apply { g.requests.forEach { put(JSONObject().put("pipe", it.pipe).put("name", it.name).put("at", it.at / 1000.0)) } })
-            for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite)) if (v == null) o.remove(k) else o.put(k, v)
+            for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite, "cardGiven" to g.cardGiven)) if (v == null) o.remove(k) else o.put(k, v)
+            // the seats, the roster told and the cards ride as iOS MTGroupState keeps them (07d5fc70, OZ 1 p.1, p.8)
+            g.seats?.let { o.put("seats", JSONArray(it)) } ?: o.remove("seats")
+            if (g.rostered) o.put("rostered", true) else o.remove("rostered")
+            if (g.cards.isNotEmpty()) o.put("cards", JSONObject(g.cards.toMap())) else o.remove("cards")
             if (g.kind == CHANNEL && g.signs) o.put("signs", true) else o.remove("signs")
             if (g.kind == CHANNEL && !g.reacts) o.put("reacts", false) else o.remove("reacts")
             if (g.kind == CHANNEL && g.talks) o.put("talks", true) else o.remove("talks")
@@ -306,7 +318,11 @@ object Groups {
             signs = kind == CHANNEL && s.optBoolean("signs"), reacts = kind != CHANNEL || s.optBoolean("reacts", true),
             reactList = if (kind == CHANNEL) reactionList(s.optJSONArray("reactList")) else null,
             acts = if (kind == CHANNEL) actsOf(s.optJSONArray("acts"), 1000L) else mutableListOf(),
-            talks = kind == CHANNEL && s.optBoolean("talks"))
+            talks = kind == CHANNEL && s.optBoolean("talks"),
+            seats = if (kind == GROUP) s.optJSONArray("seats")?.let { a -> words(a).filter(::isSeat) } else null,
+            rostered = s.optBoolean("rostered"),
+            cards = if (kind == GROUP) map(s.optJSONObject("cards")).filterValues(::isCard).toMutableMap() else mutableMapOf(),
+            cardGiven = s.optString("cardGiven").ifEmpty { null })
     }
 
     /**
@@ -1002,7 +1018,7 @@ object Groups {
     private fun roster(g: State): List<String>? = if (g.kind == GROUP) g.members.map { it.seat } else null
     /**
      * THE SEATS KEPT UP (iOS keepRoster, 07d5fc70): the owner's phone tells a group born before the seats rode its seats once, so every
-     * member's head and page count the same people. iOS lays a member's card here too (OZ 1 p.8, «pc»); Android does not lay cards yet.
+     * member's head and page count the same people; a member's phone lays its card where it is due (OZ 1 p.8).
      */
     fun keepRoster() = synchronized(lock) {
         if (!ready()) return@synchronized
@@ -1014,7 +1030,71 @@ object Groups {
             g.rostered = true
         }
         if (0 < told) { save(); Log.i("Montana", "group_roster told=$told") }
+        giveCards()
     }
+
+    // ── the cards (iOS 07d5fc70, OZ 1 p.8, the author's decision 877 a) ──
+
+    /** Whether a word is a person's card: a link the one meeting road opens, and short (iOS isCard). */
+    fun isCard(s: String): Boolean = s.toByteArray().size <= 256 && Meeting.invite(s) != null
+
+    /**
+     * A CARD LAID IN A GROUP (iOS cardLaid): a member's permanent link with the name they give. The owner takes it from the member its
+     * pipe holds and hands it to everyone else; a member takes it from the owner for the seat the owner names. A group's alone.
+     */
+    private fun cardLaid(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.getString("g")] ?: return Verdict.WAIT
+        val link = w.optString("tx")
+        if (g.kind != GROUP || g.left || !isCard(link)) return Verdict.REFUSED
+        val from = SamePair.root(pipe)
+        val seat = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == from }?.seat
+            else w.optString("s").takeIf { SamePair.root(g.owner) == from && isSeat(it) && it != g.me }) ?: return Verdict.REFUSED
+        val name = clean(w.optString("n"), NAME_LIMIT)
+        val named = name.isNotEmpty() && g.names[seat] != name
+        if (!named && g.cards[seat] == link) return Verdict.HELD   // a repeat: nothing new to keep or to hand on
+        g.cards[seat] = link
+        if (named) g.names[seat] = name   // a person's name reaches the group from that person
+        save()
+        if (g.mine) spread(cardWord(g, seat, name, link), g, seat, own = false)   // COMPAT-GATED
+        Log.i("Montana", "group_card laid mine=" + (if (g.mine) 1 else 0))
+        return Verdict.HELD
+    }
+    /** The word of one card: an older build refuses «pc», so it goes only where the owner names seats (COMPAT-GATED). */
+    private fun cardWord(g: State, seat: String, name: String, link: String) =
+        word("pc", g).put("s", seat).put("tx", link).apply { if (name.isNotEmpty()) put("n", name) }
+
+    /**
+     * THIS PHONE LAYS ITS OWN CARD IN EVERY GROUP WHOSE OWNER NAMES SEATS (iOS giveCards): the permanent link and the person's name, to
+     * the owner, who hands them to everyone; again at a new seat or a new name. An owner that names no seats is an older build and would
+     * refuse the word: nothing goes to it. The link is drawn off the lock -- its birth gathers randomness and may ask the node.
+     */
+    private fun giveCards() {
+        val name = clean(Prefs.userName, NAME_LIMIT)
+        if (groups.values.none { owesCard(it, name) }) return
+        Thread {
+            val link = runCatching { MontanaCard.offerPermanent(Book.ctx) }.getOrNull()
+            if (link == null || !isCard(link)) { Log.i("Montana", "group_card given=0 -- no permanent link"); return@Thread }
+            layCards(link, name)
+        }.start()
+    }
+    private fun owesCard(g: State, name: String) =
+        !g.mine && g.kind == GROUP && !g.left && g.seats != null && g.cardGiven != g.me + "/" + name
+    private fun layCards(link: String, name: String) = synchronized(lock) {
+        var laid = 0
+        for (id in groups.keys.sorted()) {
+            val g = groups[id] ?: continue
+            if (!owesCard(g, name)) continue
+            if (carry(cardWord(g, g.me, name, link), g.owner, "", own = false) == null) continue
+            g.cardGiven = g.me + "/" + name
+            laid++
+        }
+        if (0 < laid) save()
+        Log.i("Montana", "group_card given=$laid")
+    }
+    /** A new name lays the card again in each group (iOS E2E.broadcastName → giveCards, 07d5fc70). */
+    fun nameChanged() = synchronized(lock) { if (ready()) giveCards() }
+    /** The card a person of the group laid, by seat: the one meeting road opens it (iOS MTGroupPage reach). */
+    fun card(key: String, seat: String): String? = state(key)?.cards?.get(seat)
     /** The owner's seat, as the page compares it. */
     const val OWNER = OWNER_SEAT
     /**
@@ -1167,6 +1247,12 @@ object Groups {
             save()
             val face = Book.face(key).takeIf { it.exists() }?.readBytes()?.let { thumb(it) }
             tellAll(g, face, fresh.map { it.seat }.toSet())
+            // THE CARDS THE GROUP'S PEOPLE LAID GO TO ONE JUST ADDED (iOS 07d5fc70, OZ 1 p.8): each with the name it came under, after the invitation
+            for ((seat, link) in g.cards.toSortedMap()) {
+                if (g.members.none { it.seat == seat }) continue
+                val w = cardWord(g, seat, g.names[seat].orEmpty(), link)   // COMPAT-GATED: an older build refuses «pc»
+                for (m in fresh) carry(w, m.pipe, "", own = false)
+            }
             // one who came by the group's link joined by their own hand (iOS add viaLink, the reference: «%@ joined the group via invite link»)
             val came = if (viaLink) event("joined", fresh[0].seat) else event("added", OWNER_SEAT, fresh.map { it.seat })
             lay(g, came)
@@ -1192,6 +1278,7 @@ object Groups {
             while (PEOPLE_LIMIT < g.banned.size) g.banned.removeAt(0)
             g.members.removeAll { it.seat == seat }
             g.admins.remove(seat)   // a person taken out is nobody's administrator
+            g.cards.remove(seat)   // their card leaves with them (iOS 07d5fc70, OZ 1 p.8)
             g.taken.remove(seat); g.ranks.remove(seat)
             g.count = g.members.size + 1
             save()
@@ -2309,6 +2396,7 @@ object Groups {
                         while (g.banned.size > PEOPLE_LIMIT) g.banned.removeAt(0)
                         g.members.removeAll { it.seat == m.seat }
                         g.admins.remove(m.seat)
+                        g.cards.remove(m.seat)
                         g.count = g.members.size + 1
                         save()
                         lay(g, event("removed", OWNER_SEAT, listOf(m.seat)))
@@ -2404,6 +2492,7 @@ object Groups {
             "jn" -> joined(w, pipe)   // COMPAT-GATED: a person who opened the group's invite link, to the owner (iOS stage R.6)
             "sp" -> passported(w, pipe)   // COMPAT-GATED: a sticker's passport (iOS 17.10, 2df34a13), an older build buries it
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
+            "pc" -> cardLaid(w, pipe)   // COMPAT-GATED: a member's card (iOS 07d5fc70, OZ 1 p.8), laid only where the owner names seats
             "kp" -> Verdict.HELD   // an older build's «kept» word: taken, told to nobody (iOS 2358, 16165 p.5)
             "cm" -> commented(w, pipe)   // COMPAT-GATED: a comment under a channel's post (iOS MTChannelComments, 2315)
             "vw" -> seen(w, pipe)   // COMPAT-GATED: a subscriber's posts shown, to a channel's owner (iOS 17.10)
@@ -2448,6 +2537,7 @@ object Groups {
             val hadFace = had.faceTag != null
             had.title = title; had.about = clean(w.optString("ds"), ABOUT_LIMIT); had.count = count; had.me = seat
             had.seats = seats
+            if (seats != null) had.cards.keys.retainAll(seats.toSet())   // a card of one gone leaves with their seat (iOS 07d5fc70)
             if (ownerName.isNotEmpty()) had.names[OWNER_SEAT] = ownerName
             had.admins.clear(); had.admins.addAll(admins(w))   // the owner's word alone names them
             takeAdmins(w, had)
@@ -2462,6 +2552,7 @@ object Groups {
             val actor = w.optString("s").takeIf { isSeat(it) } ?: OWNER_SEAT
             if (renamed) lay(had, event("named", actor, t = title))
             if (newFace && hadFace && !back) lay(had, event("face", actor))
+            giveCards()   // this phone's own card, where the owner names seats (iOS 07d5fc70, OZ 1 p.8)
             return Verdict.HELD
         }
         // A RESTORE'S CATCH-UP IS THE PAST (iOS 3ed661fa, decision 865 a): an invitation sent before this person came in on this phone
@@ -2479,6 +2570,7 @@ object Groups {
         save()
         stand(g, face(fc))
         lay(g, event("added", OWNER_SEAT, listOf(seat)))   // «X added you»
+        giveCards()   // this phone's own card, where the owner names seats (iOS 07d5fc70, OZ 1 p.8)
         Log.i("Montana", "group_rx invitation kind=$kind people=$count from=${pipe.take(10)}")
         return Verdict.HELD
     }
@@ -2727,6 +2819,7 @@ object Groups {
         g.members.removeAll { it.seat == m.seat }
         g.admins.remove(m.seat)
         g.taken.remove(m.seat); g.ranks.remove(m.seat)
+        g.cards.remove(m.seat)   // their card leaves with them (iOS 07d5fc70, OZ 1 p.8)
         g.count = g.members.size + 1
         save()
         tellAll(g, null)
