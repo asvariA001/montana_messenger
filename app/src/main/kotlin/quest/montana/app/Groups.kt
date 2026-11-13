@@ -110,6 +110,12 @@ object Groups {
         val faceTags: MutableMap<String, String> = mutableMapOf(),
         /** The face this phone last gave the group on a letter of its own (iOS faceGiven, MTGroup.dress). */
         var faceGiven: FaceGiven? = null,
+        /** THE GROUP'S SEATS AS ITS OWNER NAMES THEM, ON A MEMBER'S PHONE (iOS seats, 07d5fc70, OZ 1 p.1, decision 877 a): every member's
+         *  seat, carried on each «inv» (ps); the page's people and the head's number both read it (pagePeople). Null -- an owner whose
+         *  build names no seats: the page lists who spoke, and the head counts that list. */
+        var seats: List<String>? = null,
+        /** The owner's phone told this group its seats (iOS rostered, keepRoster): a group born before the seats rode is told them once. */
+        var rostered: Boolean = false,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -125,6 +131,7 @@ object Groups {
             .put("as", actsJson(acts, 1L)).put("sl", silent)
             .put("fs", JSONObject(faces.toMap())).put("fq", JSONObject(faceTags.toMap()))
             .apply { faceGiven?.let { put("fg", JSONObject().put("t", it.tag).put("c", it.count).put("at", it.at)) } }
+            .apply { seats?.let { put("ps", JSONArray(it)) } }.put("ro", rostered)
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -145,7 +152,8 @@ object Groups {
                 reactionList(o.optJSONArray("rl")), actsOf(o.optJSONArray("as"), 1L), o.optBoolean("dc"), o.optBoolean("sl"),
                 o.optJSONObject("fs")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
                 o.optJSONObject("fq")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
-                o.optJSONObject("fg")?.let { FaceGiven(it.optString("t"), it.optInt("c"), it.optLong("at")) })
+                o.optJSONObject("fg")?.let { FaceGiven(it.optString("t"), it.optInt("c"), it.optLong("at")) },
+                o.optJSONArray("ps")?.let { a -> List(a.length()) { a.getString(it) } }, o.optBoolean("ro"))
         }
     }
 
@@ -334,8 +342,16 @@ object Groups {
     private const val CARD_WAIT_MS = 600_000L
     private fun state(key: String): State? = synchronized(lock) { if (isKey(key) && ready()) groups[key.removePrefix(KEY_HEAD)] else null }
     /** The people in the group, the owner included — the head of the group's chat says this number (iOS people). */
-    fun count(key: String): Int? = state(key)?.count
-    fun peopleLine(c: Context, key: String): String? = state(key)?.count?.let { c.resources.getQuantityString(R.plurals.gr_members, it, it) }
+    fun count(key: String): Int? = state(key)?.let(::people)
+    fun peopleLine(c: Context, key: String): String? = count(key)?.let { c.resources.getQuantityString(R.plurals.gr_members, it, it) }
+    /** A GROUP'S NUMBER IS ITS PAGE'S LIST AND THIS PHONE, ONE OWNER (iOS people, 07d5fc70, OZ 1 p.1: the head said 11 and the list 6);
+     *  a channel's is its owner's count. */
+    private fun people(g: State): Int = if (g.kind != GROUP) g.count else synchronized(lock) {
+        if (g.mine) g.members.size + 1 else 2 + pageRest(g).size
+    }
+    /** The seats of a member's page after the owner (iOS pagePeople): every seat the owner named, or everyone who spoke where it names none. */
+    private fun pageRest(g: State): List<String> =
+        (g.seats ?: g.names.keys.toList()).filter { it != OWNER_SEAT && it != g.me }.distinct()
     /**
      * A GROUP'S HEAD AS THE REFERENCE SAYS IT (iOS groupHead, 9bff8550): «N members, M online» once someone besides this phone is
      * online, «N members» otherwise. M is this phone and whoever of the group it sees live by the one ladder (Presence.word): the
@@ -345,7 +361,8 @@ object Groups {
         val g = state(key) ?: return null
         // A CHANNEL'S HEAD IS «N SUBSCRIBERS», THE OWNER COUNTED AMONG THEM (iOS MTChannelPage.head, MontanaChannel.swift 494)
         if (g.kind == CHANNEL) return c.resources.getQuantityString(R.plurals.chn_subscribers, g.count, g.count)
-        val members = c.resources.getQuantityString(R.plurals.gr_members, g.count, g.count)
+        val n = people(g)
+        val members = c.resources.getQuantityString(R.plurals.gr_members, n, n)
         val lit = 1 + heldConversations(g).count { Presence.word(c, it)?.second == true }
         return if (lit == 1) members else members + ", " + c.resources.getQuantityString(R.plurals.gr_online, lit, lit)
     }
@@ -929,6 +946,7 @@ object Groups {
             }.toMutableList()
             val g = State(id, if (channel) CHANNEL else GROUP, name, clean(about, ABOUT_LIMIT), "", OWNER_SEAT, members, members.size + 1,
                 mutableMapOf(), System.currentTimeMillis())
+            if (g.kind == GROUP) g.rostered = true   // its invitations name the seats (iOS 07d5fc70, OZ 1 p.1)
             if (g.kind == GROUP) g.history = true   // A NEW GROUP SHOWS ITS PAST TO NEW MEMBERS (iOS 99825581, the author's word 20455 p.2)
             groups[id] = g
             save()
@@ -964,6 +982,7 @@ object Groups {
             if (g.barred.isNotEmpty()) w.put("bn", JSONArray(g.barred))
             if (0 < g.slow) w.put("sw", g.slow)
             if (by != OWNER_SEAT) w.put("s", by)   // a member's renewal names its own hand (iOS w.s, G.5)
+            roster(g)?.let { w.put("ps", JSONArray(it)) }   // every member's seat: the page and the head say the same (iOS 07d5fc70, OZ 1 p.1)
             carry(w, m.pipe, "", own = false)
         }
     }
@@ -978,6 +997,24 @@ object Groups {
         return if (g.mine) g.members.map { Seat(it.seat, speakerName(c, speaker(g.id, it.seat)), it.pipe) }
             else listOf(Seat(OWNER_SEAT, speakerName(c, speaker(g.id, OWNER_SEAT)), g.owner))
     }
+    /** THE SEATS A GROUP'S «inv» NAMES, ONE ANSWER (iOS roster, 07d5fc70): every member's, never a pipe; a channel names none -- its
+     *  subscribers are not shown to each other. */
+    private fun roster(g: State): List<String>? = if (g.kind == GROUP) g.members.map { it.seat } else null
+    /**
+     * THE SEATS KEPT UP (iOS keepRoster, 07d5fc70): the owner's phone tells a group born before the seats rode its seats once, so every
+     * member's head and page count the same people. iOS lays a member's card here too (OZ 1 p.8, «pc»); Android does not lay cards yet.
+     */
+    fun keepRoster() = synchronized(lock) {
+        if (!ready()) return@synchronized
+        var told = 0
+        for (id in groups.keys.sorted()) {
+            val g = groups[id] ?: continue
+            if (!g.mine || g.kind != GROUP || g.left || g.rostered) continue
+            if (g.members.isNotEmpty()) { tellAll(g, null); told++ }
+            g.rostered = true
+        }
+        if (0 < told) { save(); Log.i("Montana", "group_roster told=$told") }
+    }
     /** The owner's seat, as the page compares it. */
     const val OWNER = OWNER_SEAT
     /**
@@ -987,8 +1024,8 @@ object Groups {
     fun pagePeople(c: Context, key: String): List<Seat> {
         val g = state(key) ?: return emptyList()
         val out = shownSeats(c, key).toMutableList()
-        if (!g.mine) synchronized(lock) { g.names.toMap() }.filter { (s, _) -> s != OWNER_SEAT && s != g.me && out.none { it.seat == s } }
-            .map { (s, _) -> Seat(s, speakerName(c, speaker(g.id, s)), "") }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
+        if (!g.mine) synchronized(lock) { pageRest(g) }.filter { s -> out.none { it.seat == s } }
+            .map { s -> Seat(s, speakerName(c, speaker(g.id, s)), "") }.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.name })
             .forEach { out.add(it) }
         return out
     }
@@ -2151,6 +2188,32 @@ object Groups {
         val verdict = if (w != null && isLabel(w.optString("g"))) synchronized(lock) { take(w, pipe, sid) }
             else Verdict.REFUSED.also { Log.i("Montana", "group_refused unreadable from=${pipe.take(10)}") }
         if (verdict != Verdict.WAIT && verdict != Verdict.INSTANT) Post.receiptFor(pipe, sid)
+        val t = w?.optString("t").orEmpty()
+        if (verdict == Verdict.WAIT && t != "inv") keepEarly(w!!.optString("g"), text, pipe, sid)
+        if (verdict == Verdict.HELD && t == "inv") hearEarly(w!!.optString("g"))
+    }
+
+    /**
+     * [I-14] A GROUP'S WORD THAT OUTRAN ITS INVITATION (iOS ed467ee5, OZ 1 p.15.4, the author's word 20730): a channel's first post read
+     * 0.15 s before the invitation that stood the channel waited unanswered, and its sender knocked again only on the rare beat, five
+     * minutes on. Such a word is kept here, in memory and bounded, and heard again the moment its invitation is held -- its receipt
+     * leaves then. A relaunch forgets them: the copy still knocks again, as before.
+     */
+    private const val EARLY_LIMIT = 64
+    private class Early(val text: String, val pipe: String, val sid: String)
+    private val early = HashMap<String, MutableList<Early>>()
+    /** Keeps a word whose group has not stood on this phone yet: a repeat of the same copy once, past the bound none, over an unread store none. */
+    private fun keepEarly(g: String, text: String, pipe: String, sid: String) = synchronized(lock) {
+        if (!ready() || groups[g] != null) return@synchronized
+        if (EARLY_LIMIT <= early.values.sumOf { it.size } || early[g]?.any { it.text == text && it.pipe == pipe } == true) return@synchronized
+        early.getOrPut(g) { mutableListOf() }.add(Early(text, pipe, sid))
+        Log.i("Montana", "group_early kept from=" + pipe.take(10))
+    }
+    /** The invitation stood the group: the words that outran it are heard now, each answered by its own receipt (handle). */
+    private fun hearEarly(g: String) {
+        val kept = synchronized(lock) { if (groups[g] == null) null else early.remove(g) } ?: return
+        Log.i("Montana", "group_early heard n=" + kept.size)
+        for (e in kept) handle(e.pipe, e.sid, e.text)
     }
 
     /** The fields the person's tag is made over (iOS MTGroup.tagText): the kind, the letter's name, the seats, the title and the
@@ -2199,6 +2262,7 @@ object Groups {
                     if (g.kind == CHANNEL && !g.reacts) w.put("rx", 0)
                     if (g.kind == CHANNEL && g.talks) w.put("dc", 1)
                     if (g.kind == CHANNEL) g.reactList?.let { w.put("rl", JSONArray(it)) }
+                    (if (g.mine) roster(g) else g.seats)?.let { w.put("ps", JSONArray(it)) }   // the seats (iOS 07d5fc70)
                     return w
                 }
                 if (g.mine) g.members.forEach { m -> notes.add(Triple(m.pipe, MARK + invitation(m.seat), true)) }
@@ -2359,7 +2423,14 @@ object Groups {
         val title = clean(w.optString("ti"), TITLE_LIMIT)
         val seat = w.optString("me")
         if ((kind != GROUP && kind != CHANNEL) || title.isEmpty() || !isSeat(seat) || seat == OWNER_SEAT) return Verdict.REFUSED
-        val count = w.optInt("c", 2).coerceIn(2, PEOPLE_LIMIT + 1)
+        // THE OWNER'S SEATS (iOS 07d5fc70, OZ 1 p.1): the page's people and the head's number; this phone's own seat stands among them
+        val seats: List<String>? = if (kind != GROUP) null else w.optJSONArray("ps")?.let { a ->
+            val seen = hashSetOf(OWNER_SEAT)
+            val got = (0 until a.length()).map { a.optString(it) }.filter { isSeat(it) && seen.add(it) }.take(PEOPLE_LIMIT).toMutableList()
+            if (seat !in got) got.add(seat)
+            got
+        }
+        val count = seats?.let { it.size + 1 } ?: w.optInt("c", 2).coerceIn(2, PEOPLE_LIMIT + 1)
         val ownerName = clean(w.optString("n"), NAME_LIMIT)
         val fc = w.optString("fc").ifEmpty { null }
         val tag = fc?.let(::tagOfFace)
@@ -2376,6 +2447,7 @@ object Groups {
             val renamed = !back && had.title != title
             val hadFace = had.faceTag != null
             had.title = title; had.about = clean(w.optString("ds"), ABOUT_LIMIT); had.count = count; had.me = seat
+            had.seats = seats
             if (ownerName.isNotEmpty()) had.names[OWNER_SEAT] = ownerName
             had.admins.clear(); had.admins.addAll(admins(w))   // the owner's word alone names them
             takeAdmins(w, had)
@@ -2400,7 +2472,7 @@ object Groups {
         }
         val g = State(id, kind, title, clean(w.optString("ds"), ABOUT_LIMIT), owner, seat, mutableListOf(), count,
             if (ownerName.isEmpty()) mutableMapOf() else mutableMapOf(OWNER_SEAT to ownerName), System.currentTimeMillis(), faceTag = tag,
-            admins = admins(w).toMutableList())
+            admins = admins(w).toMutableList(), seats = seats)
         takeAdmins(w, g)
         takeRights(w, g)
         groups[id] = g
