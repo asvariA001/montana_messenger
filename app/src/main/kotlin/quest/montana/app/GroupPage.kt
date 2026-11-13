@@ -208,6 +208,11 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                 }
                 if (chat != null) pressable { act.push { close -> peerInfoPage(act, chat, close) } }
                 else if (met != null) pressable { met(false) }
+                // A PERSON NEITHER HELD NOR MET (iOS 0f7e1b2c MTGroupPage.lines away, OZ 1 p.8, decision 897 a): no pipe and no card
+                // yet, because the group's owner has not handed it on; the row answers the hand anyway and says the page waits.
+                else if (!p.me) pressable {
+                    AlertDialog.Builder(c).setMessage(R.string.gp_page_away).setPositiveButton(R.string.ok, null).show()
+                }
                 if (deeds.isNotEmpty()) setOnLongClickListener {
                     AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: a person's name
                         .setItems(deeds.map { it.first }.toTypedArray()) { _, i -> deeds[i].second() }

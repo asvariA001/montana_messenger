@@ -966,7 +966,7 @@ object Groups {
             if (g.kind == GROUP) g.history = true   // A NEW GROUP SHOWS ITS PAST TO NEW MEMBERS (iOS 99825581, the author's word 20455 p.2)
             groups[id] = g
             save()
-            stand(g, face)
+            stand(g, face, revive = true)   // the group is born here
             lay(g, event("made", OWNER_SEAT, t = name))   // «You created the group»
             tellAll(g, face?.let { thumb(it) })
             Log.i("Montana", "group_born kind=" + g.kind + " people=" + g.count)
@@ -1213,7 +1213,7 @@ object Groups {
             if (described) act(g, "about")
             if (face != null) act(g, "photo")
             save()
-            stand(g, face)
+            stand(g, face, revive = false)   // the owner's own row follows the group, never back from away
             tellAll(g, face?.let { thumb(it) }, by = by)
             if (renamed) lay(g, event("named", by, t = name))
             if (face != null) lay(g, event("face", by))
@@ -2442,7 +2442,7 @@ object Groups {
         if (newFace) g.faceTag = tag
         groups[id] = g
         save()
-        stand(g, if (newFace) face(fc) else null)
+        stand(g, if (newFace) face(fc) else null, revive = fresh)   // the sibling's birth of a group, never its renewal
         if (fresh) lay(g, event("made", OWNER_SEAT, t = title))
         if (renamed) lay(g, event("named", OWNER_SEAT, t = title))
         return true
@@ -2459,7 +2459,7 @@ object Groups {
         val key = key(g.id)
         if (id in gone || Book.isBuried(key, id) || Book.chat(key)?.msgs?.any { it.mid == id } == true) return false
         val mine = seat == g.me
-        stand(g, null)
+        stand(g, null, revive = true)   // a letter
         val at = Marks.birthMs(id) ?: System.currentTimeMillis()
         val quote = w.optString("qt").ifEmpty { null }
         val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
@@ -2545,7 +2545,7 @@ object Groups {
             val newFace = tag != null && tag != had.faceTag
             if (newFace) had.faceTag = tag
             save()
-            stand(had, if (newFace) face(fc) else null)
+            stand(had, if (newFace) face(fc) else null, revive = back)   // a renewal leaves a row put away; being added again brings it
             // the reference folder's rows: added again, a new name, a new face -- each the owner's deed
             if (back) lay(had, event("added", OWNER_SEAT, listOf(seat)))
             // a member's renewal is named by the owner (iOS w.s, G.5); else the owner's own deed
@@ -2568,7 +2568,7 @@ object Groups {
         takeRights(w, g)
         groups[id] = g
         save()
-        stand(g, face(fc))
+        stand(g, face(fc), revive = true)   // the group is born here
         lay(g, event("added", OWNER_SEAT, listOf(seat)))   // «X added you»
         giveCards()   // this phone's own card, where the owner names seats (iOS 07d5fc70, OZ 1 p.8)
         Log.i("Montana", "group_rx invitation kind=$kind people=$count from=${pipe.take(10)}")
@@ -2616,10 +2616,16 @@ object Groups {
     private fun admins(w: JSONObject): List<String> =
         w.optJSONArray("ad")?.let { a -> (0 until a.length()).map { a.optString(it) }.filter { isSeat(it) }.distinct().take(PEOPLE_LIMIT) } ?: emptyList()
 
-    /** The group's row on the list (iOS stand): the one standing or archived, or a new one; a deleted group's row comes back with its next word. */
-    private fun stand(g: State, face: ByteArray?) {
+    /**
+     * The group's row on the list (iOS stand): the one standing or archived, or a new one.
+     * `revive` -- A ROW THE PERSON PUT AWAY COMES BACK ONLY BY A PERSON'S DEED (iOS 221da3d9, OZ 1 p.17: «the chat of a group call pops
+     * up from nowhere»): a letter, the group's birth, being added again. A renewal of the group, the sibling's renewal keep the group's
+     * state and leave its row away -- keepRoster renews every group at launch and would stand back the groups the person deleted.
+     */
+    private fun stand(g: State, face: ByteArray?, revive: Boolean) {
         val key = key(g.id)
         if (face != null) runCatching { Book.face(key).writeBytes(face) }
+        if (!revive && Book.chat(key) == null && Book.erased(key)) { Log.i("Montana", "group_row put away -- the group's own word leaves it away"); return }
         Book.open(key, g.title, false)
         Book.edit(key) { it.name = g.title }
     }
@@ -2660,7 +2666,7 @@ object Groups {
             if (!allows(g, seat, words)) { Log.i("Montana", "group_refused a letter past the group's permissions"); return Verdict.REFUSED }
             if (!paceSlow(g, seat)) { Log.i("Montana", "group_slow a letter held inside the slow mode's interval"); return Verdict.WAIT }
         }
-        stand(g, null)
+        stand(g, null, revive = true)   // a letter
         val sp = speaker(g.id, seat)
         val at = Marks.birthMs(id) ?: System.currentTimeMillis()
         val quote = w.optString("qt").ifEmpty { null }
