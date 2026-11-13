@@ -447,6 +447,18 @@ object Notify {
             .build()
         runCatching { nm.notify("pin:" + NoticeAlias.of(ref), sid.hashCode(), n) }
     }
+    /**
+     * A CHAT READ ON ANOTHER DEVICE OF THE SEED (iOS MTTwinRead.takeOff, 6166b225): its banners posted no later than the edge leave;
+     * one of a letter come after the reading stays. The count goes back.
+     */
+    fun takeOff(ref: String, edgeMs: Long): Int {
+        val nm = Book.ctx.getSystemService(NotificationManager::class.java) ?: return 0
+        val tag = NoticeAlias.held(ref) ?: return 0
+        val gone = runCatching { nm.activeNotifications.filter { it.tag == tag && it.id == LETTER && it.postTime <= edgeMs } }.getOrNull().orEmpty()
+        gone.forEach { nm.cancel(it.tag, it.id) }
+        if (gone.isNotEmpty() && runCatching { nm.activeNotifications.none { it.tag == tag && it.id == LETTER } }.getOrDefault(true)) Prefs.remove(NOTICE + ref)
+        return gone.size
+    }
     fun clear(ref: String) {
         val nm = Book.ctx.getSystemService(NotificationManager::class.java)
         NoticeAlias.held(ref)?.let { nm?.cancel(it, LETTER) }
