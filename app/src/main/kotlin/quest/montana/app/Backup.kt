@@ -104,7 +104,7 @@ object MontanaPaths {
 }
 
 object MontanaBackup {
-    private const val EXT = "mtbak"                       // NOT-UI: the container's own extension
+    const val EXT = "mtbak"                     // NOT-UI: the container's own extension
     private const val CHUNK = 1 shl 20
     private const val FRAME = 1 shl 20
     private const val SALT = 32

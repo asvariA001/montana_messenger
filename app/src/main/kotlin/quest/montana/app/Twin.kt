@@ -402,13 +402,13 @@ object Twin {
         val rows = Book.chat(chat)?.msgs ?: return
         val want = HashSet<String>()
         for (i in 0 until minOf(200, items.length())) items.optJSONArray(i)?.takeIf { it.length() == 3 }?.let { a ->
-            want.add(a.optLong(0).toString() + "|" + a.optInt(1) + "|" + a.optString(2))
+            want.add(Archive.rowSig(a.optLong(0), a.optInt(1) == 1, a.optString(2)))
         }
         var n = 0
         for (m in rows) {
             if (Archive.isRestored(m.mid) || m.at <= 0) continue
             val t = Archive.archivedText(m) ?: continue
-            if ((m.at / 1000).toString() + "|" + (if (m.mine) 1 else 0) + "|" + Archive.rowHash(t) !in want) continue
+            if (Archive.rowSig(m.at / 1000, m.mine, Archive.rowHash(t)) !in want) continue
             give(chat, m)
             n++
         }

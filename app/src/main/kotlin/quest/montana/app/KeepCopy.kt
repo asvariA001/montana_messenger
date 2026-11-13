@@ -10,6 +10,7 @@ import java.io.FileInputStream
 import java.io.InputStream
 import java.io.RandomAccessFile
 import java.security.MessageDigest
+import java.util.UUID
 
 // THE COPY KEPT BY THE PEOPLE ONE WRITES TO, its frozen part (iOS MTKeeping.swift 1-297 and 1074-1093, 37f60ac1; the author's
 // words 08.10.2026: «restore by the words fully, byte for byte», «restore over the network from the phones, as it should be»;
@@ -696,7 +697,7 @@ object KeepCopy {
     // ── the words (iOS MTKeeping 446-476) ──
     /** A word of the keeping to a correspondent: a silent letter of the queue (Marks.SILENT), never a row. */
     private fun say(conv: String, o: JSONObject) { Post.send(conv, Marks.mintMid(), Keeping.MARK + o.toString()) }
-    /** A keeping word landed in a correspondence (Pipes): never a row, answered here. «back» and «given» come with the road back. */
+    /** A keeping word landed in a correspondence (Pipes): never a row, answered here. */
     fun heard(text: String, conv: String) {
         if (!agrees) return
         val o = Keeping.word(text) ?: return
@@ -708,6 +709,8 @@ object KeepCopy {
             "held" -> ex.execute { tookHeld(conv, o) }
             "part" -> ex.execute { runCatching { takePart(conv, o) }.onFailure { Log.w("Montana", "keep_part " + it.javaClass.simpleName) } }
             "release" -> drop(conv)
+            "back" -> ex.execute { runCatching { answerBack(conv, o) }.onFailure { Log.w("Montana", "keep_back " + it.javaClass.simpleName) } }
+            "given" -> ex.execute { runCatching { takeGiven(conv, o) }.onFailure { Log.w("Montana", "keep_back " + it.javaClass.simpleName) } }
         }
     }
     /** A question is answered only by a phone whose person allows keeping and whose budget has room; anything else is silence. */
@@ -785,6 +788,268 @@ object KeepCopy {
         if (!Keeping.knock(h.secret, road, twin)) return Unit.also { Log.d("Montana", "keep_answer no door boxed it") }
         synchronized(lock) { h.answeredAt = t; saveHeld() }
         Log.i("Montana", "keep_answer slot=${h.slot} of ${h.n}")
+    }
+
+    // ── the copy taken back (iOS MTKeeping 380-391, 704-753, 1012-1121) ──
+    /** Where the walk back stands: the light copy coming down, the keepers' parts in hand, a copy being laid, the end. */
+    sealed class Taking {
+        object Idle : Taking()
+        class Fetching(val f: Double) : Taking()
+        class Calling(val have: Int, val need: Int) : Taking()
+        class Laying(val f: Double) : Taking()
+        object Done : Taking()
+        object Failed : Taking()
+    }
+    /** The screen that shows the walk (Settings, the first screen) listens here; called on the keeping's own thread. */
+    @Volatile var watch: (() -> Unit)? = null
+    @Volatile var taking: Taking = Taking.Idle
+        private set(v) { field = v; watch?.invoke() }
+    /** The first screen lets the person in the moment the light copy is laid (iOS onLight; App: «once the light copy is laid»). */
+    @Volatile var onLight: (() -> Unit)? = null
+    @Volatile private var takingRun: Thread? = null
+    val isTaking: Boolean get() = takingRun != null
+    const val CALL_PREFIX = "kslot:"   // NOT-UI: the pipes a phone opening the words calls in (iOS callPrefix)
+
+    /** What a laid copy brought: this person's state of keeping is read again from the store (iOS reread). */
+    private fun reread() = synchronized(lock) { ownerCache = null; heldCache = null }
+
+    /**
+     * THE LIGHT COPY TAKEN BACK (iOS takeLight): the pipe of light read, and the newest road OF EVERY DEVICE that names one there taken --
+     * two devices of the same words count their generations each from one, so the highest number is no measure across them, and the
+     * poorer copy could stand in for the richer. Each is checked by its digest and laid, the largest first; a copy laid merges and
+     * erases nothing, so one laid after another adds only what it alone holds. The person stands in their correspondences from the
+     * first laid. The box keeps the letters: the next phone of the same words reads them too.
+     */
+    private fun takeLight(secret: ByteArray, dir: File): Boolean {
+        val newest = HashMap<String, JSONObject>()
+        for ((_, text) in Post.pickup(mapOf(LIGHT_NAME to secret), take = false)) {
+            val o = Keeping.word(text)?.takeIf { it.optString("w") == "light" } ?: continue
+            // THE NEWEST ROAD OF EVERY WRITER, A DEVICE AND THE APP ON IT (iOS 09.10.2026): two apps of one phone and the same words
+            // count their generations each from one, and one standing for both laid a copy without the other's profile
+            val v = o.optString("v") + "/" + o.optString("a")
+            if (o.optLong("g", 0L) >= (newest[v]?.optLong("g", -1L) ?: -1L)) newest[v] = o
+        }
+        val roads = newest.values.sortedByDescending { it.optLong("z", 0L) }
+        if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road") }
+        var laid = 0
+        for (road in roads) {
+            val d = road.optString("d").ifEmpty { null } ?: continue
+            val f = File(dir, UUID.randomUUID().toString() + "." + MontanaBackup.EXT)
+            try {
+                taking = Taking.Fetching(0.0)
+                if (!Keeping.fetch(road, f) || shaHex(f) != d) { Log.i("Montana", "keep_light a light copy did not come whole"); continue }
+                taking = Taking.Laying(0.0)
+                val r = MontanaBackup.restore(Book.ctx, f, ofMany = true) { taking = Taking.Laying(it) }
+                reread()
+                val own = road.optString("v") == (Archive.writerHex() ?: "")   // this device's own copy, or another's
+                Log.i("Montana", "keep_light laid=" + r.javaClass.simpleName + " devices=" + roads.size + " own=" + own + " a=" + road.optString("a"))
+                if (r !is CopyResult.Taken) continue
+                laid++
+                if (laid == 1) { val letIn = onLight; onLight = null; letIn?.invoke() }
+            } finally { f.delete() }
+        }
+        return laid > 0
+    }
+
+    /**
+     * THE COPY TAKEN BACK FROM THE PEOPLE ONE WRITES TO (iOS takeBack): the pipe of every slot is called, every answer's seal is checked
+     * against the words, and the copy of the highest generation whose every group stands is built, checked against its digest and laid
+     * by the one road of a copy (MontanaBackup.restore). The calls repeat every two minutes; the walk ends with the copy laid, or after
+     * six hours without one. On a thread of its own: the walk sleeps between reads.
+     */
+    fun takeBack(done: (CopyResult) -> Unit = {}) = synchronized(lock) {
+        if (takingRun != null) return@synchronized
+        takingRun = Thread({
+            val r = runCatching { callAndBuild() }.getOrElse {
+                Log.w("Montana", "keep_build " + it.javaClass.simpleName); taking = Taking.Failed; CopyResult.Refused(Refusal.Empty)
+            }
+            synchronized(lock) { if (takingRun === Thread.currentThread()) takingRun = null }
+            done(r)
+        }, "keep-take").apply { isDaemon = true; start() }
+    }
+    fun stopTaking() {
+        val t = synchronized(lock) { takingRun.also { takingRun = null } }
+        t?.interrupt()
+        if (taking is Taking.Calling) taking = Taking.Idle
+    }
+
+    private fun callAndBuild(): CopyResult {
+        val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }
+        val key = master?.let { KeepDerive.keepKey(it) }
+        val dir = MontanaBackup.shelf(Book.ctx)
+        if (!agrees || master == null || key == null || dir == null) { taking = Taking.Failed; return CopyResult.Refused(Refusal.NoSeed) }
+        val secrets = (0 until KeepDerive.SLOTS).mapNotNull { KeepDerive.slotSecret(master, it) }
+        if (secrets.size != KeepDerive.SLOTS) { taking = Taking.Failed; return CopyResult.Refused(Refusal.NoSeed) }
+        val pipes = HashMap<String, ByteArray>()
+        secrets.forEachIndexed { k, s -> pipes[CALL_PREFIX + k] = s }
+        val twin = MontanaSeed.twin ?: ""
+        val answers = HashMap<String, Pair<KeepDerive.Head, File>>()
+        var lastCall = 0.0
+        var lastLoud = 0.0
+        val began = now()
+        taking = Taking.Fetching(0.0)
+        // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
+        // the pipes it named are asked to give back
+        KeepDerive.lightSecret(master)?.let { ls -> if (takeLight(ls, dir)) askBack() }
+        taking = Taking.Calling(0, 0)
+        try {
+            while (!Thread.currentThread().isInterrupted) {
+                val t = now()
+                if (t - lastCall >= 120) {
+                    lastCall = t
+                    var boxed = 0
+                    for (s in secrets) if (Keeping.knock(s, JSONObject().put("w", "call"), twin)) boxed++
+                    Log.i("Montana", "keep_call slots=${secrets.size} boxed=$boxed")
+                }
+                // IF NEEDED, A LOUD PUSH (iOS, the author's word 08.10.2026): six minutes of silence from a slot, and the call in its
+                // pipe rings the keeper's screen with the owner's name, every ten minutes. The slots that answered the newest copy are
+                // rung no more.
+                if (t - began >= 360 && t - lastLoud >= 600) {
+                    lastLoud = t
+                    val newest = answers.values.maxByOrNull { it.first.generation }?.first
+                    val heard = answers.values.filter { newest != null && it.first.copyDigest.contentEquals(newest.copyDigest) }.mapTo(HashSet()) { it.first.slot }
+                    var rung = 0
+                    for (k in 0 until (newest?.n ?: KeepDerive.SLOTS)) if (k !in heard && k < secrets.size) {
+                        if (Keeping.knock(secrets[k], JSONObject().put("w", "call").put("loud", 1), twin, silent = false)) rung++
+                    }
+                    Log.i("Montana", "keep_call loud rung=$rung heard=${heard.size}")
+                }
+                for ((name, text) in Post.pickup(pipes, take = true)) {
+                    val k = name.removePrefix(CALL_PREFIX).toIntOrNull() ?: continue
+                    val o = Keeping.word(text)?.takeIf { it.optString("w") == "answer" } ?: continue
+                    val head = unhex(o.optString("h"))?.let { KeepDerive.Head.of(it) }?.takeIf { it.slot == k } ?: continue
+                    val seal = unhex(o.optString("e")) ?: continue
+                    if (!seal.contentEquals(KeepDerive.seal(key, head))) continue
+                    val id = Wire.hex(head.copyDigest) + "." + k
+                    if (id in answers) continue
+                    val f = File(dir, UUID.randomUUID().toString() + ".keep")
+                    if (!Keeping.fetch(o, f) || shaHex(f) != Wire.hex(head.shareDigest)) { f.delete(); continue }
+                    answers[id] = head to f
+                    Log.i("Montana", "keep_took slot=$k of ${head.n} generation=${head.generation}")
+                }
+                // The copies in hand, the newest first; a copy stands when its parts hold twelve cells of every group.
+                val ranked = answers.values.groupBy { Wire.hex(it.first.copyDigest) }.values.sortedByDescending { it.first().first.generation }
+                ranked.firstOrNull()?.let { best -> taking = Taking.Calling(best.size, 3 * best.first().first.n / 4) }
+                for (parts in ranked) {
+                    val h0 = parts.first().first
+                    val same = parts.filter { it.first.n == h0.n && it.first.length == h0.length }
+                    if (h0.n <= 0 || same.size * (KeepCode.GROUP / h0.n) < KeepCode.DATA) continue
+                    val out = File(dir, UUID.randomUUID().toString() + "." + MontanaBackup.EXT)
+                    try {
+                        val built = KeepCode.rebuild(same.map { KeepCode.Part(it.first.slot, it.first.n, it.second) }, h0.length, out)
+                        if (!built || shaHex(out) != Wire.hex(h0.copyDigest)) { Log.i("Montana", "keep_build generation=${h0.generation} did not stand"); continue }
+                        taking = Taking.Laying(0.0)
+                        val r = MontanaBackup.restore(Book.ctx, out, ofMany = true) { taking = Taking.Laying(it) }
+                        reread()   // the copy laid this person's state of keeping too
+                        if (r is CopyResult.Taken) {
+                            synchronized(lock) { owner().let { o -> o.generation = maxOf(o.generation, h0.generation) }; saveOwner() }
+                            askBack()   // the pipes the full copy named, the ones the light copy did not already ask
+                            taking = Taking.Done
+                        } else taking = Taking.Failed
+                        Log.i("Montana", "keep_build generation=${h0.generation} laid=" + r.javaClass.simpleName)
+                        return r
+                    } finally { out.delete() }
+                }
+                if (now() - began > 6 * 3600) { taking = Taking.Failed; return CopyResult.Refused(Refusal.Empty) }
+                Thread.sleep(15_000)
+            }
+        } catch (stopped: InterruptedException) {
+        } finally { answers.values.forEach { it.second.delete() } }
+        taking = Taking.Idle
+        return CopyResult.Refused(Refusal.Stopped)
+    }
+
+    // ── the correspondence given back (iOS MTKeeping 919-1010; Network «The correspondence given back»; the author's word 08.10.2026:
+    // «by default every correspondent keeps the conversation with their correspondent and, if it is saved, gives it to the one who
+    // restores») ──
+    const val ASKED_BACK = "mt.keep.back.asked"   // NOT-UI: the correspondences this phone asked to give back, and when (a setting of this device)
+    private val answeredBack = HashMap<String, Double>()
+    private fun askedBack(): MutableMap<String, Double> = runCatching {
+        val o = JSONObject(Prefs.str(ASKED_BACK, "{}"))
+        o.keys().asSequence().associateWithTo(HashMap()) { o.optDouble(it, 0.0) }
+    }.getOrElse { HashMap() }
+    private fun lastLetter(conv: String): Double = (Book.chat(conv)?.msgs?.maxOfOrNull { it.at } ?: 0L) / 1000.0
+    /** THE REQUEST: once a copy is laid, every correspondence of a person it names is asked in its own pipe, with the moment of the last
+     *  letter laid there; the answer is awaited a week, as long as the pieces it rides live. */
+    private fun askBack() {
+        val t = now()
+        val asked = askedBack().filterValues { t - it < 7 * 86_400 }.toMutableMap()
+        var n = 0
+        for (conv in people()) if (t - (asked[conv] ?: 0.0) >= 600) {
+            say(conv, JSONObject().put("w", "back").put("a", lastLetter(conv)))
+            asked[conv] = t; n++
+        }
+        val o = JSONObject(); asked.forEach { (k, v) -> o.put(k, v) }
+        Prefs.setStr(ASKED_BACK, o.toString())
+        Log.i("Montana", "keep_back asked=$n")
+    }
+    /**
+     * THE ANSWER: the letters of this correspondence this phone holds, later than the asker's last, on the cargo road and named in the
+     * same correspondence -- nothing kept for the purpose, nothing but this correspondence, and nothing while the person keeps nothing
+     * for others. iOS lets a letter of the asker ride with the author field it came with; this phone keeps no such field on a row, so
+     * the asker's own letters go without it, and their phone lays only the ones it can prove (takeGiven).
+     */
+    private fun answerBack(conv: String, o: JSONObject) {
+        val t = now()
+        if (!others || t - (answeredBack[conv] ?: 0.0) < 600) return Unit.also { Log.d("Montana", "keep_back quiet conv=" + conv.take(10)) }
+        answeredBack[conv] = t
+        val since = o.optDouble("a", 0.0)
+        val rows = Book.chat(conv)?.msgs.orEmpty().filter { it.at / 1000.0 > since && it.text.isNotEmpty() && it.file == null && !it.text.startsWith(Marks.MEDIA) }
+        if (rows.isEmpty()) { say(conv, JSONObject().put("w", "given").put("c", 0)); return }
+        val list = org.json.JSONArray()
+        for (r in rows) list.put(JSONObject().put("i", Archive.wire(r.mid)).put("m", if (r.mine) 1 else 0).put("t", r.at / 1000.0).put("x", r.text))
+        val dir = MontanaBackup.shelf(Book.ctx) ?: return
+        val f = File(dir, UUID.randomUUID().toString() + ".given")
+        try {
+            val body = list.toString().toByteArray(Charsets.UTF_8)
+            f.writeBytes(body)
+            val digest = shaHex(f)
+            val road = digest?.let { Keeping.lay(f) } ?: return Unit.also { Log.i("Montana", "keep_back the letters did not reach the nodes") }
+            road.put("w", "given").put("c", rows.size).put("d", digest)
+            say(conv, road)
+            Log.i("Montana", "keep_back gave=${rows.size} bytes=${body.size} conv=" + conv.take(10))
+        } finally { f.delete() }
+    }
+    /**
+     * THE CORRESPONDENCE TAKEN BACK: only an answer to this phone's own request, only the letters later than the last one in that
+     * correspondence here -- a letter erased before the copy stays erased -- each on the side of the one who wrote it.
+     * WHICH LETTER IS MINE IS SAID BY MY OWN WORDS (iOS, the critic R-6): a letter they name as theirs is theirs; one they name as mine
+     * stands as mine only when the author field it rode with is made again under this person's key (Wire.authorHolds) -- else it is
+     * not laid at all, and the count says so.
+     */
+    private fun takeGiven(conv: String, o: JSONObject) {
+        val at = askedBack()[conv] ?: return
+        if (now() - at >= 7 * 86_400 || o.optInt("c", 0) <= 0) return
+        val d = o.optString("d").ifEmpty { null } ?: return
+        val dir = MontanaBackup.shelf(Book.ctx) ?: return
+        val f = File(dir, UUID.randomUUID().toString() + ".given")
+        try {
+            val list = if (Keeping.fetch(o, f) && shaHex(f) == d) runCatching { org.json.JSONArray(f.readText(Charsets.UTF_8)) }.getOrNull() else null
+            if (list == null) return Unit.also { Log.i("Montana", "keep_back the given letters did not come whole") }
+            // The copies' last letter is the last one older than the request: a letter that came live after it is no measure.
+            val atMs = (at * 1000).toLong()
+            val since = Book.chat(conv)?.msgs?.filter { it.at < atMs }?.maxOfOrNull { it.at } ?: 0L
+            val secret = Book.secret(conv)
+            val key = LetterAuthor.key
+            var unproven = 0
+            val rows = ArrayList<Msg>()
+            for (i in 0 until list.length()) {
+                val e = list.optJSONObject(i) ?: continue
+                val t = e.optDouble("t", 0.0)
+                val ms = (t * 1000).toLong()
+                val x = e.optString("x")
+                if (ms <= since || x.isEmpty()) continue
+                val wire = e.optString("i").ifEmpty { null }
+                val claimedMine = e.optInt("m", 0) == 0   // the other side's own letter is the other side's here
+                if (claimedMine) {
+                    val bare = wire?.removePrefix("mid:") ?: ""
+                    if (bare.isEmpty() || secret == null || !Wire.authorHolds(e.optString("a"), key, secret, bare, x)) { unproven++; continue }
+                }
+                rows.add(Msg(Archive.GIVEN_MID + (wire ?: t.toString()), x, claimedMine, ms, state = if (claimedMine) 1 else 3))
+            }
+            val laid = Book.layGivenBack(conv, rows)
+            Log.i("Montana", "keep_back took=$laid of ${list.length()} unproven_mine=$unproven conv=" + conv.take(10))
+        } finally { f.delete() }
     }
 
     private fun shaHex(f: File): String? = runCatching {

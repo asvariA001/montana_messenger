@@ -1785,6 +1785,29 @@ object Book {
     }
 
     /**
+     * THE LETTERS A CORRESPONDENT GAVE BACK, LAID (iOS ChatStore.layGivenBack; KeepCopy.takeGiven): read, never a banner, into a chat
+     * this phone holds and its person did not erase or block. A letter both sides hold is known by its second, its side and its words
+     * (Archive.rowSig) -- the other side names it by its own identity; a letter erased here stays erased whoever gives it back: its
+     * wire name and its given name ask the graves, and the conversation's funeral.
+     */
+    fun layGivenBack(ref: String, rows: List<Msg>): Int {
+        if (rows.isEmpty() || erased(ref) || PeerSafety.isBlocked(ref)) return 0
+        var added = 0
+        edit(ref) { c ->
+            val had = c.msgs.mapTo(HashSet()) { it.mid }
+            val seen = c.msgs.mapTo(HashSet()) { Archive.rowSig(it.at / 1000, it.mine, it.text) }
+            val add = rows.filter { m ->
+                val w = Archive.wire(m.mid)
+                Archive.rowSig(m.at / 1000, m.mine, m.text) !in seen && m.mid !in had && w !in had
+                    && !isBuried(ref, w) && !isBuried(ref, m.mid) && !diedBefore(ref, w)
+            }
+            c.msgs.addAll(add); c.msgs.sortBy { it.at }
+            added = add.size
+        }
+        return added
+    }
+
+    /**
      * THE CONVERSATIONS ERASED HERE (iOS ChatStore.deletedChats, its keychain mirror deletedCold; 44f44060, the critic B-4): a chat
      * forgotten on this phone stays named here until a chat of that reference is born again, so a block of its history my other
      * device laid before it heard of the deletion is not filed back (Archive.absorb). The newest 4096 stand.
@@ -2588,6 +2611,51 @@ object Post {
      * here from the week-long box of August -- seven of each ten asked a day no box keeps.
      */
     private fun boxDays(w0: Long) = (w0 - 2)..(w0 + 1)
+    /**
+     * ONE READ OF PIPES OF ONE'S OWN (iOS MontanaWakePush.pickup with a BoxEar of pipes, owner = the twin; MTKeeping takeLight and
+     * callAndBuild): the box read under each named pipe's labels and this person's own name, every row opened and given back as its
+     * pipe's name and its words. [take]: the rows are marked taken by this device (the calls' answers); the pipe of light leaves
+     * its letters in the box, so the next phone of the same words reads them too.
+     */
+    fun pickup(pipes: Map<String, ByteArray>, take: Boolean): List<Pair<String, String>> {
+        if (pipes.isEmpty() || !Wire.agreesWithCanon()) return emptyList()
+        val twin = MontanaSeed.twin ?: return emptyList()
+        val me = Twin.deviceRef() ?: return emptyList()
+        val nameOf = HashMap<String, String>()
+        val secretOf = HashMap<String, ByteArray>()
+        for ((name, s) in pipes) for (w in boxDays(Wire.day())) { val cw = Wire.convW(s, w); nameOf[cw] = name; secretOf[cw] = s }
+        val out = ArrayList<Pair<String, String>>()
+        val taken = mutableListOf<JSONArray>()
+        for (chunk in secretOf.keys.toList().chunked(128)) {
+            val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { Wire.subId(it, twin) }))
+                .put("devs", JSONArray(chunk.map { Wire.subId(it, me) }))
+            val seen = HashSet<String>()
+            for (door in boxReadDoors()) {
+                val (code, text) = Wire.post(door, "/fetch", page, 6000)
+                if (code == 429) boxTooOften(door)
+                if (code != 200 || text == null) continue
+                boxAnswered(door)
+                val ls = runCatching { JSONObject(text).optJSONArray("letters") }.getOrNull() ?: continue
+                for (i in 0 until ls.length()) {
+                    val l = ls.optJSONObject(i) ?: continue
+                    val m = l.optString("m")
+                    if (!seen.add(m)) continue
+                    val cw = l.optString("c")
+                    val s = secretOf[cw] ?: continue
+                    val sealed = runCatching { Base64.decode(l.optString("e"), Base64.DEFAULT) }.getOrNull() ?: continue
+                    val plain = Wire.openBoxed(sealed, s, l.optLong("at")) ?: continue
+                    out.add((nameOf[cw] ?: continue) to Wire.fields(plain).getOrElse(1) { "" })
+                    if (take && m.isNotEmpty()) taken.add(JSONArray(listOf(m, Wire.subId(cw, me))))
+                }
+            }
+        }
+        if (taken.isNotEmpty()) {
+            val bodies = taken.chunked(128).map { JSONObject().put("taken", JSONArray(it)) }
+            for (door in Doors.ordered("box")) Thread { bodies.forEach { Wire.post(door, "/box-del", it, 5000) } }.start()
+        }
+        Log.d("Montana", "keep_pickup pipes=" + pipes.size + " rows=" + out.size + " taken=" + taken.size)
+        return out
+    }
     /**
      * THE DAYS A LETTER JUST KNOCKED CAN WEAR (iOS MTNodeWire.freshDays at 2342): its sender's day at the knock -- the day of an hour
      * ago through the day of an hour ahead, one day and two only around midnight UTC, never outside boxDays.
