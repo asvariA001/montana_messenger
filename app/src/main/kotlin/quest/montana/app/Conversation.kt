@@ -447,6 +447,18 @@ object Notify {
             .build()
         runCatching { nm.notify("pin:" + NoticeAlias.of(ref), sid.hashCode(), n) }
     }
+    /**
+     * A CHAT READ ON ANOTHER DEVICE OF THE SEED (iOS MTTwinRead.takeOff, 6166b225): its banners posted no later than the edge leave;
+     * one of a letter come after the reading stays. The count goes back.
+     */
+    fun takeOff(ref: String, edgeMs: Long): Int {
+        val nm = Book.ctx.getSystemService(NotificationManager::class.java) ?: return 0
+        val tag = NoticeAlias.held(ref) ?: return 0
+        val gone = runCatching { nm.activeNotifications.filter { it.tag == tag && it.id == LETTER && it.postTime <= edgeMs } }.getOrNull().orEmpty()
+        gone.forEach { nm.cancel(it.tag, it.id) }
+        if (gone.isNotEmpty() && runCatching { nm.activeNotifications.none { it.tag == tag && it.id == LETTER } }.getOrDefault(true)) Prefs.remove(NOTICE + ref)
+        return gone.size
+    }
     fun clear(ref: String) {
         val nm = Book.ctx.getSystemService(NotificationManager::class.java)
         NoticeAlias.held(ref)?.let { nm?.cancel(it, LETTER) }
@@ -1070,15 +1082,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         // ONE LETTER'S ROW, drawn as the column always drew it
         // A GROUP'S LETTER OF ANOTHER STANDS BESIDE ITS SPEAKER'S FACE COLUMN (iOS MTSpeakerFace.column): the face shows at the run's
-        // last letter, a tap on it opens the person's page where this phone holds their pipe
+        // last letter, and a tap on it takes the group page's one road to the person (iOS openSpeaker → MTGroupPage.way and hand,
+        // d28805b6, the author's word 21091: «the avatar does not press at all» -- it read the pipe alone, so a member's phone answered
+        // only the owner): their whole page held or met by their card (21096), else the line that it waits for the owner
         fun withFace(v: View, m: Msg, tail: Boolean): View {
             val from = m.from
             if (!group || m.mine || from == null || Groups.speakerLine(c, m, ref) == null) return v
             val top = (v.layoutParams as? LinearLayout.LayoutParams)?.topMargin ?: c.dp(3)
             val face = speakerFace(c, from, lines.getOrPut(from) { Groups.speakerLine(c, m, ref) ?: "" })
             face.visibility = if (tail) View.VISIBLE else View.INVISIBLE
-            val pipe = Groups.speakerPipe(from)
-            if (tail && pipe != null) face.pressable { hideKeys(); act.push { close -> peerInfoPage(act, SamePair.root(pipe), close) } }
+            if (tail) face.pressable {
+                hideKeys()
+                val way = Groups.seatOf(from, ref)?.let { Groups.way(ref, it) }
+                if (way == null) android.util.Log.i("Montana", "group_tap at=feed way=none")
+                else groupHand(act, way, "feed", ref, now = false) { conv, _ ->
+                    if (Book.chat(conv) != null) act.push { close -> peerInfoPage(act, conv, close) }
+                    else act.push { close -> conversationPage(act, conv, close) }
+                }
+            }
             return c.hstack {
                 gravity = Gravity.BOTTOM
                 addView(face, lp(dp(SPEAKER_FACE), dp(SPEAKER_FACE)).apply { marginStart = dp(2); marginEnd = dp(6) })

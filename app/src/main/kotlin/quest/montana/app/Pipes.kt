@@ -2262,7 +2262,9 @@ object Post {
             if (m.mid in queued || Transfers.riding(m.mid)) continue
             val media = m.file != null
             if (Groups.isKey(ch.ref) && (if (cold && media) Groups.answersFor(m.mid) else Groups.rides(m.mid, queued))) continue
-            if (!(cold && media) && edge <= m.at) continue
+            // THE GRACE IS COUNTED FROM THE RUNG, NOT FROM THE BIRTH (iOS 5766ba10, OZ 1 p.15.5): «retry» on a letter born weeks ago
+            // put it back on the clock (restart writes statusAt), and the birth stood far behind the edge -- red again at the next pass
+            if (!(cold && media) && edge <= m.statusMoment) continue
             var red: Msg? = null
             Book.edit(ch.ref) { c -> c.msgs.find { it.mid == m.mid && it.mine && it.state == 0 }?.let { r -> if (r.advance(-1)) red = r } }
             red?.let { CoinSend.hold(it, ch.ref); fixed++ }
@@ -3272,7 +3274,7 @@ object Post {
         val c = Book.chat(ref) ?: return
         if (Book.isLocal(ref)) { if (c.unread > 0) Book.edit(ref) { it.unread = 0 }; return }   // a room without an address has nobody to tell
         // THE SEED'S OTHER DEVICES READ IT TOO (iOS markRead's mirrorNote, 349cc053): what was unread here is read there up to the same letter
-        if (c.unread > 0) c.msgs.filter { !it.mine }.maxOfOrNull { Marks.birthMs(it.mid) ?: it.at }?.takeIf { it > 0 }?.let { Twin.read(ref, it) }
+        if (c.unread > 0) c.msgs.filter { !it.mine }.maxOfOrNull { Marks.birthMs(it.mid) ?: it.at }?.takeIf { it > 0 }?.let { Twin.read(ref, it); Twin.tellRead(ref) }   // and at once to the other devices' screens (iOS tellTwinsRead, 6166b225)
         // A GROUP'S READ MARK RIDES THE GROUP'S OWN ROAD (iOS sendReadMark → MTGroup.tellRead, B.13): a group has no pipe to receipt on
         if (Groups.isKey(ref)) { Book.edit(ref) { it.unread = 0 }; Groups.readSoon(ref); return }
         // a blocked person hears no word of mine (iOS sendReadMark 2842: read_skip why=blocked)
