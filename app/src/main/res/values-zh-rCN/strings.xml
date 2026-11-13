@@ -747,4 +747,13 @@
     <string name="description">描述</string>
     <string name="save_photo">保存</string>
     <string name="saved_photo">已保存</string>
+    <!-- who may reach me (iOS MTPrivacy, b9b212d4) -->
+    <string name="pv_reach">谁可以联系我</string>
+    <string name="pv_write">谁可以给我发消息</string>
+    <string name="pv_call">谁可以给我打电话</string>
+    <string name="pv_page">谁可以查看我的主页</string>
+    <string name="pv_invite">谁可以将我添加到群组和频道</string>
+    <string name="pv_everyone">所有人</string>
+    <string name="pv_contacts">我的联系人</string>
+    <string name="pv_nobody">没有人</string>
 </resources>

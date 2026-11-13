@@ -747,4 +747,13 @@
     <string name="description">Описание</string>
     <string name="save_photo">Сохранить</string>
     <string name="saved_photo">Сохранено</string>
+    <!-- who may reach me (iOS MTPrivacy, b9b212d4) -->
+    <string name="pv_reach">Кто может со мной связаться</string>
+    <string name="pv_write">Кто может мне писать</string>
+    <string name="pv_call">Кто может мне звонить</string>
+    <string name="pv_page">Кто может видеть мою страницу</string>
+    <string name="pv_invite">Кто может добавлять меня в группы и каналы</string>
+    <string name="pv_everyone">Все</string>
+    <string name="pv_contacts">Мои контакты</string>
+    <string name="pv_nobody">Никто</string>
 </resources>

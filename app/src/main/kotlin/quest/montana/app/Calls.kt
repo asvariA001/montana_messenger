@@ -187,6 +187,10 @@ object Calls {
      */
     private fun incoming(ref: String, seed: String, video: Boolean, name: String, offer: String?, ts: Long = 0L) {
         if (PeerSafety.isBlocked(ref)) return log("blocked caller")   // a blocked person's call is not assembled (iOS 15.09)
+        // WHO MAY CALL ME (iOS E2E call birth and the voip ring, b9b212d4, OZ 1 p.1.8): a call the rule refuses assembles nothing
+        if (!Groups.isKey(ref) && !Privacy.admits(Privacy.Act.CALL, ref)) {
+            Diary.folded("rx_private", "call peer=" + ref.take(10), 60_000, "pcall:" + ref); return
+        }
         if (seed.isEmpty()) {
             synchronized(gate) { ring?.takeIf { it.ref == ref && it.offer == null }?.offer = offer }
             synchronized(gate) { ring?.takeIf { it.ref == ref } }?.let { voice(it) }   // an answer that waited for its offer
