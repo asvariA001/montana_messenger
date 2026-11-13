@@ -55,9 +55,12 @@ object Keeping {
      * the envelope, sealed afresh at every door; the first door that boxes it ends the walk. `sender` -- the name the pipe hears it
      * from: the node never gives a letter back to the name that laid it.
      */
-    fun knock(secret: ByteArray, o: JSONObject, sender: String, silent: Boolean = true): Boolean {
+    fun knock(secret: ByteArray, o: JSONObject, sender: String, silent: Boolean = true): Boolean = knockText(secret, MARK + o.toString(), sender, silent)
+    /** One word of this person's own in a pipe, its text as given (a keeping word above; the seed's read word, Twin.TQ): the one
+     *  place here that seals such a letter's head (iOS MTKeeping.knockText, 6166b225). */
+    fun knockText(secret: ByteArray, text: String, sender: String, silent: Boolean = true): Boolean {
         val mid = UUID.randomUUID().toString().uppercase()
-        val body = mid.toByteArray() + byteArrayOf(0) + (MARK + o.toString()).toByteArray() + byteArrayOf(0, 0, 0)
+        val body = mid.toByteArray() + byteArrayOf(0) + text.toByteArray() + byteArrayOf(0, 0, 0)
         if (body.size > Wire.ENVELOPE) return false
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
@@ -88,6 +91,11 @@ object Twin {
     const val CARD = "​​TC:"              // iOS twinCardMark: a card the other device gave birth to
     const val CARD_PIPE = "twin:card"              // iOS twinCardPipe: the mirror's name for the cards' words, never a conversation
     const val ROW = "​​TW:"               // iOS twinRowMark: one row given back
+    /** iOS MTTwinRead.mark (6166b225): a chat read on one device of the seed, said at the reading, alone, in the seed's own pipe. */
+    const val TQ = "\u200B\u200BTQ:"
+    private const val TWINS = "mt.twin.devices"     // iOS twinDevicesKey: each other device of the seed heard -- {writer: [last heard s, quiet]}
+    private const val TWIN_HEARD_FOR = 30 * 86_400.0  // iOS twinHeardFor: a month
+    private const val READ_DRIFT_MS = 10_000L        // iOS MTTwinRead.drift: two devices' clocks, forgiven
     // THE PIPE IS THE APP'S, NOT THE PACKAGE'S (iOS twinSecret mixes Bundle.main.bundleIdentifier, quest.montana.app for Montana): two
     // apps of one seed keep two pipes; the iPhone's Montana and this one are one app, whatever this build's package is called
     private const val APP = "quest.montana.app"
@@ -139,6 +147,7 @@ object Twin {
     }
     private fun takeHist(o: JSONObject, mid: String) {
         if (o.optString("f") == Archive.writerHex()) return   // this device's own letter, heard back from the box
+        heardTwin(o)
         if (mid in strings(SEEN)) return
         val f = scratch()
         try {
@@ -161,6 +170,13 @@ object Twin {
     // ── the pickup (iOS twinTakes) ──
     /** A row of the box in the pipe of this seed's devices is this file's own, never a letter of the feed. */
     fun takes(text: String, mid: String) {
+        // A CHAT READ ON ANOTHER DEVICE OF THE SEED (iOS twinTakes → MTTwinRead.takeOff, 6166b225, OZ 1 p.14.7): its banners
+        // delivered no later than the reading leave this screen at once; nothing else moves -- the mirror's read mark reads the rows
+        readWord(text)?.let { (chat, atMs) ->
+            val n = Notify.takeOff(chat, atMs + READ_DRIFT_MS)
+            Log.d("Montana", "twin_read took notices off n=$n")
+            return
+        }
         val o = Keeping.word(text) ?: return
         if (mid.isEmpty()) return
         when (o.optString("w")) {
@@ -257,6 +273,7 @@ object Twin {
     /** The words of the seed's other device: each lands here by the one landing road, in the order that device heard them. */
     private fun takeMirror(o: JSONObject, mid: String) {
         if (o.optString("f") == Archive.writerHex()) return
+        heardTwin(o)
         if (mid in strings(SEEN)) return
         val f = scratch()
         val words = try {
@@ -303,6 +320,57 @@ object Twin {
     /** The read mark for the seed's other devices (iOS markRead's mirrorNote): what was unread here is read there up to this letter. */
     fun read(ref: String, newestMs: Long) = note(ref, UUID.randomUUID().toString().uppercase(), READ + newestMs, own = true)
 
+    // ── a chat read here leaves the other devices' screens at once (iOS MontanaArchive.tellTwinsRead, MTTwinRead, 6166b225) ──
+    /**
+     * THE READING ITSELF TELLS THE SEED'S OTHER DEVICES (OZ 1 p.14.7; the author's word 20712): the mirror's read mark rides a file
+     * and a silent push half a minute later and wakes nothing that sleeps; this word rides at the reading, alone, in the same pipe.
+     * It is loud -- it wakes an iPhone's extension -- only when every other device heard within a month said its extension takes it
+     * quietly (rq): an older extension would show the box's last letter instead. Silent, it still reaches a running app. This
+     * phone has no extension and never says rq: its app takes the word itself (takes).
+     */
+    fun tellRead(ref: String) {
+        if (ref.isEmpty() || MontanaSeed.twin == null) return
+        val text = TQ + JSONObject().put("c", ref).put("t", System.currentTimeMillis()).toString()
+        ex.execute {
+            runCatching {
+                val secret = secret() ?: return@runCatching
+                val sender = deviceRef() ?: return@runCatching
+                val loud = twinsQuiet()
+                val boxed = Keeping.knockText(secret, text, sender, silent = !loud)
+                Log.d("Montana", "twin_read told loud=" + (if (loud) 1 else 0) + " boxed=" + (if (boxed) 1 else 0))
+            }.onFailure { Log.w("Montana", "twin_read " + it.javaClass.simpleName) }
+        }
+    }
+    /** The read word's chat and moment (iOS MTTwinRead.read): null for every other text. */
+    private fun readWord(text: String): Pair<String, Long>? {
+        if (!text.startsWith(TQ)) return null
+        val o = runCatching { JSONObject(text.removePrefix(TQ)) }.getOrNull() ?: return null
+        val c = o.optString("c"); val t = o.optLong("t", 0L)
+        return if (c.isEmpty() || t <= 0L) null else c to t
+    }
+    private fun twinsHeard(now: Double): JSONObject {
+        val m = runCatching { JSONObject(Prefs.str(TWINS, "{}")) }.getOrNull() ?: JSONObject()
+        for (k in m.keys().asSequence().toList()) {
+            val e = m.optJSONArray(k)
+            if (e == null || e.length() != 2 || now - e.optDouble(0, 0.0) >= TWIN_HEARD_FOR) m.remove(k)
+        }
+        return m
+    }
+    /** One other device of the seed at least was heard within the month, and every one heard said it takes the word quietly. */
+    private fun twinsQuiet(): Boolean {
+        val m = twinsHeard(System.currentTimeMillis() / 1000.0)
+        val keys = m.keys().asSequence().toList()
+        return keys.isNotEmpty() && keys.all { m.optJSONArray(it)?.optDouble(1, 0.0) == 1.0 }
+    }
+    /** A mirror or history letter of another device of the seed: its writer is heard now, with what it said of its extension. */
+    private fun heardTwin(o: JSONObject) {
+        val f = o.optString("f").ifEmpty { return }
+        val now = System.currentTimeMillis() / 1000.0
+        val m = twinsHeard(now)
+        m.put(f, JSONArray().put(now).put(if (o.optInt("rq") == 1) 1 else 0))
+        Prefs.setStr(TWINS, m.toString())
+    }
+
     // ── the twin's past (iOS askTwin / giveTwinRows / takeTwinRow, f376b4ef) ──
     /** The rows of a conversation the archive holds and the feed does not: asked once, two hundred at most a round. */
     fun ask(chat: String, items: List<Triple<Long, Boolean, String>>) {
@@ -334,13 +402,13 @@ object Twin {
         val rows = Book.chat(chat)?.msgs ?: return
         val want = HashSet<String>()
         for (i in 0 until minOf(200, items.length())) items.optJSONArray(i)?.takeIf { it.length() == 3 }?.let { a ->
-            want.add(a.optLong(0).toString() + "|" + a.optInt(1) + "|" + a.optString(2))
+            want.add(Archive.rowSig(a.optLong(0), a.optInt(1) == 1, a.optString(2)))
         }
         var n = 0
         for (m in rows) {
             if (Archive.isRestored(m.mid) || m.at <= 0) continue
             val t = Archive.archivedText(m) ?: continue
-            if ((m.at / 1000).toString() + "|" + (if (m.mine) 1 else 0) + "|" + Archive.rowHash(t) !in want) continue
+            if (Archive.rowSig(m.at / 1000, m.mine, Archive.rowHash(t)) !in want) continue
             give(chat, m)
             n++
         }

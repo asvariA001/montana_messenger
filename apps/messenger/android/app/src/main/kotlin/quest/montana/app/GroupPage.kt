@@ -1,5 +1,6 @@
 package quest.montana.app
 
+import android.util.Log
 import android.app.AlertDialog
 import android.content.Context
 import android.graphics.BitmapFactory
@@ -22,6 +23,37 @@ import android.widget.Switch
  * adds people, takes a person out (asked first) and changes the name and the face («Edit»); a member leaves (asked first). Every
  * change is the owner's word to every phone of the group (Groups.renew, add, remove, leave), never one phone's alone.
  */
+/**
+ * THE HAND ON A PERSON OF A GROUP, ONE ROAD FOR THE PAGE'S ROW AND THE FEED'S FACE (iOS MTGroupPage.hand, d28805b6, OZ 1 p.8, the author's
+ * words 21091 and 21096): their whole page -- held, or met by their card through the one meeting road -- else the line that the page
+ * waits for the owner, or that the card did not open. A hand is never answered by nothing, and each goes into the diary with the place
+ * it was made and its way (group_tap).
+ */
+internal fun groupHand(act: MainActivity, way: Groups.Reach, at: String, key: String, now: Boolean, held: (String, Boolean) -> Unit) {
+    fun say(words: Int) { AlertDialog.Builder(act).setMessage(words).setPositiveButton(R.string.ok, null).show() }
+    when (way) {
+        is Groups.Reach.Held -> {
+            Log.i("Montana", "group_tap at=$at way=chat")
+            held(way.conv, now)
+        }
+        is Groups.Reach.Card -> {
+            Log.i("Montana", "group_tap at=$at way=card")
+            act.background {
+                val o = runCatching { Meeting.meet(act, way.link) }.getOrNull()
+                act.onMain {
+                    val conv = (o as? Meeting.Outcome.Opened)?.ref?.let { SamePair.root(it) }
+                    Log.i("Montana", "group_card met=" + (if (conv == null) 0 else 1))
+                    if (conv == null) say(R.string.pi_link_unavailable) else held(conv, now)
+                }
+            }
+        }
+        Groups.Reach.Away -> {
+            Log.i("Montana", "group_tap at=$at way=away " + Groups.awayTrace(key))
+            say(R.string.gp_page_away)
+        }
+    }
+}
+
 fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
               toChat: (String, String?) -> Unit = { to, mid -> act.push { close -> conversationPage(act, to, close, jump = mid) } },
               onSearch: () -> Unit = { onClose(); act.push { close -> conversationPage(act, key, close, search = true) } }): View {
@@ -119,6 +151,15 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
      * A row: the face, the name, online under it, the role on a capsule of its own colour; a tap opens the person's page where this
      * phone holds their pipe, a hold names the deeds. The ways out stand in «More» and in the editor.
      */
+    /**
+     * A PERSON OF THE GROUP REACHED, HELD OR MET BY THEIR CARD (iOS MTGroupPage reached, d28805b6, OZ 1 p.8): their page where the
+     * conversation stands a row; a letter to them at once when asked, and a conversation with no row yet opens as the chat itself, as
+     * a met link opens -- the group's page leaves first, the chat comes after it.
+     */
+    fun reached(conv: String, now: Boolean) {
+        if (!now && Book.chat(conv) != null) act.push { close -> peerInfoPage(act, conv, close) }
+        else { onClose(); act.onMainAfter(if (Book.chat(conv) != null) 50L else 350L) { act.push { close -> conversationPage(act, conv, close) } } }
+    }
     fun drawGroup() {
         val owns = Groups.manages(key)   // a group its owner ended is nobody's to add to or take from (iOS lines: g.mine && g.left != true)
         drawPlates()
@@ -143,9 +184,11 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
             val r = rank(p.seat)
             val ref = Groups.seatRef(key, p.seat) ?: ""
             val root = p.pipe.takeIf { it.isNotEmpty() }?.let { SamePair.root(it) }
-            val chat = root?.takeIf { Book.chat(it) != null }
+            // ONE ROAD TO A PERSON (iOS MTGroupPage.way and hand, d28805b6, OZ 1 p.8): the row asks the very answer the feed's face asks
+            val way = if (p.me) null else Groups.way(key, p.seat)
+            val go: ((Boolean) -> Unit)? = way?.let { w -> { now: Boolean -> groupHand(act, w, "page", key, now, ::reached) } }
             val deeds = mutableListOf<Pair<String, () -> Unit>>()
-            if (chat != null) deeds += c.getString(R.string.gp_send_message) to { act.push { close -> conversationPage(act, chat, close) } }
+            if (go != null && way.writes) deeds += c.getString(R.string.gp_send_message) to { go(true) }
             if (owns && !p.me) {
                 if (r == 1) {
                     deeds += c.getString(R.string.gp_edit_rights) to { act.push { back -> groupAdminRightsPage(act, key, p.seat, p.name, isNew = false) { back(); redraw() } } }
@@ -167,7 +210,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                 val face = when {
                     p.me -> c.avatar(SelfFace.load(c), p.name, 40)
                     root != null -> c.peerFace(root, p.name, 40)
-                    else -> c.avatar(null, p.name, 40).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Groups.tint(ref)) } }
+                    else -> Groups.speakerFace(ref)?.let { f -> SmallPicture.of(f) }?.let { c.avatar(it, p.name, 40) } ?: c.avatar(null, p.name, 40).apply { background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Groups.tint(ref)) } }
                 }
                 addView(face, lp(dp(40), dp(40)).apply { marginEnd = dp(12) })
                 addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -185,7 +228,7 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
                         background = c.rounded(Color.argb(51, Color.red(tone), Color.green(tone), Color.blue(tone)), 100)
                     }, lp(WRAP, WRAP).apply { marginStart = dp(8) })
                 }
-                if (chat != null) pressable { act.push { close -> peerInfoPage(act, chat, close) } }
+                if (go != null) pressable { go(false) }
                 if (deeds.isNotEmpty()) setOnLongClickListener {
                     AlertDialog.Builder(c).setTitle(p.name)   // USER-DATA: a person's name
                         .setItems(deeds.map { it.first }.toTypedArray()) { _, i -> deeds[i].second() }

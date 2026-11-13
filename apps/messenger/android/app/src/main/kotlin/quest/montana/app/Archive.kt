@@ -30,6 +30,15 @@ object Archive {
     /** A ROW THE ARCHIVE GAVE BACK, ONE OWNER (iOS MTRestoredMid.archive): its mid's head. */
     private const val RESTORED_MID = "arc:"
     fun isRestored(mid: String) = mid.startsWith(RESTORED_MID)
+    /** A ROW A CORRESPONDENT GAVE BACK, ONE OWNER (iOS MTRestoredMid.given and wire, bb0ba721): its mid's head, and the one unwrap of
+     *  the wire name inside it -- the keeping and the restore read it. */
+    const val GIVEN_MID = "given:"
+    fun isGiven(mid: String) = mid.startsWith(GIVEN_MID)
+    fun wire(mid: String) = mid.removePrefix(GIVEN_MID)
+    /** THE ONE NAME OF A LETTER BY ITS SECOND, ITS SIDE AND ITS WORDS (iOS ChatStore.rowSig, bb0ba721): the archive's rows, the feed
+     *  measured against them and the letters a correspondent gave back are known by it. An «arc:» name hashes these bytes: they
+     *  never change. */
+    fun rowSig(atSec: Long, mine: Boolean, text: String) = atSec.toString() + "|" + (if (mine) 1 else 0) + "|" + text
     private val q = Executors.newSingleThreadExecutor { r -> Thread(r, "archive").apply { isDaemon = true } }
     @Volatile private var keys: Keys? = null
 
@@ -52,7 +61,7 @@ object Archive {
             Log.w("Montana", "archive: the frozen vectors of the Canon do not reproduce — history is not written")
             return null
         }
-        Log.i("Montana", "canon: heal=${if (Wire.HealKeys.agree()) 1 else 0}")   // iOS audit_canon heal=, beside the gate
+        Log.i("Montana", "canon: heal=${if (Wire.HealKeys.agree()) 1 else 0} keep=${if (KeepCopy.agrees) 1 else 0}")   // iOS audit_canon heal=, MTKeeping.agrees, beside the gate
         val ent = MtBindings.nativeMnemonicToEntropy(words) ?: return null
         val hk = MtBindings.nativeHistoryKey(ent) ?: return null
         val mk = MtBindings.nativeMediaKey(ent) ?: return null
@@ -238,7 +247,7 @@ object Archive {
         val seen = HashSet<String>()
         val out = ArrayList<Msg>()
         for (it in items.sortedBy { it.at }) {
-            val sig = it.at.toString() + "|" + (if (it.mine) 1 else 0) + "|" + it.text
+            val sig = rowSig(it.at, it.mine, it.text)
             if (!seen.add(sig)) continue
             val mid = RESTORED_MID + Wire.hex(Wire.sha(sig.toByteArray()).copyOf(12))
             val state = if (it.mine) 1 else 3
@@ -337,12 +346,33 @@ object Archive {
             if (items.isEmpty() && ref == null) continue
             if (ref != null) headed++
             val key = ref ?: transcriptKey(folder)
-            val feed = Book.chat(key)?.msgs?.toList().orEmpty()
+            var feed = Book.chat(key)?.msgs?.toList().orEmpty()
+            // A LETTER A CORRESPONDENT GAVE BACK STANDS IN FOR THE COPY'S OWN ROW UNTIL THE COPY COMES (iOS takeRestoredFeed, bb0ba721,
+            // OZ 1 p.5.5): the light copy asks the people first and the full copy lands later. A given row known by the letter's one
+            // name (rowSig) yields its place to the copy's row; a feed of given rows alone takes the copy's rows as an empty one would
+            // -- here the feed is the truth, and a feed the given rows alone filled kept the copy out entirely.
+            if (items.isNotEmpty() && feed.any { isGiven(it.mid) }) {
+                val built = rows(items)
+                val bySig = built.associateBy { rowSig(it.at / 1000, it.mine, it.text) }
+                val alone = feed.all { isGiven(it.mid) }
+                var yielded = 0; var laid = 0
+                Book.edit(key) { c ->
+                    val gone = c.msgs.filter { isGiven(it.mid) && rowSig(it.at / 1000, it.mine, it.text) in bySig }
+                    val put = if (alone) built else gone.mapNotNull { bySig[rowSig(it.at / 1000, it.mine, it.text)] }
+                    val goneMids = gone.mapTo(HashSet()) { it.mid }
+                    c.msgs.removeAll { it.mid in goneMids }
+                    val have = c.msgs.mapTo(HashSet()) { it.mid }
+                    c.msgs.addAll(put.filter { it.mid !in have }); c.msgs.sortBy { it.at }
+                    yielded = gone.size; laid = put.size
+                }
+                if (yielded > 0 || laid > 0) Log.d("Montana", "archive_given chat=" + key.take(10) + " yielded=" + yielded + " laid=" + laid + " alone=" + (if (alone) 1 else 0))
+                feed = Book.chat(key)?.msgs?.toList().orEmpty()
+            }
             if (feed.isNotEmpty()) {
                 // THE ARCHIVE IS MEASURED AGAINST THE FEED (iOS restoreFromArchive 3008-3035, atom 2b8069c63096): a letter the archive
                 // holds and the feed does not is named with its count and its newest moment -- measured here, never inserted (the
                 // feed is the truth); a media letter is matched by its second and its side, its record and its row differing in form
-                fun sig(at: Long, mine: Boolean, text: String) = at.toString() + "|" + (if (mine) 1 else 0) + "|" + (if (text.startsWith(Marks.MEDIA)) "media" else text)
+                fun sig(at: Long, mine: Boolean, text: String) = rowSig(at, mine, if (text.startsWith(Marks.MEDIA)) "media" else text)
                 val have = feed.mapTo(HashSet()) { sig(it.at / 1000, it.mine, it.text) }
                 val seen = HashSet<String>()
                 val missing = items.filter { seen.add(sig(it.at, it.mine, it.text)) && sig(it.at, it.mine, it.text) !in have }

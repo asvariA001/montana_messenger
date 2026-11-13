@@ -1219,7 +1219,7 @@ object Marks {
      */
     private val SILENT = listOf(READ, DELIVERED, TYPING, REACTION, AVATAR, NAME, ABOUT, "​​PG:", "​​QC:", DELETE,
         CONVDEL_MARK, "​​DF:", "​​WH:", "​​PA:", "​​EX:", "​​CG:", Presence.WATCH, PLAYED,
-        Presence.APP, EDIT, PIN_MARK, "​​SP:", "​​WL:", SAME_ASK, SAME_YES, "​​PX:", LiveDraft.MARK)
+        Presence.APP, EDIT, PIN_MARK, "​​SP:", "​​WL:", SAME_ASK, SAME_YES, "​​PX:", LiveDraft.MARK, Keeping.MARK)
     fun isSilent(t: String) = SILENT.any { t.startsWith(it) } || ChessLetter.silent(t)
 
     /** A letter's name: t<birth ms>-<UUID> (iOS ChatStore.mintMid). */
@@ -1785,6 +1785,29 @@ object Book {
     }
 
     /**
+     * THE LETTERS A CORRESPONDENT GAVE BACK, LAID (iOS ChatStore.layGivenBack; KeepCopy.takeGiven): read, never a banner, into a chat
+     * this phone holds and its person did not erase or block. A letter both sides hold is known by its second, its side and its words
+     * (Archive.rowSig) -- the other side names it by its own identity; a letter erased here stays erased whoever gives it back: its
+     * wire name and its given name ask the graves, and the conversation's funeral.
+     */
+    fun layGivenBack(ref: String, rows: List<Msg>): Int {
+        if (rows.isEmpty() || erased(ref) || PeerSafety.isBlocked(ref)) return 0
+        var added = 0
+        edit(ref) { c ->
+            val had = c.msgs.mapTo(HashSet()) { it.mid }
+            val seen = c.msgs.mapTo(HashSet()) { Archive.rowSig(it.at / 1000, it.mine, it.text) }
+            val add = rows.filter { m ->
+                val w = Archive.wire(m.mid)
+                Archive.rowSig(m.at / 1000, m.mine, m.text) !in seen && m.mid !in had && w !in had
+                    && !isBuried(ref, w) && !isBuried(ref, m.mid) && !diedBefore(ref, w)
+            }
+            c.msgs.addAll(add); c.msgs.sortBy { it.at }
+            added = add.size
+        }
+        return added
+    }
+
+    /**
      * THE CONVERSATIONS ERASED HERE (iOS ChatStore.deletedChats, its keychain mirror deletedCold; 44f44060, the critic B-4): a chat
      * forgotten on this phone stays named here until a chat of that reference is born again, so a block of its history my other
      * device laid before it heard of the deletion is not filed back (Archive.absorb). The newest 4096 stand.
@@ -2262,7 +2285,9 @@ object Post {
             if (m.mid in queued || Transfers.riding(m.mid)) continue
             val media = m.file != null
             if (Groups.isKey(ch.ref) && (if (cold && media) Groups.answersFor(m.mid) else Groups.rides(m.mid, queued))) continue
-            if (!(cold && media) && edge <= m.at) continue
+            // THE GRACE IS COUNTED FROM THE RUNG, NOT FROM THE BIRTH (iOS 5766ba10, OZ 1 p.15.5): «retry» on a letter born weeks ago
+            // put it back on the clock (restart writes statusAt), and the birth stood far behind the edge -- red again at the next pass
+            if (!(cold && media) && edge <= m.statusMoment) continue
             var red: Msg? = null
             Book.edit(ch.ref) { c -> c.msgs.find { it.mid == m.mid && it.mine && it.state == 0 }?.let { r -> if (r.advance(-1)) red = r } }
             red?.let { CoinSend.hold(it, ch.ref); fixed++ }
@@ -2444,6 +2469,8 @@ object Post {
         Log.d("Montana", "cargo_lost mid=" + mid.take(8) + " — the row stands, the sender is told")
         send(conv, Marks.mintMid(), CARGO_LOST + mid, quiet = true)
     }
+    /** A restored phone asks for a delivered letter's file by the same word (iOS askKeptFile); Media keeps its one clock. */
+    fun askKept(conv: String, mid: String) = send(conv, Marks.mintMid(), CARGO_LOST + mid, quiet = true)
 
     /**
      * MY NAME AND MY FACE GO TO EVERY CORRESPONDENT (iOS sendNameIfNeeded, sendFace): once, and again whenever they change.
@@ -2585,6 +2612,51 @@ object Post {
      */
     private fun boxDays(w0: Long) = (w0 - 2)..(w0 + 1)
     /**
+     * ONE READ OF PIPES OF ONE'S OWN (iOS MontanaWakePush.pickup with a BoxEar of pipes, owner = the twin; MTKeeping takeLight and
+     * callAndBuild): the box read under each named pipe's labels and this person's own name, every row opened and given back as its
+     * pipe's name and its words. [take]: the rows are marked taken by this device (the calls' answers); the pipe of light leaves
+     * its letters in the box, so the next phone of the same words reads them too.
+     */
+    fun pickup(pipes: Map<String, ByteArray>, take: Boolean): List<Pair<String, String>> {
+        if (pipes.isEmpty() || !Wire.agreesWithCanon()) return emptyList()
+        val twin = MontanaSeed.twin ?: return emptyList()
+        val me = Twin.deviceRef() ?: return emptyList()
+        val nameOf = HashMap<String, String>()
+        val secretOf = HashMap<String, ByteArray>()
+        for ((name, s) in pipes) for (w in boxDays(Wire.day())) { val cw = Wire.convW(s, w); nameOf[cw] = name; secretOf[cw] = s }
+        val out = ArrayList<Pair<String, String>>()
+        val taken = mutableListOf<JSONArray>()
+        for (chunk in secretOf.keys.toList().chunked(128)) {
+            val page = JSONObject().put("subs", JSONArray(chunk)).put("sids", JSONArray(chunk.map { Wire.subId(it, twin) }))
+                .put("devs", JSONArray(chunk.map { Wire.subId(it, me) }))
+            val seen = HashSet<String>()
+            for (door in boxReadDoors()) {
+                val (code, text) = Wire.post(door, "/fetch", page, 6000)
+                if (code == 429) boxTooOften(door)
+                if (code != 200 || text == null) continue
+                boxAnswered(door)
+                val ls = runCatching { JSONObject(text).optJSONArray("letters") }.getOrNull() ?: continue
+                for (i in 0 until ls.length()) {
+                    val l = ls.optJSONObject(i) ?: continue
+                    val m = l.optString("m")
+                    if (!seen.add(m)) continue
+                    val cw = l.optString("c")
+                    val s = secretOf[cw] ?: continue
+                    val sealed = runCatching { Base64.decode(l.optString("e"), Base64.DEFAULT) }.getOrNull() ?: continue
+                    val plain = Wire.openBoxed(sealed, s, l.optLong("at")) ?: continue
+                    out.add((nameOf[cw] ?: continue) to Wire.fields(plain).getOrElse(1) { "" })
+                    if (take && m.isNotEmpty()) taken.add(JSONArray(listOf(m, Wire.subId(cw, me))))
+                }
+            }
+        }
+        if (taken.isNotEmpty()) {
+            val bodies = taken.chunked(128).map { JSONObject().put("taken", JSONArray(it)) }
+            for (door in Doors.ordered("box")) Thread { bodies.forEach { Wire.post(door, "/box-del", it, 5000) } }.start()
+        }
+        Log.d("Montana", "keep_pickup pipes=" + pipes.size + " rows=" + out.size + " taken=" + taken.size)
+        return out
+    }
+    /**
      * THE DAYS A LETTER JUST KNOCKED CAN WEAR (iOS MTNodeWire.freshDays at 2342): its sender's day at the knock -- the day of an hour
      * ago through the day of an hour ahead, one day and two only around midnight UTC, never outside boxDays.
      */
@@ -2663,6 +2735,11 @@ object Post {
         Twin.secret()?.let { s ->
             for (w in span) { val cw = Wire.convW(s, w); Twin.sid(cw)?.let { sid -> secretOf[cw] = s; twinSid[cw] = sid } }
         }
+        // THE PIPES OF THE SLOTS THIS PHONE HOLDS (iOS MTKeeping.listening, MontanaWakePush.fetchBox): read beside every
+        // correspondence; a row there is the keeping's own, never a letter of the feed
+        val keepOf = HashMap<String, String>()
+        for ((key, s) in KeepCopy.listening()) for (w in span) { val cw = Wire.convW(s, w); secretOf[cw] = s; keepOf[cw] = key }
+        KeepCopy.tickSoon()   // the owner's rhythm looks again half a minute later (iOS peopleWatch and tickSoon; the box read is its clock here)
         val subs = secretOf.keys.toList()
         if (subs.isEmpty()) { unread(); return }   // nothing was read: the whole read this would have been is still owed
         Log.d("Montana", "box_fetch subs=${subs.size} read=${if (whole) "whole" else "fresh"}")
@@ -2700,6 +2777,8 @@ object Post {
                 val plain = (if (pipeRef != null) Book.openBoxedLetter(sealed, pipeRef, l.optLong("at"))
                     else Wire.openBoxed(sealed, secret, l.optLong("at"))) ?: continue
                 // the history of this seed's other devices: filed there, never a letter of the feed (iOS restash → twinTakes)
+                val keepKey = keepOf[cw]
+                if (keepKey != null) { KeepCopy.takes(keepKey, Wire.fields(plain).getOrElse(1) { "" }); if (m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw)))); continue }
                 if (cw in twinSid) { val f = Wire.fields(plain); Twin.takes(f[1], f[0]); if (m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw)))); continue }
                 val ok = invOf[cw]?.let { inv -> first(plain, inv) } ?: chatOf[cw]?.let { ref -> letter(ref, plain) } ?: false
                 if (ok && m.isNotEmpty()) taken.add(JSONArray(listOf(m, dev(cw))))
@@ -2779,7 +2858,10 @@ object Post {
     private fun cargoReported(ref: String, lost: String) {
         val copy = Groups.copyRow(lost)
         val m = copy ?: Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
-        val o = runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.takeIf { m.text.startsWith(Marks.MEDIA) } ?: return
+        // A RESTORED PHONE ASKS FOR A DELIVERED LETTER'S FILE (iOS 8d68358c, OZ 1 p.10.1): no letter of this name rides any more, the
+        // rung stands, and the file this phone still holds is laid again under the same name (Media.serveKept, once in six hours)
+        if (copy == null && 2 <= m.state) { Log.d("Montana", "cargo_check m=" + lost.take(8) + " the letter was delivered -- the kept file is offered"); Media.serveKept(Book.ctx, ref, m); return }
+        val o =runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.takeIf { m.text.startsWith(Marks.MEDIA) } ?: return
         val bids = if (o.has("mref")) listOf(o.optString("mref"))
             else o.optJSONArray("chunks")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("bid") } }.orEmpty()
         if (bids.none { it.isNotEmpty() }) return
@@ -3081,6 +3163,9 @@ object Post {
             // A DRAFT WORD BY THE QUEUE (iOS ChatStore 3884-3898): the daily link, a checkpoint, an ask — read as the live lane reads
             // it (Presence.hear), never a row; the durable link rode here and was dropped unread
             text.startsWith(LiveDraft.MARK) -> Presence.hear(ref, text)
+            // A WORD OF THE KEEPING (iOS MTKeeping.heard): a question, a part, a release of the copy kept with correspondents --
+            // receipted, never a row
+            text.startsWith(Keeping.MARK) -> { receipt(ref, sid); KeepCopy.heard(text, ref) }
             Marks.isService(text) && !text.startsWith(Marks.VOICE) && !text.startsWith(Marks.MEDIA) && !text.startsWith(Marks.STICKER) && !text.startsWith(Marks.LONG) -> {}
             // A BLOCKED PERSON'S LETTERS DO NOT REACH THE FEED (iOS MontanaSafety: the block is enforced on every road).
             // A STEP OF A GAME (iOS MTChessLetter.isStep): the board reads it; no bubble, no unread, the closing letter alone rings
@@ -3257,7 +3342,7 @@ object Post {
         val c = Book.chat(ref) ?: return
         if (Book.isLocal(ref)) { if (c.unread > 0) Book.edit(ref) { it.unread = 0 }; return }   // a room without an address has nobody to tell
         // THE SEED'S OTHER DEVICES READ IT TOO (iOS markRead's mirrorNote, 349cc053): what was unread here is read there up to the same letter
-        if (c.unread > 0) c.msgs.filter { !it.mine }.maxOfOrNull { Marks.birthMs(it.mid) ?: it.at }?.takeIf { it > 0 }?.let { Twin.read(ref, it) }
+        if (c.unread > 0) c.msgs.filter { !it.mine }.maxOfOrNull { Marks.birthMs(it.mid) ?: it.at }?.takeIf { it > 0 }?.let { Twin.read(ref, it); Twin.tellRead(ref) }   // and at once to the other devices' screens (iOS tellTwinsRead, 6166b225)
         // A GROUP'S READ MARK RIDES THE GROUP'S OWN ROAD (iOS sendReadMark → MTGroup.tellRead, B.13): a group has no pipe to receipt on
         if (Groups.isKey(ref)) { Book.edit(ref) { it.unread = 0 }; Groups.readSoon(ref); return }
         // a blocked person hears no word of mine (iOS sendReadMark 2842: read_skip why=blocked)

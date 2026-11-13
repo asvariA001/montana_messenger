@@ -280,14 +280,17 @@ object Media {
         if (!Book.isLocal(ref)) Transfers.set(m.mid, 0.01f)
         Log.i("Montana", "resend_tap m=" + m.mid.take(8) + " kind=" + man.optString("k") + " human retry")
         Thread {
-            val wave = man.optString("wv").takeIf { it.isNotEmpty() }?.let { w ->
-                runCatching { Base64.decode(w, Base64.NO_WRAP) }.getOrNull()?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }
-            }
-            val p = Picked(f.readBytes(), man.optString("k").ifEmpty { "doc" }, man.optString("e").ifEmpty { f.extension }, man.optString("n").ifEmpty { null },
-                man.optDouble("du").takeIf { !it.isNaN() }, wave, man.optBoolean("r"))
             val caption = man.optString("cap")
-            if (!deliver(c, ref, m.mid, p, caption, f, m.qt, MediaGroup.read(man))) keepIntent(ref, m.mid, f, Marks.MEDIA + man.toString(), caption, m.qt)
+            if (!deliver(c, ref, m.mid, picked(man, f), caption, f, m.qt, MediaGroup.read(man))) keepIntent(ref, m.mid, f, Marks.MEDIA + man.toString(), caption, m.qt)
         }.start()
+    }
+    /** The file beside a row, read back as the pick its manifest describes: one owner for every road that lays a file again. */
+    private fun picked(man: JSONObject, f: File): Picked {
+        val wave = man.optString("wv").takeIf { it.isNotEmpty() }?.let { w ->
+            runCatching { Base64.decode(w, Base64.NO_WRAP) }.getOrNull()?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }
+        }
+        return Picked(f.readBytes(), man.optString("k").ifEmpty { "doc" }, man.optString("e").ifEmpty { f.extension }, man.optString("n").ifEmpty { null },
+            man.optDouble("du").takeIf { !it.isNaN() }, wave, man.optBoolean("r"))
     }
     @Volatile private var draining = false
     /** The intents still waiting go out again, oldest first, one at a time, at every pickup of the box; while the node takes nothing the rest wait too. */
@@ -301,12 +304,7 @@ object Media {
                 val mid = o.optString("mid")
                 val f = File(o.optString("f")).takeIf { it.exists() } ?: run { dropIntent(mid); null } ?: continue
                 val man = runCatching { JSONObject(o.optString("p").removePrefix(Marks.MEDIA)) }.getOrNull() ?: run { dropIntent(mid); null } ?: continue
-                val wave = man.optString("wv").takeIf { it.isNotEmpty() }?.let { w ->
-                    runCatching { Base64.decode(w, Base64.NO_WRAP) }.getOrNull()?.let { b -> FloatArray(b.size) { (b[it].toInt() and 0xFF) / 255f } }
-                }
-                val p = Picked(f.readBytes(), man.optString("k").ifEmpty { "doc" }, man.optString("e").ifEmpty { f.extension }, man.optString("n").ifEmpty { null },
-                    man.optDouble("du").takeIf { !it.isNaN() }, wave, man.optBoolean("r"))
-                if (!deliver(c, o.optString("ref"), mid, p, o.optString("cap"), f, o.optString("qt").ifEmpty { null }, MediaGroup.read(man))) return
+                if (!deliver(c, o.optString("ref"), mid, picked(man, f),o.optString("cap"), f, o.optString("qt").ifEmpty { null }, MediaGroup.read(man))) return
                 dropIntent(mid)
                 Log.i("Montana", "media: a waiting intent went out mid=" + mid.take(8))
             }
@@ -520,7 +518,46 @@ object Media {
     fun tapped(c: Context, m: Msg) {
         if (HomeKeep.kept(m.file)) return HomeKeep.bring(c, m, force = true)   // iOS retryOneMedia: a file your node keeps comes back from it
         val ref = Book.rooms().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
+        askKept(ref, m)
         fetch(c, ref, m.mid, m.text, manual = true)
+    }
+
+    // A KEPT FILE ASKED FOR AGAIN (iOS 8d68358c, OZ 1 p.10.1): a phone restored from the light copy holds every letter and no
+    // attachment, and a delivered letter's pieces have left the nodes. The person's tap on the row asks its sender by the word every
+    // build already reads (the cargo-lost word); the sender who still holds the file lays it again under the same letter name, and
+    // the standing row takes it (rx_refill). One ask and one answer per letter in six hours, on each side.
+    private const val KEPT_ASKS = "keptFileAsks"   // NOT-UI: a key's name
+    private const val KEPT_SPAN = 6 * 3600_000L
+    /** THE ONE CLOCK OF A KEPT FILE'S ASK AND ANSWER: true with the moment kept, false while the last one is younger than the span. */
+    private fun mayKept(name: String): Boolean = synchronized(KEPT_ASKS) {
+        val now = System.currentTimeMillis()
+        val old = runCatching { JSONObject(Prefs.str(KEPT_ASKS, "{}")) }.getOrNull() ?: JSONObject()
+        val book = JSONObject()
+        old.keys().forEach { k -> old.optLong(k).takeIf { now - it < KEPT_SPAN }?.let { book.put(k, it) } }
+        if (book.has(name)) return false
+        Prefs.setStr(KEPT_ASKS, book.put(name, now).toString())
+        true
+    }
+    /** The receiver's half: their letter's row stands without its file and every store called its pieces gone -- its sender is asked.
+     *  A group's letter is not asked here (iOS: the group's road has its own half). */
+    private fun askKept(ref: String, m: Msg) {
+        if (m.mine || Groups.isKey(ref) || m.file?.let { File(it).exists() } == true || !cargoGone(m.mid)) return
+        if (!mayKept("ask:" + m.mid)) { Log.d("Montana", "kept_file m=" + m.mid.take(8) + " asked within the span -- nothing sent"); return }
+        Post.askKept(ref, m.mid)
+        Log.d("Montana", "kept_file m=" + m.mid.take(8) + " the row stands without its file -- its sender is asked")
+    }
+    /** The holder's half: a cargo-lost word about a letter already delivered is a restored phone asking; the file still on this disk is
+     *  laid again under the same letter name, once in the span (iOS ChatStore.serveKeptFile). */
+    fun serveKept(c: Context, ref: String, m: Msg) {
+        val man = manifestOf(m) ?: run { Log.d("Montana", "kept_file m=" + m.mid.take(8) + " no letter of mine with a file by this name -- nothing to lay"); return }
+        val f = m.file?.let { File(it) }?.takeIf { it.exists() } ?: run { Log.d("Montana", "kept_file m=" + m.mid.take(8) + " the file is gone from this phone too"); return }
+        if (Transfers.riding(m.mid) || m.mid in intentMids()) { Log.d("Montana", "kept_file m=" + m.mid.take(8) + " joins the living send"); return }
+        if (!mayKept("serve:" + m.mid)) { Log.d("Montana", "kept_file m=" + m.mid.take(8) + " laid within the span -- the ask waits"); return }
+        Log.d("Montana", "kept_file m=" + m.mid.take(8) + " a restored phone asks -- laid again kind=" + man.optString("k"))
+        Thread {
+            if (!deliver(c, ref, m.mid, picked(man, f), man.optString("cap"), f, m.qt, MediaGroup.read(man)))
+                Log.w("Montana", "kept_file m=" + m.mid.take(8) + " the node took nothing -- the next ask lays it")
+        }.start()
     }
 
     fun fetch(c: Context, ref: String, mid: String, text: String, manual: Boolean = false, own: Boolean = false) {

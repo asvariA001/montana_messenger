@@ -155,6 +155,19 @@ private val barGlyph = Color.rgb(204, 204, 204)
 
 /** The pages under the bar (iOS UIState.Pane): the mesh wall from the drawer, the P2P wall the globe's page. */
 enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, MESH, P2P }
+/**
+ * THE DYNAMIC SLOT'S PAGES (iOS UIState.mediaPanes, 199a5c48, the author's word 20720 p.2): the music, the gallery, and the groups
+ * and the channels chosen in the drawer -- the slot wears the glyph of the one chosen, so it is clear where one stands.
+ */
+private val MEDIA_PANES = listOf(Pane.MUSIC, Pane.GALLERY, Pane.GROUPS, Pane.CHANNELS)
+/** The page the slot stands for (iOS UIState.mediaPane): the one showing when it is the slot's, else the last opened of them. */
+private fun mediaPane(now: Pane): Pane = if (now in MEDIA_PANES) now
+    else Prefs.str("lastMediaPane", "music").let { last -> MEDIA_PANES.firstOrNull { it.name.lowercase() == last } } ?: Pane.MUSIC
+/** The slot's glyph for its page (iOS UIState.Glyph.of): the groups and the channels wear the drawer's own glyphs. */
+private fun mediaGlyph(p: Pane) = when (p) {
+    Pane.GALLERY -> R.drawable.ic_app_gallery; Pane.GROUPS -> R.drawable.ic_app_groups; Pane.CHANNELS -> R.drawable.ic_app_channels
+    else -> R.drawable.ic_bar_play
+}
 /** The pages whose word at the head narrows their own rows (iOS searchesItself, MontanaChatsList.swift:515 at a91328e3). */
 private fun searchesItself(p: Pane) = p == Pane.MUSIC || p == Pane.FEED || p == Pane.MESH || p == Pane.P2P || p == Pane.GALLERY
 
@@ -219,7 +232,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         chats.showKind(when (p) { Pane.GROUPS -> ChatFolders.GROUPS; Pane.CHANNELS -> ChatFolders.CHANNELS; else -> null })
         if (p == Pane.CALLS) CallsSeen.clear()   // the calls page is looked at: the missed calls are seen (iOS 3010-3012)
         bar.badges()
-        if (p == Pane.MUSIC || p == Pane.GALLERY) Prefs.setStr("lastMediaPane", if (p == Pane.MUSIC) "music" else "gallery")
+        if (p in MEDIA_PANES) Prefs.setStr("lastMediaPane", p.name.lowercase())   // the slot's memory (iOS UIState.ask)
         bar.showPane(p)
         if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
         showPlayer()
@@ -248,9 +261,10 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         var base = 0f   // where the pane stood when the stroke began: 0, or the place a cut settle left it
         var settling: Pair<Pane, Pane>? = null   // the two pages a settle is sliding, until it rests
         fun order(): List<Pane> {
-            val media = if (pane == Pane.MUSIC || pane == Pane.GALLERY) pane
-                        else if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC
-            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, media, Pane.P2P)   // iOS turnOrder
+            // the dynamic slot's page (iOS turnOrder with mediaPane); the groups and the channels are the chats' own page on
+            // another folder, so a page that is this very one is passed over -- it cannot slide in beside itself
+            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, mediaPane(pane), Pane.P2P)
+                .filter { it == pane || views.getValue(it) !== views.getValue(pane) }
         }
         /** A STROKE THAT LANDS MID-SETTLE (iOS beginStroke, 47531d53282f): the settle is cut where it stands and the stroke goes
          *  on from there, the page beside staying where it was; the stroke's own way is not read — the page showing is the one
@@ -744,9 +758,9 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         }
         row.addView(logoBox, lp(0, MATCH, 1f))
         glyph(R.drawable.ic_bar_chats, 24, badge = chatsBadge) { onPane(Pane.CHATS) }
-        // THE DYNAMIC GLYPH: the last opened of the player and the gallery; a tap opens that one again.
-        media = glyph(R.drawable.ic_bar_play, 26) { onPane(if (Prefs.str("lastMediaPane", "music") == "gallery") Pane.GALLERY else Pane.MUSIC) }
-        if (Prefs.str("lastMediaPane", "music") == "gallery") media.setImageResource(R.drawable.ic_app_gallery)
+        // THE DYNAMIC GLYPH: the last opened of the player, the gallery, the groups and the channels (iOS mediaPane); a tap opens
+        // that one again (iOS askMedia)
+        media = glyph(mediaGlyph(mediaPane(Pane.CHATS)), 26) { onPane(mediaPane(Pane.CHATS)) }
         // THE GLOBE (iOS MTBarGlobe, MontanaTransportIcon): the network's lamp — green while a machine is held, red while none is,
         // grey before the first knock (unknown is not «no»); a tap chooses the P2P wall (the author's word 25.09)
         globe = glyph(R.drawable.ic_language, 26, tint = Color.rgb(115, 115, 115)) { onPane(Pane.P2P) }
@@ -786,12 +800,10 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         return icon
     }
 
-    /** The puck goes under the pane's slot; the dynamic glyph wears the music's or the gallery's face (iOS slot(of:)). */
+    /** The puck goes under the pane's slot; the dynamic glyph wears the face of its page (iOS slot(of:), Glyph.of). */
     fun showPane(p: Pane, animated: Boolean = true) {
-        // the groups and the channels are opened from the drawer: no glyph of the bar is theirs, the puck stands away (iOS slot nil)
         slot = slotOf(p)
-        if (p == Pane.MUSIC) media.setImageResource(R.drawable.ic_bar_play)
-        if (p == Pane.GALLERY) media.setImageResource(R.drawable.ic_app_gallery)
+        if (p in MEDIA_PANES) media.setImageResource(mediaGlyph(p))
         place(animated)
     }
 
@@ -812,7 +824,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         if (animated) puck.animate().translationX(x).setDuration(200).setInterpolator(AccelerateDecelerateInterpolator()).start()
         else puck.translationX = x
     }
-    private fun slotOf(p: Pane) = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY -> 5; Pane.P2P -> 6; else -> -1 }
+    private fun slotOf(p: Pane) = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY, Pane.GROUPS, Pane.CHANNELS -> 5; Pane.P2P -> 6; else -> -1 }
     private fun puckX(i: Int): Float? {
         val v = slotView(i)?.takeIf { it.width > 0 } ?: return null
         return v.left.toFloat() + dp(3)

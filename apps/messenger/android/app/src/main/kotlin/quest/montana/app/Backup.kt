@@ -104,7 +104,7 @@ object MontanaPaths {
 }
 
 object MontanaBackup {
-    private const val EXT = "mtbak"                       // NOT-UI: the container's own extension
+    const val EXT = "mtbak"                     // NOT-UI: the container's own extension
     private const val CHUNK = 1 shl 20
     private const val FRAME = 1 shl 20
     private const val SALT = 32
@@ -387,11 +387,14 @@ object MontanaBackup {
      * drops a block it already holds. So a restore MERGES, and a second restore costs nothing. The share measures the
      * copy's own frames read and filed. Runs on the caller's worker thread.
      */
-    fun restore(c: Context, file: File, progress: (Double) -> Unit): CopyResult {
+    /** [ofMany]: a copy laid as one of many (KeepCopy: the light copies and the keepers' full copy) -- its plain values yield to the same
+     *  values set here later (Card.lay, iOS restore(from:ofMany:), 0be1c720); a copy taken back by hand, from a file or a node, stands. */
+    fun restore(c: Context, file: File, ofMany: Boolean = false, progress: (Double) -> Unit): CopyResult {
         if (!keyKAT() || !MontanaHomeNode.keyKAT()) return CopyResult.Refused(Refusal.NoVault)
         val mn = MontanaSeed.mnemonic ?: return CopyResult.Refused(Refusal.NoSeed)
         val ent = MtBindings.nativeMnemonicToEntropy(mn)?.takeIf { it.size == 32 } ?: return CopyResult.Refused(Refusal.NoSeed)
         val taker = Taker.open(c, mn, ent) ?: return CopyResult.Refused(Refusal.NoVault)
+        taker.ofMany = ofMany
         var shown = -1
         val share = { f: Double -> val p = (f.coerceIn(0.0, 1.0) * 100).toInt(); if (p != shown) { shown = p; progress(p / 100.0) } }
         share(0.0)
@@ -488,6 +491,7 @@ object MontanaBackup {
         var card: ByteArray? = null
         var feed: ByteArray? = null
         var tail: JSONObject? = null
+        var ofMany = false
         var placed = 0
         private var sink: FileOutputStream? = null
         private var dropping = false
@@ -574,7 +578,7 @@ object MontanaBackup {
                 return CopyResult.Refused(Refusal.Torn)
             }
             // The card and the feed are laid only once the whole copy has proved itself.
-            if (card != null && !Card.lay(c, card!!)) return CopyResult.Refused(Refusal.NoVault)
+            if (card != null && !Card.lay(c, card!!, ofMany)) return CopyResult.Refused(Refusal.NoVault)
             feed?.let { if (!Card.keep(c, "feed", it)) return CopyResult.Refused(Refusal.NoVault) }
             tally.chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory }?.size ?: 0
             tally.skipped = t.optJSONObject("tally")?.optInt("skipped") ?: 0
@@ -665,6 +669,66 @@ object Card {
     private const val MIRRORED = "copy.mirrored"   // NOT-UI: the paths of the links the last copy laid, one a line
     private const val NODE = "mt.home.node"           // NOT-UI: iOS MontanaHomeNode.hostKey, sealed
     private const val NODE_PIN = "mt.home.node.pin"   // NOT-UI: iOS MontanaHomeNode.pinKey, sealed
+
+    /**
+     * ONE VALUE, ONE MOMENT (iOS MontanaBackup.moments, 0be1c720, OZ 1 p.3.5): two devices of one person lay each other's copies, and
+     * a copy's age is no measure of what it holds -- a phone restored by its words laid a light copy of its own with the older name
+     * it had been given, fresher than the copy that held the later one. So each plain value (a word, a number) carries the moment it
+     * was set here, and a copy laid as one of many yields where this phone set the value later. The book holds, for each key on the
+     * card, the print of its value and its moment. Born on a phone that came in by its words (MontanaSeed.entered), the values it
+     * finds were given by a copy: unknown, -1. Born on a phone from before 865 a, the person set them here: 0. A value that no
+     * longer meets its print is stamped now. This phone's alone, never in a copy; it leaves with the words (MontanaSeed.clear).
+     */
+    const val MOMENTS = "mt.card.moments"   // NOT-UI: iOS MontanaBackup.momentsKey
+    private const val MOMENTS_TAG = "t:moments"   // NOT-UI: iOS momentsTag; a build before 0be1c720 passes it by
+    /** The card's shape (iOS MontanaBackup.cardEngine): 2 -- each plain value carries its moment; a light copy laid in an older shape is laid anew. */
+    const val ENGINE = 2
+
+    /** The moment each plain value this phone owns was set, in seconds, by its key on the card (iOS MontanaBackup.moments). */
+    fun setAt(c: Context): Map<String, Double> = synchronized(this) {
+        val heldRaw = Prefs.str(MOMENTS, "")
+        val held = heldRaw.takeIf { it.isNotEmpty() }?.let { runCatching { JSONObject(it) }.getOrNull() }
+        val book = held?.let { JSONObject(it.toString()) } ?: JSONObject()
+        val first = if (MontanaSeed.entered == null) 0.0 else -1.0
+        val now = System.currentTimeMillis() / 1000.0
+        val out = HashMap<String, Double>()
+        for ((k, s) in plain(c)) {
+            val row = book.optString(k).split(' ')
+            val was = if (row.size == 2 && row[0] == print8(s)) row[1].toDoubleOrNull() else null
+            if (was != null) { out[k] = was; continue }
+            val t = if (held == null) first else now
+            book.put(k, stamp(s, t))
+            out[k] = t
+        }
+        val written = book.toString()
+        if (written != heldRaw) Prefs.setStr(MOMENTS, written)
+        out
+    }
+
+    /** Every plain value this phone owns, by its key on the card and as the card says it (iOS SeedScope.carried, plain: a word or a number). */
+    private fun plain(c: Context): Map<String, String> {
+        val prefs = c.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE)
+        val out = HashMap<String, String>()
+        for ((k, form) in settings) if (form != Form.LINES && prefs.contains(k)) runCatching { said(prefs, k, form) }.getOrNull()?.let { out[k] = it }
+        for (p in flags) for (k in Prefs.keys(p)) runCatching { prefs.getBoolean(k, false) }.getOrNull()?.let { out[k] = if (it) "1" else "0" }
+        for (p in moments) for (k in Prefs.keys(p)) Prefs.str(k, "").toLongOrNull()?.takeIf { it > 0 }?.let { out[k] = secs(it) }
+        for (k in Prefs.keys(HELD)) Prefs.str(k, "").takeIf { it.isNotEmpty() }?.let { out[k] = it }
+        for (k in Prefs.keys("chatWall.")) Prefs.str(k, "").takeIf { it.isNotEmpty() }?.let { out[groundKey(k)] = it }
+        return out
+    }
+
+    /** Whether a key under «s:» or «n:» is a plain value this phone owns (the keys plain() reads). */
+    private fun ownsPlain(tag: String, k: String): Boolean {
+        val form = settings[k]
+        return when {
+            form != null -> form != Form.LINES && tag == form.tag
+            tag == "n:" -> flags.any { k.startsWith(it) } || moments.any { k.startsWith(it) }
+            else -> k.startsWith(HELD) || k.startsWith("chatWall.")
+        }
+    }
+
+    private fun print8(s: String): String = hex(MessageDigest.getInstance("SHA-256").digest(s.toByteArray(Charsets.UTF_8)).copyOf(8))
+    private fun stamp(s: String, t: Double): String = print8(s) + " " + t
 
     /**
      * The card a copy made HERE carries: the card last taken back, every value this phone owns written over it in the iPhone's
@@ -797,15 +861,26 @@ object Card {
         val before = Prefs.str(MIRRORED, "").split('\n').filter { it.isNotEmpty() }
         for (path in before) if (path !in laid) runCatching { File(path).delete() }
         Prefs.setStr(MIRRORED, laid.joinToString("\n"))
+        // Each plain value with the moment it was set (iOS seedCard, 0be1c720); the card taken back carried another phone's moments
+        out.remove(MOMENTS_TAG)
+        val stamped = setAt(c).filterKeys { out.has("s:$it") || out.has("n:$it") }
+        if (stamped.isNotEmpty()) out.put(MOMENTS_TAG, b64(JSONObject(stamped).toString()))
         return Built(out.toString().toByteArray(), out.length())
     }
 
     /**
      * A card taken back (iOS layCard 875-925): every value this phone owns goes to its owner in this phone's form — a setting as
-     * the copy says it, a collection as a union — and the whole card is kept for the owners still to come.
+     * the copy says it, a collection as a union — and the whole card is kept for the owners still to come. A copy laid as one of
+     * many ([ofMany]: the light copies of every device of the words and the keepers' full copy, KeepCopy) yields each plain value
+     * this phone set later than the copy did (iOS layCard, 0be1c720); a copy taken back by hand lays its values as before.
      */
-    fun lay(c: Context, raw: ByteArray): Boolean {
+    fun lay(c: Context, raw: ByteArray, ofMany: Boolean = false): Boolean {
         val map = runCatching { JSONObject(String(raw, Charsets.UTF_8)) }.getOrNull() ?: return false
+        // ONE VALUE, ONE MOMENT (setAt): the copy's moment of each plain value; a copy from a build before carries none (-1)
+        val at = json(map.optString(MOMENTS_TAG))?.let { o -> o.keys().asSequence().associateWith { o.optDouble(it, -1.0) } } ?: emptyMap()
+        val here = setAt(c)
+        val given = HashMap<String, Double>()
+        val kept = ArrayList<String>()
         val prefs = c.getSharedPreferences("mt.defaults", Context.MODE_PRIVATE)
         val edit = prefs.edit()
         val marks = HashMap<String, List<String>>()
@@ -838,6 +913,12 @@ object Card {
             val k = tagged.drop(2)
             val v = map.optString(tagged)
             val form = settings[k]
+            if ((tag == "s:" || tag == "n:") && ownsPlain(tag, k)) {
+                val t = at[k] ?: -1.0
+                val h = here[k]
+                if (ofMany && h != null && t < h) { kept.add(k); return }   // set here later: the copy's value is older
+                given[k] = t
+            }
             when {
                 // the switch acts the moment it is set, by its owner's own road (iOS SeedScope.reread 6359-6363)
                 k == Mesh.KEY -> if (tag == "n:") mesh = (v.toDoubleOrNull() ?: 0.0) != 0.0
@@ -908,6 +989,14 @@ object Card {
             { callsSeen?.let { CallsSeen.lay(it) } },
             { groups?.let { Groups.lay(it, avatars) } }
         ).forEach { runCatching(it) }
+        // Each value laid takes the copy's moment, as this phone now holds it (iOS layCard: the print of the value read back)
+        synchronized(this) {
+            val book = Prefs.str(MOMENTS, "").takeIf { it.isNotEmpty() }?.let { runCatching { JSONObject(it) }.getOrNull() } ?: JSONObject()
+            val now = plain(c)
+            for ((k, t) in given) now[k]?.let { book.put(k, stamp(it, t)) }
+            Prefs.setStr(MOMENTS, book.toString())
+        }
+        if (kept.isNotEmpty()) Log.i("Montana", "card_laid kept=${kept.size} keys=" + kept.sorted().joinToString(","))
         Log.i("Montana", "card laid values=$laid marks=${marks.size} grounds=${grounds.size} of ${map.length()}")
         return keep(c, "card", raw)
     }
@@ -1057,7 +1146,12 @@ object Card {
             val tag = k.take(2)
             // a left-out group leaves the groups held with its conversation: the map names it by its id, the conversation by its key
             if (k == "d:" + Groups.STORE) { out.put(k, json(v)?.let { g -> g.keys().asSequence().toList().filter { Groups.key(it) in people }.forEach { g.remove(it) }; b64(g.toString()) } ?: v); continue }
+            if (k == MOMENTS_TAG) continue   // laid below, naming only the values still on the card
             out.put(k, if (tag == "d:" || tag == "a:" || tag == "m:" || tag == "k:") unb64(v)?.let { without(people, it) }?.let { b64(it) } ?: v else v)
+        }
+        json(o.optString(MOMENTS_TAG))?.let { m ->
+            m.keys().asSequence().toList().filter { !out.has("s:$it") && !out.has("n:$it") }.forEach { m.remove(it) }
+            if (m.length() > 0) out.put(MOMENTS_TAG, b64(m.toString()))
         }
         return Built(out.toString().toByteArray(), out.length())
     }

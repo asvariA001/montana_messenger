@@ -206,6 +206,7 @@
     <string name="gp_clear_q">Удалить все сообщения в «%1$s»?</string>
     <string name="gp_delete_all">Удалить все</string>
     <string name="gp_send_message">Написать сообщение</string>
+    <string name="gp_page_away">Страница человека откроется, когда владелец группы обновит Montana.</string>
     <string name="gp_leave_group">Покинуть группу</string>
     <string name="gp_leave_channel">Покинуть канал</string>
     <string name="gp_leave_group_q">Покинуть группу?</string>

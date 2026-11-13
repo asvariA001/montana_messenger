@@ -35,6 +35,10 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     private var nodeHost = ""
     /** The person walked on without the copy: its late answer no longer speaks on this screen. */
     private var walkedOn = false
+    /** The page waits for the copy the people one writes to keep (iOS MTKeeping.onboardingWaits) until it is laid or the person walks on. */
+    private var keepWaits = false
+    /** What the page of the copy coming back says over its bar (iOS takingWord): the node's history, or the identity chain first. */
+    private var takingWord = R.string.taking_back
     /** ONE BLACK FROM THE FIRST PAGE TO THE LAST, EVERY WORD WHITE (iOS a9adf311, the author's word 11.11.2026: «on the whole path of
      *  creating an identity remove the grey colour of the text and make everything white so that everything reads easily -- make the
      *  default ground black»; it turns the one indigo of iOS c093818f): the login, the making and the restoring stand on the default
@@ -300,10 +304,11 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
     /** THE WORDS OPENED; THE PERSON'S OWN NODE, IF NAMED, HANDS THE COPY BACK (iOS takeFromNode) — otherwise the first screen. */
     private fun takeFromNode() {
         val h = nodeHost.trim()
-        if (h.isEmpty()) return onDone()
+        if (h.isEmpty()) return takeFromKeepers()
         MontanaHomeNode.setHost(h)
         MontanaHomeNode.setOn(act, true)
         walkedOn = false
+        takingWord = R.string.taking_back
         go(5)
         act.background {
             HomeNodeWatch.takeBack(act) { r ->
@@ -316,6 +321,27 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
                         is CopyResult.Made -> onDone()   // a copy made here never answers a taking back
                     }
                 }
+            }
+        }
+    }
+
+    /**
+     * THE COPY KEPT BY THE PEOPLE ONE WROTE TO (iOS takeFromKeepers, MTKeeping 08.10): with no node named, the words call the pipe of
+     * every slot; the page shows the parts in hand, and the person may walk on at any moment -- the copy is laid whenever it stands,
+     * merged, and goes on behind them (the author's word 09.10.2026: «Continue -- the restore goes on in the background»). The light
+     * copy lets the person in the moment it is laid; the full copy follows from the keepers.
+     */
+    private fun takeFromKeepers() {
+        takingWord = R.string.keep_restoring_chain   // the author's word 11.10.2026: the person's chain comes back first
+        walkedOn = false
+        keepWaits = true
+        go(5)
+        KeepCopy.onLight = { act.onMain { if (keepWaits && !walkedOn) { keepWaits = false; onDone() } } }
+        KeepCopy.takeBack { r ->
+            act.onMain {
+                if (!keepWaits || walkedOn) return@onMain
+                keepWaits = false
+                if (r is CopyResult.Taken) onDone() else refuse(act.getString(R.string.keep_none_came_back)) { takeFromKeepers() }
             }
         }
     }
@@ -333,7 +359,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         spacer()
         addView(c.icon(R.drawable.ic_arrow_circle_down, Color.WHITE, 46))
         gap(16)
-        addView(c.text(c.getString(R.string.taking_back), 20f, Color.WHITE, bold = true, center = true))
+        addView(c.text(c.getString(takingWord), 20f, Color.WHITE, bold = true, center = true))
         gap(16)
         val bar = android.widget.ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -344,13 +370,27 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         gap(8)
         val pct = c.text("", 15f, Color.WHITE, center = true)
         addView(pct, lp())
+        val parts = c.text("", 15f, Color.WHITE, center = true).apply { visibility = View.GONE }   // iOS «Parts in hand: N of M»
+        addView(parts, lp())
         spacer()
         // The person may walk on without the copy while nothing is being laid into this device: a copy half laid is
         // not a state to leave in (iOS canGoOn).
-        val without = PathDoor(c, c.getString(R.string.go_on_without_copy)) { walkedOn = true; HomeNodeWatch.onChange = null; onDone() }
+        val without = PathDoor(c, c.getString(R.string.go_on_without_copy)) { walkedOn = true; keepWaits = false; HomeNodeWatch.onChange = null; KeepCopy.watch = null; onDone() }
         addView(without, lp())
         fun show() {
-            val f = HomeNodeWatch.fetching ?: HomeNodeWatch.restoring
+            // THE ONE SHARE OF THE COPY'S ROAD (iOS keepShare, 09.10.2026): the light copy coming down is the first half, its laying the
+            // second; the parts the people one wrote to hold count the first half while no light copy comes
+            val t = KeepCopy.taking
+            val keepShare = when (t) {
+                is KeepCopy.Taking.Fetching -> t.f / 2
+                is KeepCopy.Taking.Calling -> if (t.need > 0) minOf(1.0, t.have.toDouble() / t.need) / 2 else null
+                is KeepCopy.Taking.Laying -> 0.5 + t.f / 2
+                else -> null
+            }
+            parts.visibility = if (keepWaits && t is KeepCopy.Taking.Calling && t.need > 0) View.VISIBLE else View.GONE
+            if (t is KeepCopy.Taking.Calling) parts.text = c.getString(R.string.keep_parts_in_hand, t.have, t.need)
+            // THE BAR FROM THE FIRST FRAME (iOS, the author's word 09.10.2026): nothing measured yet is a bar at zero, never a spinner
+            val f = HomeNodeWatch.fetching ?: HomeNodeWatch.restoring ?: keepShare ?: (if (keepWaits) 0.0 else null)
             bar.isIndeterminate = f == null
             if (f != null) bar.progress = (f * 100).toInt()
             pct.text = if (f == null) "" else "${(f * 100).toInt()}%"   // USER-DATA: a share
@@ -358,6 +398,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         }
         show()
         HomeNodeWatch.onChange = { act.onMain { if (isAttachedToWindow) show() } }
+        if (keepWaits) KeepCopy.watch = { act.onMain { if (isAttachedToWindow) show() } }
     }
 }
 

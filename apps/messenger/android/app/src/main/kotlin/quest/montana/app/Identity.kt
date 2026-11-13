@@ -163,6 +163,8 @@ object MontanaSeed {
         Meeting.forgetClaimedNames()
         LetterAuthor.forget()   // the author's key is the person's: it leaves with the words
         PersonChain.forget()   // the person's seconds and their level leave with the words
+        Prefs.setStr(Card.MOMENTS, "")   // the moment each value was set here is the person's (iOS SeedScope.seatKeys: mt.card.moments)
+        KeepCopy.forget()   // my copy's keepers and its rhythm are the person's (iOS SeedScope.dataKeys: mt.keep.owner)
         Twin.forget()   // the seed's own pipe's queue and its memory are the person's (iOS SeedScope: mt.twin.asked, mt.twin.mirrored)
     }
 
