@@ -587,13 +587,15 @@ fun peerInfoPage(act: MainActivity, ref: String, onClose: () -> Unit,
         val blocked = PeerSafety.isBlocked(ref)
         val second = mutableListOf<View>()
         // THE PHONE'S ADDRESS BOOK (iOS settings.newContact / settings.existingContact), WHILE THE PERSON IS NOT KEPT (iOS
-        // !isInContacts): a new card of the phone with the person's name, kept once the phone says it is saved; or a card of the
-        // phone whose name becomes my name for this person (iOS attachToExistingCard)
+        // !isInContacts): a new card of the phone, kept once the phone says it is saved; or a card of the phone whose name becomes
+        // my name for this person (iOS attachToExistingCard). THE CARD MIRRORS ONLY MY HAND (iOS 08642380, OZ 1 p.14.1): the new card
+        // carries the name I gave this person (Chat.pin) or none -- never the page's title, the person's own word, which froze one of
+        // their devices' names on the card as if typed by me
         if (!PeerContact.isKept(ref)) {
             second.add(row(R.drawable.ic_person_add, c.getString(R.string.pi_new_contact)) {
                 val card = android.content.Intent(android.provider.ContactsContract.Intents.Insert.ACTION)
                     .setType(android.provider.ContactsContract.RawContacts.CONTENT_TYPE)
-                    .putExtra(android.provider.ContactsContract.Intents.Insert.NAME, Book.chat(ref)?.shown ?: "")
+                    .putExtra(android.provider.ContactsContract.Intents.Insert.NAME, Book.chat(ref)?.pin?.trim().orEmpty())
                 act.addContact(card) { saved -> if (saved) { PeerContact.keep(ref); redrawAll() } }
             })
             second.add(row(R.drawable.ic_bar_contacts, c.getString(R.string.pi_existing_contact)) {
