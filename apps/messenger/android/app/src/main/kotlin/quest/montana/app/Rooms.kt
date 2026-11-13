@@ -21,6 +21,16 @@ object Rooms {
     const val CAPACITY = 13
     /** A room no word renewed for this long is gone from the bars (iOS staleAfter): a living room says so every ten minutes. */
     private const val STALE_MS = 30 * 60 * 1000L
+    /**
+     * A ROOM'S INVITATION IS A WORD OF ITS MOMENT (iOS MTRing.askLife / askerPause / askRings, 9ea43dc6, OZ 1 p.2.7; the author's
+     * word 21080: a group's invitation to a call long over rang on T2). The moment and the asker's pause are stated here once, and
+     * every road that would show an invitation asks askRings.
+     */
+    const val ASK_LIFE_MS = 120_000L
+    /** [I-15] One asker's invitations ring once in this long, however many rooms they open. */
+    const val ASKER_PAUSE_MS = 120_000L
+    fun askRings(at: Long, now: Long) = now - at < ASK_LIFE_MS
+    private val rangBy = HashMap<String, Long>()   // when each asker last asked this phone, by group and seat
     /** The book of rooms, sealed on this device alone (iOS bookKey, MontanaLocalVault). */
     private const val BOOK_KEY = "mt.rooms.seen"
     /** The rooms that are over, sealed beside the book (iOS overKey, 39c1d9d6): a run that starts again still refuses a late word. */
@@ -122,7 +132,12 @@ object Rooms {
                     if (s.people[seat] == null) s.people[seat] = at
                     // an invitation for this phone: the bar names who asked (the banner and the way in come with the next stage)
                     val to = e.optJSONArray("to")
-                    if (to != null && me in List(to.length()) { to.optString(it) } && now - at < 120_000) s.askedBy = seat
+                    // a late invitation, or the same asker's repeat within the pause, asks nothing (iOS MTRing.askRings, askerPause)
+                    val quiet = now - (rangBy[gid + "/" + seat] ?: 0L) < ASKER_PAUSE_MS
+                    if (to != null && me in List(to.length()) { to.optString(it) } && askRings(at, now) && !quiet) {
+                        rangBy[gid + "/" + seat] = now
+                        s.askedBy = seat
+                    }
                 }
                 "in" -> s.people[who] = came
                 "key" -> if (s.people[seat] == null) s.people[seat] = came

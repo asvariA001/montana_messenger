@@ -2483,6 +2483,7 @@ object Post {
             val mid = Marks.mintMid(); flight("N", ref, name, mid); send(ref, mid, Marks.NAME + name)
         }
         MyAbout.sendIfNeeded(ref)
+        if (!Privacy.admits(Privacy.Act.PAGE, ref)) return   // no face to one my page is closed to (iOS sendFace, OZ 1 p.1.8)
         if (!SelfFace.held(Book.ctx)) return   // an unread face is silence, not «no face» (iOS MontanaSelf.holds("avatarData"))
         val face = SelfFace.bytes(Book.ctx) ?: ByteArray(0)
         val tag = Wire.hex(Wire.sha(face)).take(16)
@@ -2942,6 +2943,13 @@ object Post {
         // of every call packet on the node's line; it is the call's, heard as the lane's words are, and its receipt goes back the same
         // way. Before, it fell silent as an unknown word of the wire and the iPhone beat on the dead doors.
         if (text.startsWith(Marks.CALL_SIGNAL)) { Calls.lineWords(ref, text.removePrefix(Marks.CALL_SIGNAL)); return true }
+        // WHO MAY WRITE TO ME (iOS MontanaDeliveryEngine.receive, b9b212d4, OZ 1 p.1.8): a person the rule refuses is refused as a
+        // blocked one -- buried, never a row, no receipt.
+        if (Privacy.refuses(text, ref)) {
+            Book.bury(SamePair.root(ref), listOf(f[0]))
+            Diary.folded("rx_private", "door peer=" + ref.take(10), 60_000, "private:" + ref)
+            return true
+        }
         // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
         // other devices -- the box gave it to this one, and this one's confirmation erases it there
         if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])
@@ -2961,6 +2969,7 @@ object Post {
         if (own) { landOwn(SamePair.root(ref), mid, text, qt, qm, lp); return }
         if (Book.chat(SamePair.root(ref))?.msgs?.any { it.mid == mid } == true) return
         if (Book.isBuried(SamePair.root(ref), mid)) return
+        if (Privacy.refuses(text, ref)) { Diary.folded("rx_private", "mirror peer=" + ref.take(10), 60_000, ref); return }   // iOS append (OZ 1 p.1.8)
         place(ref, mid, text, "", qt, qm, lp)
     }
 
@@ -3388,6 +3397,7 @@ object MyAbout {
      */
     fun sendIfNeeded(ref: String) {
         if (PeerSafety.isBlocked(ref) || SamePair.merged(ref) != null) return
+        if (!Privacy.admits(Privacy.Act.PAGE, ref)) return   // who may see my page (iOS wordsHeld, OZ 1 p.1.8)
         if (!Prefs.has("profileBio") && !Prefs.has("profileLink")) return   // unread words are silence, not «no words» (iOS MontanaSelf.holds)
         val b = bio(); val l = link(); val t = tag(b, l)
         val held = Prefs.str("annAbout2.$ref", "")

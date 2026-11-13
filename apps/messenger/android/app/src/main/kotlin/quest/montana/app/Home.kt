@@ -1025,10 +1025,13 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
     private var pinned = false
     private val foot = View(c)   // the floating player's room at the foot (reserve)
     // THE FOLDER A PAGE SHOWS (iOS paneFolder after fc8e3744): the drawer's Groups or Channels, the folder of that kind alone, or one
-    // of that kind for the moment when the person has none; the chats page, every chat -- no folders' strip on it any more
+    // of that kind for the moment when the person has none; the chats page, the person's own chats alone (iOS 25d91347, OZ 1 p.1.11:
+    // it read the folder All, and every group and channel stood in it) -- no folders' strip on it any more
     private var kindShown: String? = null
-    private val folder get() = kindShown?.let { k -> ChatFolders.folders().firstOrNull { it.onlyKind == k } ?: ChatFolder(k, preset = k, kinds = listOf(k)) }
-        ?: ChatFolder(ChatFolders.ALL, leaves = emptyList())
+    private val folder get() = kindShown?.let { k -> ChatFolders.folders().firstOrNull { it.onlyKind == k }
+        ?: if (k == ChatFolders.CHANNELS) ChatFolders.CHANNELS_FOLDER else ChatFolders.GROUPS_FOLDER } ?: ChatFolders.CHATS_FOLDER
+    /** The chats page (iOS p == .chats): the code's card and the archive's pull are its own, no longer the folder All's. */
+    private val chatsPage get() = kindShown == null
     private var savedRow: View? = null
     private var savedHair: View? = null
     private val sel = ChatSelection { s ->
@@ -1129,7 +1132,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 val gone = archivedChats()
                 val archived = gone.size
                 val f = folder
-                headFloats = f.isAll && archiveRevealed && archived > 0 && !sel.on   // iOS archiveShown: All alone (storiesShown: test mode only)
+                headFloats = chatsPage && archiveRevealed && archived > 0 && !sel.on   // iOS archiveShown: All alone (storiesShown: test mode only)
                 sink?.up = !headFloats
                 if (headFloats) {
                     rows.addView(archiveEntry(act, archived), lp())
@@ -1137,15 +1140,15 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
                 // of a scan must not raise an empty person here; the pinned stand first (listedChats)
-                // THE FOLDER'S ROWS (iOS folderBook.rows): the chats page holds every chat, the groups and the channels too;
-                // the Groups and Channels pages their folder's kind
+                // THE FOLDER'S ROWS (iOS folderBook.rows): each page its own kind alone -- the chats page the person's chats, the
+                // Groups and Channels pages their folder's kind (iOS 25d91347)
                 val live = ListWork.build { listedChats() }
                 val all = ChatFolders.rows(f, live, gone)
                 val saved = ChatFolders.showsSaved(f)
                 corner(f)
                 savedRow?.visibility = if (saved) View.VISIBLE else View.GONE
                 savedHair?.visibility = if (saved) View.VISIBLE else View.GONE
-                if (f.isAll && all.isEmpty() && archived == 0) rows.addView(emptyCard, lp())
+                if (chatsPage && all.isEmpty() && archived == 0) rows.addView(emptyCard, lp())
                 else if (all.isEmpty() && !saved) rows.addView(ChatFolders.emptyCard(c), lp())
                 for (ch in all) {
                     rows.addView(listRow(act, ch, inArchive = ChatMarks.isArchived(ch.ref), sel = sel), lp())
@@ -1155,7 +1158,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
             }
             redrawRows = { fillRows() }
             revealArchive = { on ->
-                if (on != archiveRevealed && !(on && (archivedChats().isEmpty() || !folder.isAll))) {
+                if (on != archiveRevealed && !(on && (archivedChats().isEmpty() || !chatsPage))) {
                     archiveRevealed = on
                     fillRows()
                     if (on) rows.getChildAt(0)?.let { v ->

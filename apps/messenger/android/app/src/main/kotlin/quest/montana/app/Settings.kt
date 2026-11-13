@@ -303,7 +303,27 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     fun drawPlace() { place.text = c.getString(if (placeAllowed()) R.string.st_allowed else if (Prefs.bool("locAsked", false)) R.string.st_denied else R.string.st_not_asked) }
     fun systemSettings() = SystemSettings.open(act)   // the one door, warning while a call stands
     drawPlace()
+    // WHO MAY REACH ME (iOS PrivacyView, b9b212d4, OZ 1 p.1.8, the author's word 21096): the four rules as Privacy keeps them; a
+    // choice is the rule at once, obeyed on this phone. The platform's own menu offers the choices, as iOS's Picker does.
+    fun reach(icon: Int, color: Int, word: Int, a: Privacy.Act): View {
+        val names = listOf(Privacy.Who.EVERYONE to R.string.pv_everyone, Privacy.Who.CONTACTS to R.string.pv_contacts, Privacy.Who.NOBODY to R.string.pv_nobody)
+        val value = c.text("", 15f, MT.gray)
+        fun shown() { value.text = c.getString(names.first { it.first == Privacy.rule(a) }.second) }
+        shown()
+        return c.settingsRow(icon, color, c.getString(word), value = value, chevron = false) {
+            PopupMenu(act, value).apply {
+                names.forEachIndexed { i, (w, n) -> menu.add(0, i, i, c.getString(n)) }
+                setOnMenuItemClickListener { Privacy.set(a, names[it.itemId].first); shown(); true }
+                show()
+            }
+        }
+    }
     val page = settingsPage(act, c.getString(R.string.privacy), onBack) {
+        section(c.getString(R.string.pv_reach), null,
+            reach(R.drawable.ic_peer_message, SysColor.blue, R.string.pv_write, Privacy.Act.WRITE),
+            reach(R.drawable.ic_peer_phone, SysColor.green, R.string.pv_call, Privacy.Act.CALL),
+            reach(R.drawable.ic_set_eye, SysColor.teal, R.string.pv_page, Privacy.Act.PAGE),
+            reach(R.drawable.ic_app_groups, SysColor.indigo, R.string.pv_invite, Privacy.Act.INVITE))
         section(null, null,
             c.settingsRow(R.drawable.ic_language, SysColor.blue, c.getString(R.string.local_network), c.text(c.getString(if (Mesh.discoverable) R.string.st_connected else R.string.st_disconnected), 15f, MT.gray)) { systemSettings() },
             c.settingsRow(R.drawable.ic_compose_location, SysColor.blue, c.getString(R.string.location), place) {

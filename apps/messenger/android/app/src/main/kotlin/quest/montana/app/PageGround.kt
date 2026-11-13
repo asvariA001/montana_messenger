@@ -132,6 +132,7 @@ object PageGround {
      */
     fun sendIfNeeded(ref: String, force: Boolean = false) {
         if (Book.secret(ref) == null || PeerSafety.isBlocked(ref) || !capable(ref)) return
+        if (!Privacy.admits(Privacy.Act.PAGE, ref)) return   // who may see my page (iOS sendGroundIfNeeded, OZ 1 p.1.8)
         val now = mine() ?: return
         val held = Prefs.str("annGround." + ref, "").ifEmpty { null }
         if (held == now.second) return                          // receipted with this ground

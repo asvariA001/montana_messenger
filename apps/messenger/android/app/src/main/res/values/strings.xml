@@ -752,4 +752,13 @@
     <string name="description">Description</string>
     <string name="save_photo">Save</string>
     <string name="saved_photo">Saved</string>
+    <!-- who may reach me (iOS MTPrivacy, b9b212d4) -->
+    <string name="pv_reach">Who can reach me</string>
+    <string name="pv_write">Who can message me</string>
+    <string name="pv_call">Who can call me</string>
+    <string name="pv_page">Who can see my page</string>
+    <string name="pv_invite">Who can add me to groups and channels</string>
+    <string name="pv_everyone">Everyone</string>
+    <string name="pv_contacts">My contacts</string>
+    <string name="pv_nobody">Nobody</string>
 </resources>

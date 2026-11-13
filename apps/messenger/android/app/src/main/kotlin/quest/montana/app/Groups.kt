@@ -2587,6 +2587,12 @@ object Groups {
         val tag = fc?.let(::tagOfFace)
         val id = w.getString("g")
         val had = groups[id]
+        // WHO MAY ADD ME (iOS MTGroup.invited, b9b212d4, OZ 1 p.1.8): a group or a channel new to this phone, or one I left, stands
+        // only by the rule of inviting; a renewal of a group I hold is no invitation.
+        if ((had == null || had.left) && !Privacy.admits(Privacy.Act.INVITE, owner)) {
+            Log.i("Montana", "group_refused invitation refused by the rule of who may add me")
+            return Verdict.REFUSED
+        }
         if (had != null) {
             if (had.mine || SamePair.root(had.owner) != owner) {
                 Log.i("Montana", "group_refused invitation of a group held by another owner")
