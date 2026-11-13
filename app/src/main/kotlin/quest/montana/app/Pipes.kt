@@ -2444,6 +2444,8 @@ object Post {
         Log.d("Montana", "cargo_lost mid=" + mid.take(8) + " — the row stands, the sender is told")
         send(conv, Marks.mintMid(), CARGO_LOST + mid, quiet = true)
     }
+    /** A restored phone asks for a delivered letter's file by the same word (iOS askKeptFile); Media keeps its one clock. */
+    fun askKept(conv: String, mid: String) = send(conv, Marks.mintMid(), CARGO_LOST + mid, quiet = true)
 
     /**
      * MY NAME AND MY FACE GO TO EVERY CORRESPONDENT (iOS sendNameIfNeeded, sendFace): once, and again whenever they change.
@@ -2779,7 +2781,10 @@ object Post {
     private fun cargoReported(ref: String, lost: String) {
         val copy = Groups.copyRow(lost)
         val m = copy ?: Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
-        val o = runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.takeIf { m.text.startsWith(Marks.MEDIA) } ?: return
+        // A RESTORED PHONE ASKS FOR A DELIVERED LETTER'S FILE (iOS 8d68358c, OZ 1 p.10.1): no letter of this name rides any more, the
+        // rung stands, and the file this phone still holds is laid again under the same name (Media.serveKept, once in six hours)
+        if (copy == null && 2 <= m.state) { Log.d("Montana", "cargo_check m=" + lost.take(8) + " the letter was delivered -- the kept file is offered"); Media.serveKept(Book.ctx, ref, m); return }
+        val o =runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.takeIf { m.text.startsWith(Marks.MEDIA) } ?: return
         val bids = if (o.has("mref")) listOf(o.optString("mref"))
             else o.optJSONArray("chunks")?.let { a -> (0 until a.length()).map { a.getJSONObject(it).optString("bid") } }.orEmpty()
         if (bids.none { it.isNotEmpty() }) return
