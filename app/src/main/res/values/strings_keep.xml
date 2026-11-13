@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The copy kept by the people one writes to (iOS MTKeepingSection, the question at the opening; Localizable.xcstrings at mainline-2074 d28805b6). -->
+<resources>
+    <string name="keep_ask_title">Keep your copy with your contacts?</string>
+    <string name="keep_ask_yes">Keep</string>
+    <string name="keep_ask_not_now">Not now</string>
+    <string name="keep_ask_msg">Your copy lives only on phones, never in a cloud: this is Montana\'s own way of keeping it. It is sealed with your 24 words and cut into parts, and the people you write to keep the parts for you: each sees only a size, never a word. On a new phone your 24 words bring the parts back, and your conversations with them. In the same way this phone keeps sealed parts for your contacts, up to 1 GB, and cannot open them. Both switches are in Settings → Data and Storage.</string>
+    <string name="keep_header">Copy with contacts</string>
+    <string name="keep_mine">Keep my copy with my contacts</string>
+    <string name="keep_asking">Asking the people you write to…</string>
+    <string name="keep_nobody_yet">None of your contacts can keep a part yet</string>
+    <string name="keep_not_yet">Not kept yet</string>
+    <string name="keep_kept_by">Kept by %1$d of %2$d</string>
+    <string name="keep_mine_footer">Your copy lives only on phones, never in a cloud: this is Montana\'s own way of keeping it. It is sealed with your 24 words and cut into parts, and the people you write to keep the parts for you: each sees only a size, never a word. On a new phone your 24 words bring the parts back, and your conversations with them.</string>
+    <string name="keep_others">Keep parts for my contacts</string>
+    <string name="keep_stop_part">Stop keeping this part</string>
+    <string name="keep_take_back">Take my copy back from my contacts</string>
+    <string name="keep_parts_in_hand">Parts in hand: %1$d of %2$d</string>
+    <string name="keep_restoring_chain">Restoring the identity chain</string>
+    <string name="keep_came_back">The copy came back</string>
+    <string name="keep_none_came_back">No copy came back</string>
+    <string name="keep_others_footer">The parts your contacts leave with you are sealed the same way: this phone cannot open them, and only their own 24 words can. This is how Montana keeps copies with no cloud in between: people hold each other\'s sealed parts, and no one but the owner can ever read them.</string>
+</resources>

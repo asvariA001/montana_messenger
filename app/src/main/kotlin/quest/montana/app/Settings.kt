@@ -490,6 +490,91 @@ private fun LinearLayout.seedWords(c: Context) {
  * place the person picks through the system's own document picker, taken back from a file the same way. The iOS «Sync»
  * section is iCloud's: Android's daily copy goes to the person's own node («Your node»), not to a cloud of the platform.
  */
+/**
+ * THE KEEPING IN SETTINGS (iOS MTKeepingSection): two switches, what a keeper learns said beneath them, the state in the keepers' own
+ * words (a part is «held» only on its keeper's «held»), the parts this phone holds by name and size, and the road back. SAID HERE AND
+ * NOWHERE ELSE (iOS, the author's word 17977-17978, 09.11.2026): no banner tells of someone's part on this phone -- the footers say
+ * plainly what it is, Montana's own way of keeping copies with no cloud in between. iOS swipes a part away; here a tap asks.
+ */
+fun LinearLayout.keepingSection(act: MainActivity) {
+    val c: Context = act
+    fun hair() = View(c).apply { setBackgroundColor(MT.hairline) }
+    val mineLine = c.text("", 15f, MT.gray).apply { setPadding(c.dp(16), 0, c.dp(16), c.dp(10)) }
+    fun showMine() {
+        mineLine.visibility = if (KeepCopy.mine) View.VISIBLE else View.GONE
+        val keepers = KeepCopy.keepers()
+        mineLine.text = when {
+            KeepCopy.asking -> c.getString(R.string.keep_asking)
+            keepers.isEmpty() -> c.getString(if (KeepCopy.short) R.string.keep_nobody_yet else R.string.keep_not_yet)
+            else -> c.getString(R.string.keep_kept_by, keepers.values.count { it }, keepers.size)
+        }
+    }
+    val mineBox = c.vstack(Gravity.NO_GRAVITY) {
+        addView(c.switchLine(R.drawable.ic_app_groups, SysColor.teal, c.getString(R.string.keep_mine), KeepCopy.mine) { KeepCopy.setMine(it); showMine() }, lp())
+        addView(mineLine, lp())
+    }
+    showMine()
+    section(c.getString(R.string.keep_header), c.getString(R.string.keep_mine_footer), mineBox)
+
+    val partsBox = c.vstack(Gravity.NO_GRAVITY)
+    fun showParts() {
+        partsBox.removeAllViews()
+        for (conv in KeepCopy.keptFor) {   // one row a person, their parts summed
+            val name = Book.chat(conv)?.name ?: ""   // USER-DATA: a correspondent's name
+            val size = c.text(android.text.format.Formatter.formatShortFileSize(c, KeepCopy.bytes(conv)), 15f, MT.gray)   // USER-DATA: a size
+            val row = c.settingsRow(null, 0, name, value = size, chevron = false) {
+                AlertDialog.Builder(act).setTitle(name)
+                    .setPositiveButton(R.string.keep_stop_part) { _, _ -> KeepCopy.drop(conv); showParts() }
+                    .setNegativeButton(R.string.cancel, null).show()
+            }
+            partsBox.addView(hair(), lp(MATCH, 1).apply { marginStart = c.dp(16) })
+            partsBox.addView(row, lp())
+        }
+    }
+    val takeWord = c.text("", 15f, MT.gray)
+    val takeBar = ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100; progressTintList = ColorStateList.valueOf(Color.WHITE) }
+    val takeBox = c.vstack(Gravity.NO_GRAVITY) { setPadding(c.dp(16), 0, c.dp(16), c.dp(10)); addView(takeWord, lp()); addView(takeBar, lp()) }
+    lateinit var takeRow: View
+    fun showTaking() {
+        takeRow.alpha = if (KeepCopy.isTaking) 0.4f else 1f
+        var word: String? = null
+        var share: Double? = null
+        when (val t = KeepCopy.taking) {
+            is KeepCopy.Taking.Calling -> word = if (t.need > 0) c.getString(R.string.keep_parts_in_hand, t.have, t.need) else c.getString(R.string.keep_restoring_chain)
+            is KeepCopy.Taking.Fetching -> share = t.f
+            is KeepCopy.Taking.Laying -> share = t.f
+            KeepCopy.Taking.Done -> word = c.getString(R.string.keep_came_back)
+            KeepCopy.Taking.Failed -> word = c.getString(R.string.keep_none_came_back)
+            KeepCopy.Taking.Idle -> {}
+        }
+        takeWord.text = word ?: ""
+        takeWord.visibility = if (word != null) View.VISIBLE else View.GONE
+        takeBar.visibility = if (share != null) View.VISIBLE else View.GONE
+        takeBar.progress = ((share ?: 0.0) * 100).toInt()
+        takeBox.visibility = if (word != null || share != null) View.VISIBLE else View.GONE
+    }
+    takeRow = c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.blue, c.getString(R.string.keep_take_back), chevron = false) {
+        if (KeepCopy.isTaking) return@settingsRow
+        KeepCopy.takeBack { act.onMain { showTaking(); showMine(); showParts() } }
+        showTaking()
+    }
+    val othersBox = c.vstack(Gravity.NO_GRAVITY) {
+        addView(c.switchLine(R.drawable.ic_tray_full_fill, SysColor.gray, c.getString(R.string.keep_others), KeepCopy.others) { KeepCopy.setOthers(it); showParts() }, lp())
+        addView(partsBox, lp())
+        addView(hair(), lp(MATCH, 1).apply { marginStart = c.dp(16) })
+        addView(takeRow, lp())
+        addView(takeBox, lp())
+    }
+    showParts(); showTaking()
+    section(null, c.getString(R.string.keep_others_footer), othersBox)
+    // the walk back is heard while the page stands (KeepCopy.watch is called on the keeping's own thread)
+    val watch: () -> Unit = { act.onMain { showTaking(); showMine() } }
+    othersBox.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { KeepCopy.watch = watch }
+        override fun onViewDetachedFromWindow(v: View) { if (KeepCopy.watch === watch) KeepCopy.watch = null }
+    })
+}
+
 fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
     val progress = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(16), dp(10), dp(16), dp(12)); visibility = View.GONE }
@@ -590,6 +675,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.orange, c.getString(R.string.restore_backup), chevron = false) { restore() },
             progress, planRows)
         count()
+        keepingSection(act)   // the copy kept by the people one writes to (iOS MTKeepingSection, under BACKUP)
         // THE PICTURE CACHE (iOS MontanaSettings.swift:1225-1242 at 2155, MontanaCaches.dropAll; atom 542558a36f0e): the pictures kept
         // so chats and walls open without waiting are emptied here alone, by the person; the checkmark says it was done
         val cleared = c.icon(R.drawable.ic_check, MT.gray).apply { visibility = View.INVISIBLE }

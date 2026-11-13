@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The copy kept by the people one writes to (iOS MTKeepingSection, the question at the opening; Localizable.xcstrings at mainline-2074 d28805b6). -->
+<resources>
+    <string name="keep_ask_title">让联系人保管您的副本？</string>
+    <string name="keep_ask_yes">保管</string>
+    <string name="keep_ask_not_now">暂不</string>
+    <string name="keep_ask_msg">您的副本只存在于手机上，而不在云端：这是 Montana 自己的保管方式。它用您的 24 个单词加密并切分成若干部分，由与您通信的人为您保管：每个人只能看到大小，看不到任何一个字。在新手机上，您的 24 个单词会取回这些部分，以及你们之间的对话。同样，此手机也为您的联系人保管加密的部分，最多 1 GB，且无法打开它们。两个开关都在“设置 → 数据和存储”中。</string>
+    <string name="keep_header">联系人保管的副本</string>
+    <string name="keep_mine">让联系人保管我的副本</string>
+    <string name="keep_asking">正在询问与您通信的人…</string>
+    <string name="keep_nobody_yet">目前还没有联系人能保管部分</string>
+    <string name="keep_not_yet">尚未保管</string>
+    <string name="keep_kept_by">已由 %1$d/%2$d 人保管</string>
+    <string name="keep_mine_footer">您的副本只存在于手机上，而不在云端：这是 Montana 自己的保管方式。它用您的 24 个单词加密并切分成若干部分，由与您通信的人为您保管：每个人只能看到大小，看不到任何一个字。在新手机上，您的 24 个单词会取回这些部分，以及你们之间的对话。</string>
+    <string name="keep_others">为联系人保管部分</string>
+    <string name="keep_stop_part">不再保管此部分</string>
+    <string name="keep_take_back">从联系人处取回我的副本</string>
+    <string name="keep_parts_in_hand">已取回部分：%1$d/%2$d</string>
+    <string name="keep_restoring_chain">正在恢复身份链</string>
+    <string name="keep_came_back">副本已取回</string>
+    <string name="keep_none_came_back">副本未能取回</string>
+    <string name="keep_others_footer">联系人留在您这里的部分也以同样方式加密：此手机无法打开，只有他们自己的 24 个单词才能打开。Montana 就是这样在不经过云端的情况下保管副本：人们互相保管加密的部分，除了主人，没有人能读取。</string>
+</resources>

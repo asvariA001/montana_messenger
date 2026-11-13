@@ -296,12 +296,27 @@ class MainActivity : Activity() {
      * question, and it is the system's own — notifications. Asked once; the answer is the system's.
      */
     private fun askWhatIsUnasked() {
-        if (Prefs.notifyAsked) return askDoze()
+        if (Prefs.notifyAsked) return if (!KeepCopy.told) askKeep() else askDoze()
         Prefs.notifyAsked = true
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), ASK_NOTIFY)
-        }
+        } else askKeep()
+    }
+
+    /**
+     * THE COPY'S QUESTION, the moment the system's own is answered (iOS ContentView keepAsk, MTKeeping.answer): nothing of the copy
+     * leaves before the person has been told what each keeper learns; «Not now» is an answer too, and both switches stand in Data and
+     * Storage. Asked until answered.
+     */
+    private var keepAsking = false
+    private fun askKeep() {
+        if (keepAsking || KeepCopy.told || !MontanaSeed.hasSeed) return
+        keepAsking = true
+        android.app.AlertDialog.Builder(this).setTitle(R.string.keep_ask_title).setMessage(R.string.keep_ask_msg).setCancelable(false)
+            .setPositiveButton(R.string.keep_ask_yes) { _, _ -> keepAsking = false; KeepCopy.answer(true) }
+            .setNegativeButton(R.string.keep_ask_not_now) { _, _ -> keepAsking = false; KeepCopy.answer(false) }
+            .show()
     }
 
     /**
@@ -675,6 +690,7 @@ class MainActivity : Activity() {
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
         if (requestCode == ASK_CALL_OUT) pendingCall?.let { pendingCall = null; if (Calls.dial(it, pendingVideo)) CallScreen.show(this, it) }
         if (requestCode == ASK_CALL_MIC) takeTheCall(true)   // refused, the call is still taken: the person hears, the other side does not
+        if (requestCode == ASK_NOTIFY) askKeep()   // the system's question answered: the copy's question follows (iOS scenePhase .active)
     }
 
     // ── the system's document picker: a backup handed to a place the person picks, and taken back from a file ──

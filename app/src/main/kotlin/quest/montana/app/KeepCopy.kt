@@ -433,6 +433,7 @@ object KeepCopy {
     fun keepers(): Map<String, Boolean> = synchronized(lock) { owner().keepers.mapValues { it.value.held } }
     val short: Boolean get() = synchronized(lock) { owner().short }
     val renewedAt: Double get() = synchronized(lock) { owner().renewedAt }
+    val asking: Boolean get() = synchronized(lock) { owner().asking != null }
 
     fun setMine(on: Boolean) {
         Prefs.setBool(MINE, on)
