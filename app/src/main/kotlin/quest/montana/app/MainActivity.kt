@@ -98,6 +98,7 @@ class MainActivity : Activity() {
         Diary.start(this)   // the diary on disk and its shipper (iOS MontanaLog, MontanaDiagShip; 1340)
         Exits.witness(this)   // how the last run ended, said once (iOS run sentinel, 1336)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
+        MusicFolders.lay(this)   // the lent folders' last list stands before any page asks (iOS MTMusicFolders.lay, bceb184b)
         MediaPlace.warm(this)   // where every chat file lies, listed once off the main thread (iOS MTMediaPlace, f10468e7)
         // THE CLEANUP DOES NOT STAND ON THE LAUNCH ROAD (iOS MontanaCleanup.run: four seconds after, aside): the orphan pipes' sweep
         MainThread.later(4_000) { Thread { runCatching { Book.sweepOrphans() }.onFailure { android.util.Log.d("Montana", "pipes_swept failed " + it) } }.start() }

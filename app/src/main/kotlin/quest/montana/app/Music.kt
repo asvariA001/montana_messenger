@@ -60,6 +60,39 @@ object MusicFolders {
     val listeners = mutableListOf<() -> Unit>()
     private fun said(act: MainActivity) = act.onMain { listeners.toList().forEach { it() } }
 
+    // THE LAST LIST STANDS AT THE LAUNCH (iOS MTMusicFolders.lay/layKept, bceb184b and 384bbc18, MontanaMusicPlayer.swift shelf.json;
+    // the author's word 24.09: «after the update the tracks I had already given access to through the plus were gone -- they came
+    // only a while after I opened the page»): a walk of a large folder takes half a minute, and until it landed the library, the
+    // queue and the page stood without the lent folders. What the last walk found is kept on the phone and laid at the launch, under
+    // the folders this phone still holds leave for; the walk that follows refreshes it.
+    private fun shelf(c: Context) = java.io.File(c.filesDir, "music/shelf.json")
+    fun lay(c: Context) = Thread {
+        if (tracks.isNotEmpty()) return@Thread
+        val arr = runCatching { org.json.JSONArray(shelf(c).readText()) }.getOrNull() ?: return@Thread
+        val held = held(c)
+        val laid = ArrayList<Track>()
+        for (i in 0 until arr.length()) {
+            val o = arr.optJSONObject(i) ?: continue
+            val t = Track(Uri.parse(o.optString("u")), o.optString("f")).apply {
+                tagTitle = o.optString("ti").ifEmpty { null }; artist = o.optString("ar").ifEmpty { null }
+                length = o.optDouble("d", 0.0); at = o.optDouble("at", 0.0); size = o.optLong("z")
+                art = o.optString("art").ifEmpty { null }?.let(Uri::parse)
+            }
+            if (t.file.isEmpty() || closed(t, held)) continue
+            laid += t
+        }
+        synchronized(known) { if (tracks.isNotEmpty()) return@Thread; laid.forEach { known[it.uri.toString()] = it }; tracks = laid }
+        android.util.Log.d("Montana", "music_shelf laid=" + laid.size + " kept=" + arr.length())
+        MainThread.post { listeners.toList().forEach { it() } }
+    }.start()
+    private fun keep(c: Context, list: List<Track>) = runCatching {
+        val arr = org.json.JSONArray()
+        for (t in list) arr.put(org.json.JSONObject().put("u", t.uri.toString()).put("f", t.file).put("ti", t.tagTitle ?: "")
+            .put("ar", t.artist ?: "").put("d", t.length).put("at", t.at).put("z", t.size).put("art", t.art?.toString() ?: ""))
+        val f = shelf(c); f.parentFile?.mkdirs()
+        val part = java.io.File(f.path + ".part"); part.writeText(arr.toString()); part.renameTo(f)
+    }
+
     private fun lent(): List<Uri> = Prefs.str(KEY, "").split('\n').filter { it.isNotEmpty() }.map(Uri::parse)
 
     /** The folders this phone still holds leave for, as authority and tree id: a track's own uri is compared by them, never as a string. */
@@ -100,7 +133,10 @@ object MusicFolders {
             tracks = found
             walking = false
             said(act)
+            // THE DIARY COUNTS WHAT THE TAG READINGS FOUND, BY THE FILE'S KIND (iOS 4378cb2b): a kind whose tags never read says so
+            val read = HashMap<String, IntArray>()   // kind -> [asked, a title found]
             for (t in found) if (t.length == 0.0 && t.tagTitle == null) {
+                val n = read.getOrPut(t.file.substringAfterLast('.', "?").lowercase()) { IntArray(2) }; n[0]++
                 try {
                     MediaMetadataRetriever().apply {
                         setDataSource(act, t.uri)
@@ -110,7 +146,10 @@ object MusicFolders {
                         release()
                     }
                 } catch (_: Exception) {}
+                if (t.tagTitle != null) n[1]++
             }
+            if (read.isNotEmpty()) android.util.Log.d("Montana", "music_tags " + read.entries.joinToString(" ") { (k, v) -> "$k=" + v[1] + "/" + v[0] })
+            keep(act, found)
             said(act)
         }
     }
@@ -128,7 +167,7 @@ object MusicFolders {
                 if (mime == DocumentsContract.Document.MIME_TYPE_DIR) collect(c, tree, id, out)
                 else if (mime.startsWith("audio/") || ext in audio) {
                     val uri = DocumentsContract.buildDocumentUriUsingTree(tree, id)
-                    here += known.getOrPut(uri.toString()) { Track(uri, name) }.also { t -> if (!cur.isNull(3)) t.size = cur.getLong(3) }
+                    here += synchronized(known) { known.getOrPut(uri.toString()) { Track(uri, name) } }.also { t -> if (!cur.isNull(3)) t.size = cur.getLong(3) }
                 } else if (ext in picture) pictures += name to id
             }
         }
