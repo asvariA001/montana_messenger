@@ -1584,6 +1584,10 @@ object Book {
      * still goes by edit.
      */
     private fun Chat.shot() = Chat(ref, name, perm, unread, ArrayList(msgs), pin, note).also { it.ans = ans; it.ansMine = ansMine; it.ansMid = ansMid; it.ansAt = ansAt }
+    /** A feed's stamp without its copy (iOS f10468e7, the call log): how many letters, the first's and the last's name. */
+    fun feedStamp(ref: String): Triple<Int, String, String>? = synchronized(lock) {
+        ensure(); chats[ref]?.msgs?.let { Triple(it.size, it.firstOrNull()?.mid ?: "", it.lastOrNull()?.mid ?: "") }
+    }
     /** The correspondences: the local room stands apart, above them (iOS: its row is inserted first, never sorted with them). */
     fun all(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
     /** Every feed this phone holds, the local room with them -- for the searches that find a file or a letter wherever it lies. */

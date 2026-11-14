@@ -17,11 +17,31 @@ import java.util.Locale
 /** One call of the log (iOS CallRecord): the row each phone laid for itself in the conversation (Calls.row). */
 private class CallRecord(val ref: String, val mid: String, val info: Calls.Info, val at: Long)
 
-/** THE ONE CALL LOG (iOS ChatStore.callRecords 2652): every call's row of every conversation, newest first. */
-private fun callRecords(): List<CallRecord> = Book.refs().flatMap { ref ->
-    val msgs = Book.chat(ref)?.let { ch -> runCatching { ch.msgs.toList() }.getOrDefault(emptyList()) } ?: emptyList()
-    msgs.mapNotNull { m -> Calls.info(m.text)?.let { CallRecord(ref, m.mid, it, m.at) } }
-}.sortedByDescending { it.at }
+/** The calls one conversation held when its letters stood so (iOS CallsOfPeer, f10468e7): its count, first and last letter, its rows. */
+private class CallsOfRef(val count: Int, val first: String, val last: String, val rows: List<CallRecord>)
+private val callsByRef = HashMap<String, CallsOfRef>()
+
+/**
+ * THE ONE CALL LOG (iOS ChatStore.callRecords 2652): every call's row of every conversation, newest first. ONLY THE CONVERSATIONS
+ * THAT MOVED ARE WALKED AGAIN (iOS f10468e7, from Agent 1189/1190): the time panel's badge asks this at every change of the book,
+ * and every ask copied and walked every letter of every conversation on the main thread. A call's row is born once and never
+ * rewritten in place (Calls.row), so a conversation whose count, first and last letter stand (Book.feedStamp) holds the calls it held.
+ */
+private fun callRecords(): List<CallRecord> = synchronized(callsByRef) {
+    val out = ArrayList<CallRecord>()
+    val kept = HashMap<String, CallsOfRef>()
+    for (ref in Book.refs()) {
+        val st = Book.feedStamp(ref) ?: continue
+        val k = callsByRef[ref]
+        if (k != null && k.count == st.first && k.first == st.second && k.last == st.third) { out += k.rows; kept[ref] = k; continue }
+        val msgs = Book.chat(ref)?.msgs ?: continue   // the book's copy: what the stamp below says is what was walked
+        val rows = msgs.mapNotNull { m -> Calls.info(m.text)?.let { CallRecord(ref, m.mid, it, m.at) } }
+        kept[ref] = CallsOfRef(msgs.size, msgs.firstOrNull()?.mid ?: "", msgs.lastOrNull()?.mid ?: "", rows)
+        out += rows
+    }
+    callsByRef.clear(); callsByRef.putAll(kept)
+    out.sortedByDescending { it.at }
+}
 
 /**
  * THE MISSED CALLS UNSEEN (iOS ChatStore.missedCallsUnseen and clearMissedCallsBadge, MontanaChatStore.swift:585-614): derived, never
