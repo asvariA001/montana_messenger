@@ -1574,6 +1574,7 @@ object Book {
         if (!saveSecrets(m)) { m.remove(ref); return null }
         markErased(listOf(ref), false)   // the pipe born again (iOS: a scan clears the deletion)
         Archive.head(ref)   // the pipe is born: its folder and its secret's head are sealed now (iOS MTPipe 432)
+        touch(ref)   // a birth is a sign of life (iOS establish: touch)
         ref
     }
 
@@ -1584,6 +1585,67 @@ object Book {
      * still goes by edit.
      */
     private fun Chat.shot() = Chat(ref, name, perm, unread, ArrayList(msgs), pin, note).also { it.ans = ans; it.ansMine = ansMine; it.ansMid = ansMid; it.ansAt = ansAt }
+    // ── WHEN A PIPE LAST LIVED (iOS MTPipeBook.touch/aliveAt, MTPipe.swift 690-723): a sign is proof the other side exists -- the
+    // birth of a pipe, an opened word of theirs (a receipt is one). My own sending is no sign: one can write into emptiness too. ──
+    private const val TOUCHED = "pipeTouched"
+    private val touchMem = HashMap<String, Long>()   // no more than once an hour per pipe
+    private fun touchedLoad(): JSONObject =
+        DeviceVault.get(TOUCHED)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
+    /** True when the hour mark advanced -- the first sign of life in an hour. */
+    fun touch(ref: String): Boolean {
+        if (ref.isEmpty()) return false
+        val now = System.currentTimeMillis()
+        synchronized(touchMem) {
+            if (now - (touchMem[ref] ?: 0L) < 3_600_000L) return false
+            touchMem[ref] = now
+            DeviceVault.set(TOUCHED, touchedLoad().put(ref, now / 1000.0).toString().toByteArray())
+        }
+        return true
+    }
+
+    /**
+     * THE PIPE DIES WITH A WORD AND WITH ITS FOLDER (iOS E2E.sweepOrphanPipes, d38898f4, 24.09, the author's word «do it»): a pipe
+     * lives while its conversation lives in the book, or while it is fresh -- an introduction gets three days to become a
+     * conversation. A pipe with no conversation and no sign of life beyond that dies here: the other side is told over the pipe
+     * itself (PX:, which a folded pipe reads itself -- SamePair.speaksOfPipe), and the pipe leaves with its folder, its meeting
+     * and its card (Book.forget) once the word has left; a word no door took yet keeps the pipe to the next launch's sweep.
+     * Android's one difference: the book of signs is born with this build, so a pipe it never saw starts its three days now --
+     * judged by an empty book of signs, every quiet pipe would die at the first launch. The twin's own pipe is never swept.
+     */
+    fun sweepOrphans() {
+        val feed = held().toHashSet()
+        if (feed.isEmpty()) return   // the book is not up yet -- judging by an empty feed would bury the living
+        val now = System.currentTimeMillis() / 1000.0
+        val twin = MontanaSeed.twin
+        val dying = ArrayList<String>()
+        synchronized(touchMem) {
+            val t = touchedLoad()
+            var seen = 0
+            for (ref in refs()) {
+                if (ref in feed || isLocal(ref) || ref == twin || Groups.isKey(ref)) continue
+                val alive = t.optDouble(ref, Double.NaN)
+                if (alive.isNaN()) { t.put(ref, now); seen++; continue }
+                if (now - alive > ORPHAN_GRACE_S) dying.add(ref)
+            }
+            if (seen > 0) { DeviceVault.set(TOUCHED, t.toString().toByteArray()); Log.d("Montana", "pipes_seen first=$seen") }
+        }
+        if (dying.isEmpty()) return
+        val words = dying.associateWith { ref -> Prefs.str("pxMid.$ref", "").ifEmpty { Marks.mintMid().also { Prefs.setStr("pxMid.$ref", it) } } }
+        words.forEach { (ref, mid) -> Post.send(ref, mid, Marks.PIPE_CLOSED, quiet = true) }
+        Post.flush()
+        val waiting = Post.queued()
+        var closed = 0
+        for ((ref, mid) in words) {
+            if (mid in waiting) continue   // no door took the word yet: the pipe stays to carry it
+            Prefs.remove("pxMid.$ref")
+            forget(ref)
+            synchronized(touchMem) { touchMem.remove(ref); DeviceVault.set(TOUCHED, touchedLoad().apply { remove(ref) }.toString().toByteArray()) }
+            closed++
+        }
+        Log.d("Montana", "pipes_swept closed=$closed held=" + (dying.size - closed) + " feed=" + feed.size)
+    }
+    private const val ORPHAN_GRACE_S = 3 * 24 * 3600.0
+
     /** A feed's stamp without its copy (iOS f10468e7, the call log): how many letters, the first's and the last's name. */
     fun feedStamp(ref: String): Triple<Int, String, String>? = synchronized(lock) {
         ensure(); chats[ref]?.msgs?.let { Triple(it.size, it.firstOrNull()?.mid ?: "", it.lastOrNull()?.mid ?: "") }
@@ -2958,6 +3020,7 @@ object Post {
         if (!own) {
             Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
             Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
+            Book.touch(ref)   // an opened word of theirs is a sign of life, a receipt among them (iOS MontanaPhoneNode 1343, Delivery 1160)
         }
         var text = f[1]
         if (text.startsWith(Marks.LONG)) {
