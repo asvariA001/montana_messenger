@@ -582,6 +582,12 @@
     <string name="mesh_seen_only">Only people you already share a conversation with can tell it is you.</string>
     <string name="mesh_findable">Findable on the mesh</string>
     <string name="mesh_findable_off">Off: this device announces itself nowhere and carries nothing for anybody.</string>
+    <string name="mesh_title">Mesh</string>
+    <string name="mesh_none">No one here yet. A contact on the same Wi-Fi or within Bluetooth range appears by itself — nothing to switch on.</string>
+    <string name="mesh_d_nodes">Reachable nodes</string>
+    <string name="mesh_d_now">Reachable now</string>
+    <string name="mesh_d_bt">Bluetooth</string>
+    <string name="mesh_d_off">off</string>
     <string name="p2p_wall_caption">P2P wall: the nodes this phone reaches</string>
     <string name="p2p_reachable">Reachable nodes</string>
     <string name="p2p_held">held</string>

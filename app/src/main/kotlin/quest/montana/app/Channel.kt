@@ -383,6 +383,9 @@ object Channels {
     /** The people reached phone to phone: standing channels bound to a correspondent (iOS startPeerScan 697: live, ref not empty). */
     fun peers(): Int = synchronized(live) { live.values.count { it.ready && it.ref.isNotEmpty() } }
 
+    /** Who those people are, one row each however many channels reach them (iOS MontanaMeshCard.nearby: node.peers' neighborRef). */
+    fun nearRefs(): List<String> = synchronized(live) { live.values.filter { it.ready && it.ref.isNotEmpty() }.map { it.ref }.distinct() }
+
     /** A door's name, one place for the list, the book and the channel (iOS MontanaNodes.Node.label 42-46, doorKey 60-65). */
     fun labelOf(host: String, port: Int, wss: Boolean): String =
         (if (wss) "wss/" else "") + (if (host.contains(':')) "[" + host + "]:" + port else host + ":" + port)

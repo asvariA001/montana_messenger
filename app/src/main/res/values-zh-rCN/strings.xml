@@ -577,6 +577,12 @@
     <string name="mesh_seen_only">只有与您已有对话的人才能认出是您。</string>
     <string name="mesh_findable">可在网格中被发现</string>
     <string name="mesh_findable_off">已关闭：本设备不在任何地方宣告自身，也不为任何人传递内容。</string>
+    <string name="mesh_title">网格</string>
+    <string name="mesh_none">这里暂时没有人。同一 Wi-Fi 网络或蓝牙范围内的联系人会自动出现 — 无需开启任何设置。</string>
+    <string name="mesh_d_nodes">节点</string>
+    <string name="mesh_d_now">当前可达</string>
+    <string name="mesh_d_bt">蓝牙</string>
+    <string name="mesh_d_off">已关闭</string>
     <string name="p2p_wall_caption">P2P 墙：这部手机能连到的节点</string>
     <string name="p2p_reachable">节点</string>
     <string name="p2p_held">已连接</string>
