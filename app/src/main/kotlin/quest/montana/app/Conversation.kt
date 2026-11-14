@@ -952,6 +952,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // holds; the rest follow once the first frame stands, above the reader, who stays where the first pass put them
     val firstScreenRows = 12
     var restPending = false
+    // THE REST COMES AFTER THE RISE, IN PARTS (iOS applyRest, f10468e7 (4), decision 925 = a): the rest was laid whole on the frame
+    // after the first screen -- inside the page's slide -- and cost 270 ms of one frame on T1 for a chat of 87 letters. It waits now
+    // while the page still slides in (at most 40 frames), then comes 24 rows a frame from the newest end; a whole pass (an arrival,
+    // a change) lays everything and ends the parts.
+    var restLaid = 0
+    var restWaits = 0
+    var partPass = false
     // the chat a row reads at a tap (the next round note, the voice's sender): one object every pass refreshes, so a kept row never
     // reads the letters of the pass that built it
     val feedChat = Chat(ref, "")
@@ -1264,8 +1271,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
             }
         }
-        if (!laid && jump == null && !searching && firstScreenRows < want.size) {
-            val cut = want.size - firstScreenRows
+        val limit = if (!laid) firstScreenRows else if (partPass) restLaid else Int.MAX_VALUE
+        if (!partPass) { restLaid = firstScreenRows; restWaits = 0 }
+        restPending = false
+        if (jump == null && !searching && limit < want.size) {
+            val cut = want.size - limit
             want.subList(0, cut).clear(); makers.subList(0, cut).clear()
             restPending = true
         }
@@ -1325,10 +1335,14 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         }
         laid = true
         if (restPending) {
-            restPending = false
-            // after the first frame (its animation phase, then the queue): the older rows come in above, and the scroll moves by
-            // what they added, so the rows on the screen stay where they stood (iOS feed-rest: no birth, the reader held)
-            scroll.postOnAnimation { scroll.post {
+            // after the frame (its animation phase, then the queue): the older rows come in above, and the scroll moves by what they
+            // added, so the rows on the screen stay where they stood (iOS feed-rest: no birth, the reader held). A whole pass laid
+            // meanwhile ends the parts (restPending false); the page still sliding in waits a frame.
+            fun sliding(): Boolean { var v: View? = scroll; while (v != null) { if (v.translationX != 0f) return true; v = v.parent as? View }; return false }
+            fun restPart() {
+                if (!restPending || !scroll.isAttachedToWindow) return
+                if (sliding() && restWaits < 40) { restWaits++; scroll.postOnAnimation { restPart() }; return }
+                restLaid += firstScreenRows * 2
                 val before = column.height
                 column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
                     override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or2: Int, ob: Int) {
@@ -1336,8 +1350,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         scroll.scrollTo(0, scroll.scrollY + (b - t) - before)
                     }
                 })
-                redraw()
-            } }
+                partPass = true
+                try { redraw() } finally { partPass = false }
+            }
+            scroll.postOnAnimation { scroll.post { restPart() } }
         }
         drawEmpty(column.childCount == 0, asked.isNotEmpty())
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood

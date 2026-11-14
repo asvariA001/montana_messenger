@@ -1367,6 +1367,10 @@ object Book {
     private var loaded = false
     private val listeners = mutableListOf<() -> Unit>()
     var openChat: String? = null   // the chat on the screen: its letters are read as they land
+        set(v) { val was = field; field = v; if (was != null && v == null) for (l in chatLeft) l() }
+    // THE CHAT'S CLOSING IS SAID (iOS UIState.closeChat -> MTChatListView.chatOver, f10468e7 (5)): a list that stood still under the
+    // chat applies what moved meanwhile, once
+    val chatLeft = java.util.concurrent.CopyOnWriteArrayList<() -> Unit>()
     lateinit var ctx: Context
 
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }

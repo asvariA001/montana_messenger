@@ -1205,10 +1205,15 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 }
             }
             fillRows()
-            val onBook: () -> Unit = { act.onMain { fillRows() } }
+            // THE LIST UNDER AN OPEN CHAT STANDS STILL (iOS MTChatListView.yieldsToChat, f10468e7 (5), decision 925 = a): every word
+            // of the book rebuilt the whole list unseen under the chat, while it opened and while it was read; now a word under a chat
+            // only marks the list behind, and the chat's closing applies it once
+            var behind = false
+            val onBook: () -> Unit = { act.onMain { if (Book.openChat != null) behind = true else { behind = false; fillRows() } } }
+            val onChatLeft: () -> Unit = { act.onMain { if (behind && Book.openChat == null) { behind = false; fillRows() } } }
             rows.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); refresh(); fillRows() }
-                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook) }
+                override fun onViewAttachedToWindow(v: View) { Book.listen(onBook); ChatMarks.listen(onBook); Book.chatLeft.add(onChatLeft); behind = false; refresh(); fillRows() }
+                override fun onViewDetachedFromWindow(v: View) { Book.unlisten(onBook); ChatMarks.unlisten(onBook); Book.chatLeft.remove(onChatLeft) }
             })
             addView(rows, lp())
             addView(foot, lp(MATCH, dp(120)))
