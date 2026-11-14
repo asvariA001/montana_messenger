@@ -50,12 +50,15 @@ object ChessSend {
     fun canPlay(ref: String): Boolean = CoinSend.canPay(ref)
 
     fun send(c: Context, ref: String, packet: ChessLetter): Boolean {
-        if (!canPlay(ref)) { Log.i("Montana", "chess_refused kind=" + packet.kind + " why=pair"); return false }
+        // A REFUSED LETTER SAYS WHY (iOS aabfac62, 03.10: T1 held both invitations and not one chess letter left it, in silence)
+        val why = if (Groups.isKey(ref)) "group" else if (Book.chat(ref) == null) "no-chat" else if (Book.secret(ref) == null) "no-pipe"
+            else if (PeerSafety.isBlocked(ref)) "refused" else ""
+        if (why.isNotEmpty() || !canPlay(ref)) { Log.i("Montana", "chess_refused kind=" + packet.kind + " why=" + why.ifEmpty { "pair" } + " conv=" + ref.take(10)); return false }
         val text = packet.text(c.getString(R.string.chess_title))
         val mid = Marks.mintMid()
         Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: now())) }
         Post.send(ref, mid, text)
-        Log.i("Montana", "chess_tx kind=" + packet.kind + " game=" + packet.game.take(8))
+        Log.i("Montana", "chess_tx kind=" + packet.kind + " game=" + packet.game.take(8) + " conv=" + ref.take(10))
         return true
     }
 
@@ -81,9 +84,14 @@ object ChessSend {
     }
     /** ENTERING IS THE PERSON'S PRESS (iOS join): an unanswered invitation of theirs, accepted by the replay's own action. */
     fun join(c: Context, ref: String, game: String): String? {
-        val now = state(ref, game) ?: return null
-        if (now.status != ChessGame.Status.INVITED || now.whiteIsMine) return null
-        val event = now.action(ChessLetter.ACCEPT, now()) ?: return null
+        val now = state(ref, game)
+        val event = now?.takeIf { it.status == ChessGame.Status.INVITED && !it.whiteIsMine }?.action(ChessLetter.ACCEPT, now())
+        if (event == null) {
+            // AN ACCEPTANCE THAT CANNOT BE MADE SAYS THE GAME'S STATE (iOS aabfac62 chess_join)
+            Log.i("Montana", "chess_join game=" + game.take(8) + " sent=0 rows=" + (Book.chat(ref)?.msgs?.size ?: -1) + " status=" + (now?.status ?: "none") +
+                " mine=" + (if (now?.whiteIsMine == true) 1 else 0) + " waiting=" + (if (now?.waitingForHistory == true) 1 else 0))
+            return null
+        }
         return if (send(c, ref, event)) event.id else null
     }
     fun awaitsMe(ref: String, game: String): Boolean = state(ref, game)?.let { it.status == ChessGame.Status.INVITED && !it.whiteIsMine } ?: false
@@ -386,6 +394,7 @@ fun chessBoardPage(act: MainActivity, ref0: String, game0: String, inChat: Boole
     var pending: String? = null
     var pairOver = true
     var sawLive = false
+    var boardSaid = ""                  // the board's last diary line (chess_board), said again only when it changes
     var timeoutAsked: String? = null   // the clock's end is asked once a turn, never again at every tick
     var score = ChessScore(emptyList())
     val main = Handler(Looper.getMainLooper())
@@ -600,6 +609,11 @@ fun chessBoardPage(act: MainActivity, ref0: String, game0: String, inChat: Boole
         }
         if (game?.last?.id != next?.last?.id || game?.status != next?.status) selected = null
         game = next
+        // THE BOARD SAYS WHAT IT HOLDS (iOS aabfac62 chess_board, markChanged): which game, in what state, whether it may send -- once a change
+        val said = "game=" + gameId.take(8) + " status=" + (next?.status ?: "none") + " mine=" + (if (next?.whiteIsMine == true) 1 else 0) +
+            " waiting=" + (if (next?.waitingForHistory == true) 1 else 0) + " allowed=" + (if (allowed()) 1 else 0) +
+            " current=" + (if (current == gameId) 1 else 0) + " pending=" + (if (pending == null) 0 else 1)
+        if (said != boardSaid) { boardSaid = said; Log.i("Montana", "chess_board $said") }
         anchor = next?.let { ChessAnchor.of(it, ref) } ?: ChessAnchor.STANDING
         score = ChessScore(games)
         pairOver = games.firstOrNull { it.id == current }?.status?.finished ?: true
