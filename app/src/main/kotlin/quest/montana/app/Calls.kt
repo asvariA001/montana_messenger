@@ -186,7 +186,8 @@ object Calls {
      * a seedless word is an offer for the call in hand, never a birth.
      */
     private fun incoming(ref: String, seed: String, video: Boolean, name: String, offer: String?, ts: Long = 0L) {
-        if (PeerSafety.isBlocked(ref)) return log("blocked caller")   // a blocked person's call is not assembled (iOS 15.09)
+        // a blocked person's call is not assembled (iOS 15.09); the person is the conversation a folded pipe stands for (speaksOfPipe)
+        if (PeerSafety.isBlocked(ref) || PeerSafety.isBlocked(SamePair.root(ref))) return log("blocked caller")
         // WHO MAY CALL ME (iOS E2E call birth and the voip ring, b9b212d4, OZ 1 p.1.8): a call the rule refuses assembles nothing
         if (!Groups.isKey(ref) && !Privacy.admits(Privacy.Act.CALL, ref)) {
             Diary.folded("rx_private", "call peer=" + ref.take(10), 60_000, "pcall:" + ref); return
@@ -288,7 +289,7 @@ object Calls {
     private val BY_US = setOf("declined", "hangup", "pill", "no-answer", "offer-missing", "service-refused")
 
     /** The caller's name as the ring, the system's list and the call log show it (iOS callerName: my record first). */
-    fun callerName(ref: String): String = Book.chat(ref)?.shown?.ifBlank { null } ?: Book.ctx.getString(R.string.peer)
+    fun callerName(ref: String): String = Book.chat(SamePair.root(ref))?.shown?.ifBlank { null } ?: Book.ctx.getString(R.string.peer)
 
     /** The call in hand — answered and not yet ended — by its person; null when none (the call's screen asks it). */
     fun held(): String? = synchronized(gate) { ring?.takeIf { it.answered || it.out }?.ref }
@@ -709,8 +710,9 @@ object Calls {
         Marks.CALL + JSONObject().put("v", video).put("inc", incoming).put("dur", dur).put("miss", missed).toString()
 
     /** Each phone lays its own row of a call; the same call told twice within its life lands once (iOS «one row per call»). */
-    fun row(ref: String, video: Boolean, incoming: Boolean, dur: Int, missed: Boolean) {
+    fun row(pipe: String, video: Boolean, incoming: Boolean, dur: Int, missed: Boolean) {
         val now = System.currentTimeMillis()
+        val ref = SamePair.root(pipe)   // a call runs on its pipe, its row lands in the conversation (iOS appendCallLog)
         Book.edit(ref) { c ->
             val last = c.msgs.lastOrNull()
             val li = last?.let { info(it.text) }

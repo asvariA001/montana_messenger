@@ -22,7 +22,15 @@ object SamePair {
     private var kept: MutableMap<String, String>? = null
 
     /** The words that speak of the pipe they came by, never of a conversation: a folded pipe reads them itself. */
+    /**
+     * THE WORDS THAT SPEAK OF THE PIPE THEY CAME BY, NEVER OF A CONVERSATION (iOS MTSamePair.speaksOfPipe, MontanaChatStore 8127-8133):
+     * a folded pipe reads them itself -- the fold's own, the burials' and a call's. A funeral or a pipe closed over a folded pipe
+     * buries that pipe alone: forwarded, it erased or closed the living conversation it was folded into (the iPhone's orphan sweep
+     * closes folded pipes too, d38898f4). A call runs on the pipe it was placed on (its answer must go back there), while its row
+     * lands in the conversation (Calls.row).
+     */
     fun speaksOfPipe(t: String) = t.startsWith(Marks.SAME_ASK) || t.startsWith(Marks.SAME_YES)
+        || t.startsWith(CONVDEL_MARK) || t.startsWith(Marks.PIPE_CLOSED) || t.startsWith(Marks.CALL_SIGNAL) || t.startsWith(Marks.RING)
 
     private fun d(domain: String) = domain.toByteArray() + byteArrayOf(0)
     private fun tag(domain: String, older: ByteArray, newer: ByteArray) = Wire.hex(Wire.sha(d(domain), older, newer).copyOf(16))
