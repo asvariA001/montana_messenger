@@ -959,6 +959,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var restLaid = 0
     var restWaits = 0
     var partPass = false
+    var partQueued = false   // one chain of parts at a time: a whole pass during the parts does not start a second
     // the chat a row reads at a tap (the next round note, the voice's sender): one object every pass refreshes, so a kept row never
     // reads the letters of the pass that built it
     val feedChat = Chat(ref, "")
@@ -1051,6 +1052,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     if (group) scroll.setOnScrollChangeListener { _, _, _, _, _ -> showPosts() }   // a channel's posts the finger brings into the window are told
     fun redraw() {
+        val passBegan = System.nanoTime()
         val chat = Book.chat(ref) ?: return
         feedChat.name = chat.name; feedChat.pin = chat.pin
         feedChat.msgs.clear(); feedChat.msgs.addAll(chat.msgs)
@@ -1271,8 +1273,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
             }
         }
-        val limit = if (!laid) firstScreenRows else if (partPass) restLaid else Int.MAX_VALUE
-        if (!partPass) { restLaid = firstScreenRows; restWaits = 0 }
+        // A WHOLE PASS DURING THE PARTS KEEPS TO WHAT THEY LAID (iOS 77ff8b0d, OZ 1 p.1): an arrival or a change while the rest still
+        // comes lays only the newest rows the parts have laid, and the parts go on -- it no longer lays the whole feed in one frame
+        // (on T1 a chat of 87 letters: one frame of 571-637 ms, three passes of 141 ms).
+        val partsGoing = laid && restPending
+        val limit = if (!laid) firstScreenRows else if (partPass || partsGoing) restLaid else Int.MAX_VALUE
+        if (!partPass && !partsGoing) { restLaid = firstScreenRows; restWaits = 0 }
         restPending = false
         if (jump == null && !searching && limit < want.size) {
             val cut = want.size - limit
@@ -1340,8 +1346,9 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // meanwhile ends the parts (restPending false); the page still sliding in waits a frame.
             fun sliding(): Boolean { var v: View? = scroll; while (v != null) { if (v.translationX != 0f) return true; v = v.parent as? View }; return false }
             fun restPart() {
+                partQueued = false
                 if (!restPending || !scroll.isAttachedToWindow) return
-                if (sliding() && restWaits < 40) { restWaits++; scroll.postOnAnimation { restPart() }; return }
+                if (sliding() && restWaits < 40) { restWaits++; partQueued = true; scroll.postOnAnimation { restPart() }; return }
                 restLaid += firstScreenRows * 2
                 val before = column.height
                 column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
@@ -1353,8 +1360,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 partPass = true
                 try { redraw() } finally { partPass = false }
             }
-            scroll.postOnAnimation { scroll.post { restPart() } }
+            if (!partQueued) { partQueued = true; scroll.postOnAnimation { scroll.post { restPart() } } }
         }
+        // every pass past 4 ms names itself (iOS feed_pass, 77ff8b0d)
+        ((System.nanoTime() - passBegan) / 1_000_000L).let { ms -> if (ms > 4) android.util.Log.i("Montana", "feed_pass ms=$ms rows=${feed.size} part=$partPass going=$restPending") }
         drawEmpty(column.childCount == 0, asked.isNotEmpty())
         // the other side closed it: read, not answered (iOS closedChats) — the note where the field stood
         if (Post.closed(ref)) { hideBar(); closedNote.visibility = View.VISIBLE }
