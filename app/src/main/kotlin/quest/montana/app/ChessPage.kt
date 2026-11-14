@@ -36,6 +36,8 @@ import java.util.UUID
 object ChessSend {
     const val CHAT_CLOCK = 600
     fun now(): Long = System.currentTimeMillis()
+    /** One presence life (iOS MTChessSend.meetingLife = ChatStore.presenceLife, 45 s): how fresh an invitation the board follows. */
+    const val MEETING_LIFE = 45_000L
 
     /** The game's letter a row is in its own right: a forward, a reply, an edited row or a file is none. */
     fun letterOf(m: Msg): ChessLetter? = if (m.qt != null || m.edited || m.file != null) null else ChessLetter.parse(m.text)
@@ -112,12 +114,13 @@ class ChessAnchor private constructor(private val kind: Int, private val at: Lon
 
 /** The words of a game (iOS MTChessWords). */
 object ChessWords {
-    fun status(c: Context, g: ChessGame): String {
+    fun status(c: Context, g: ChessGame, computer: Boolean = false): String {
         if (g.waitingForHistory) return c.getString(R.string.chess_waiting_history)
         return c.getString(when (g.status) {
             ChessGame.Status.INVITED -> if (g.whiteIsMine) R.string.chess_waiting_accept else R.string.chess_invitation
             ChessGame.Status.PLAYING -> if (g.position.checked(g.position.turn)) R.string.chess_check
-                else if (g.position.turn == g.mySide) R.string.chess_your_move else R.string.chess_their_move
+                else if (g.position.turn == g.mySide) R.string.chess_your_move
+                else if (computer) R.string.chess_computer_thinking else R.string.chess_their_move
             ChessGame.Status.DECLINED -> R.string.chess_declined
             ChessGame.Status.WHITE_WON -> R.string.chess_white_wins
             ChessGame.Status.BLACK_WON -> R.string.chess_black_wins
@@ -134,7 +137,63 @@ object ChessWords {
         val s = maxOf(0L, (ms + 999) / 1000)
         return (s / 60).toString() + ":" + (s % 60).toString().padStart(2, '0')
     }
+    fun computer(c: Context, level: Int): String = c.getString(R.string.chess_computer_level, level)
     fun score(c: Context, s: ChessScore): String = c.getString(R.string.chess_score, s.mine, s.theirs, s.drawn)
+}
+
+/**
+ * THE TAKEN PIECES (iOS MTChessCaptured, 480cd898, the author's word 29.10.2026 19:43 UTC: «the captured pieces all shown large,
+ * normally -- some show normal and some small»): the board's own artwork, not the font's letters (a black pawn came as an emoji,
+ * the rest as text), every piece in one square -- 24, else 18, else 14 to fit the width -- a kind's pieces overlapping, the kinds
+ * apart, the advantage in points after them.
+ */
+class ChessCapturedView(c: Context) : View(c) {
+    private var piles: List<List<ChessPiece>> = emptyList()
+    private var advantage = 0
+    private var side = 0f
+    private val art = HashMap<Int, Bitmap>()
+    private val ink = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MT.gray; isFakeBoldText = true }
+    private val src = Rect()
+    private val box = RectF()
+    fun set(pieces: List<ChessPiece>, advantage: Int) {
+        piles = pieces.groupBy { it.kind }.toList().sortedWith(compareBy({ it.first.points }, { it.first.raw })).map { it.second }
+        this.advantage = advantage
+        // USER-DATA: the taken pieces' names, each from the catalogue, and the advantage in points
+        contentDescription = pieces.joinToString(", ") { context.getString(it.word) } + (if (0 < advantage) " +$advantage" else "")
+        requestLayout(); invalidate()
+    }
+    private val plus: String get() = "+$advantage"
+    private fun width(s: Float): Float {
+        var w = 0f
+        for ((i, pile) in piles.withIndex()) { if (0 < i) w += s * 0.12f; w += s + (pile.size - 1) * s * 0.45f }
+        if (0 < advantage) { ink.textSize = s * 0.7f; if (piles.isNotEmpty()) w += s * 0.12f; w += ink.measureText(plus) }
+        return w
+    }
+    override fun onMeasure(w: Int, h: Int) {
+        val avail = MeasureSpec.getSize(w).toFloat()
+        val d = resources.displayMetrics.density
+        side = listOf(24f, 18f, 14f).map { it * d }.firstOrNull { MeasureSpec.getMode(w) == MeasureSpec.UNSPECIFIED || width(it) <= avail } ?: 14f * d
+        setMeasuredDimension(MeasureSpec.getSize(w), (24f * d).toInt())
+    }
+    private fun bitmap(res: Int): Bitmap = art.getOrPut(res) { BitmapFactory.decodeResource(resources, res) }
+    override fun onDraw(canvas: Canvas) {
+        val s = side; val top = (height - s) / 2f
+        var x = 0f
+        for ((i, pile) in piles.withIndex()) {
+            if (0 < i) x += s * 0.12f
+            for ((j, p) in pile.withIndex()) {
+                val b = bitmap(p.art); src.set(0, 0, b.width, b.height)
+                box.set(x + j * s * 0.45f, top, x + j * s * 0.45f + s, top + s)
+                canvas.drawBitmap(b, src, box, null)
+            }
+            x += s + (pile.size - 1) * s * 0.45f
+        }
+        if (0 < advantage) {
+            ink.textSize = s * 0.7f
+            if (piles.isNotEmpty()) x += s * 0.12f
+            canvas.drawText(plus, x, height / 2f - (ink.ascent() + ink.descent()) / 2f, ink)
+        }
+    }
 }
 
 /**
@@ -175,6 +234,78 @@ class ChessBoardView(c: Context) : View(c) {
         return true
     }
     override fun performClick(): Boolean { super.performClick(); return true }
+
+    // THE BOARD SAYS EVERY SQUARE (iOS MTChessBoard accessibilityElements 100-120): sixty-four elements in the board's order, each its
+    // square and the piece on it, a double tap on one presses it as a finger would -- the platform's own virtual views, no library
+    private var spoken = View.NO_ID
+    private fun place(sq: Int): Pair<Int, Int> = if (facing == ChessSide.WHITE) (7 - sq / 8) to sq % 8 else sq / 8 to 7 - sq % 8
+    private fun squareWord(sq: Int): String = ChessPosition.square(sq) + (position.piece(sq)?.let { ", " + context.getString(it.word) } ?: "")
+    private fun announce(sq: Int, type: Int) {
+        if (!isAttachedToWindow) return
+        val e = android.view.accessibility.AccessibilityEvent.obtain(type)
+        e.packageName = context.packageName; e.className = "android.widget.Button"; e.setSource(this, sq)
+        e.contentDescription = squareWord(sq)
+        parent?.requestSendAccessibilityEvent(this, e)
+    }
+    private val squares = object : android.view.accessibility.AccessibilityNodeProvider() {
+        override fun createAccessibilityNodeInfo(id: Int): android.view.accessibility.AccessibilityNodeInfo? {
+            val me = this@ChessBoardView
+            if (id == View.NO_ID) {
+                val info = android.view.accessibility.AccessibilityNodeInfo.obtain(me)
+                onInitializeAccessibilityNodeInfo(info)
+                for (row in 0 until 8) for (col in 0 until 8) info.addChild(me, square(row, col))
+                return info
+            }
+            if (id !in 0 until 64) return null
+            val info = android.view.accessibility.AccessibilityNodeInfo.obtain(me, id)
+            val (row, col) = place(id); val cell = width / 8
+            val r = Rect(col * cell, row * cell, (col + 1) * cell, (row + 1) * cell)
+            @Suppress("DEPRECATION") info.setBoundsInParent(r)
+            val at = IntArray(2); getLocationOnScreen(at); r.offset(at[0], at[1]); info.setBoundsInScreen(r)
+            info.setParent(me); info.packageName = context.packageName; info.className = "android.widget.Button"
+            info.contentDescription = squareWord(id)
+            info.isEnabled = true; info.isVisibleToUser = true; info.isFocusable = true; info.isSelected = selected == id
+            info.isAccessibilityFocused = spoken == id
+            info.addAction(if (spoken == id) android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_CLEAR_ACCESSIBILITY_FOCUS
+                else android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_ACCESSIBILITY_FOCUS)
+            if (enabledMoves) { info.isClickable = true; info.addAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK) }
+            return info
+        }
+        override fun performAction(id: Int, action: Int, args: android.os.Bundle?): Boolean {
+            if (id == View.NO_ID) return performAccessibilityAction(action, args)
+            when (action) {
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS -> {
+                    if (spoken == id) return false
+                    spoken = id; invalidate(); announce(id, android.view.accessibility.AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUSED); return true
+                }
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_CLEAR_ACCESSIBILITY_FOCUS -> {
+                    if (spoken != id) return false
+                    spoken = View.NO_ID; invalidate(); announce(id, android.view.accessibility.AccessibilityEvent.TYPE_VIEW_ACCESSIBILITY_FOCUS_CLEARED); return true
+                }
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK -> {
+                    if (!enabledMoves) return false
+                    onSquare?.invoke(id); announce(id, android.view.accessibility.AccessibilityEvent.TYPE_VIEW_CLICKED); return true
+                }
+            }
+            return false
+        }
+    }
+    override fun getAccessibilityNodeProvider(): android.view.accessibility.AccessibilityNodeProvider = squares
+    private var hovered = View.NO_ID
+    override fun dispatchHoverEvent(e: MotionEvent): Boolean {
+        val am = context.getSystemService(Context.ACCESSIBILITY_SERVICE) as? android.view.accessibility.AccessibilityManager
+        if (am == null || !am.isTouchExplorationEnabled) return super.dispatchHoverEvent(e)
+        val cell = width / 8f
+        val sq = if (e.actionMasked == MotionEvent.ACTION_HOVER_EXIT || cell <= 0f || e.x < 0 || e.y < 0 || width <= e.x || height <= e.y) View.NO_ID
+            else square(minOf(7, (e.y / cell).toInt()), minOf(7, (e.x / cell).toInt()))
+        if (sq != hovered) {
+            if (sq != View.NO_ID) announce(sq, android.view.accessibility.AccessibilityEvent.TYPE_VIEW_HOVER_ENTER)
+            if (hovered != View.NO_ID) announce(hovered, android.view.accessibility.AccessibilityEvent.TYPE_VIEW_HOVER_EXIT)
+            hovered = sq
+        }
+        return true
+    }
+
     override fun onDraw(canvas: Canvas) {
         val cell = width / 8f
         val check = ChessSide.values().filter { position.checked(it) }.toSet()
@@ -219,6 +350,13 @@ private fun Context.statePlate(build: LinearLayout.() -> Unit) = vstack {
     build()
 }
 
+/** The computer's face (iOS MTChessComputerFace): the processor's glyph on a quiet round plate, as a person's face stands. */
+fun Context.computerFace(size: Int): View = FrameLayout(this).apply {
+    background = android.graphics.drawable.GradientDrawable().apply { shape = android.graphics.drawable.GradientDrawable.OVAL; setColor(Color.argb(20, 255, 255, 255)) }
+    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+    addView(icon(R.drawable.ic_cpu, Color.WHITE), FrameLayout.LayoutParams(dp((size * 0.45f).toInt()), dp((size * 0.45f).toInt()), Gravity.CENTER))
+}
+
 /** A round mark of the bar: the glyph alone, the word for the screen reader (iOS MontanaBarMark). */
 private fun Context.barMark(glyph: Int, word: Int, tint: Int = Color.WHITE, onTap: () -> Unit) = icon(glyph, tint).apply {
     setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = getString(word); pressable(onTap)
@@ -232,6 +370,8 @@ private fun Context.barMark(glyph: Int, word: Int, tint: Int = Color.WHITE, onTa
  */
 fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolean, onBack: () -> Unit): View {
     val c: Context = act
+    // THE TRAINING GAME'S SEAT (iOS MTChessGameScreen seat .computer): no pair, the phone's own engine across the board (ChessComputer)
+    val computer = ref.isEmpty()
     var gameId = game0
     var game: ChessGame? = null
     var anchor = ChessAnchor.STANDING
@@ -260,8 +400,8 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
     val clocks = HashMap<ChessSide, TextView>()
 
     fun chat() = Book.chat(ref)
-    fun allowed() = ChessSend.canPlay(ref)
-    fun canSend() = pending == null && allowed() && game?.waitingForHistory == false
+    fun allowed() = computer || ChessSend.canPlay(ref)
+    fun canSend() = pending == null && allowed() && game?.waitingForHistory == false && !(computer && ChessComputer.thinking)
     fun live() = browsing == null && canSend()
     fun failed() { AlertDialog.Builder(act).setTitle(R.string.chess_move_failed).setPositiveButton(R.string.ok, null).show() }
 
@@ -270,6 +410,13 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
 
     fun send(kind: String, move: String? = null, drawing: Boolean = false) {
         val g = game ?: return
+        if (computer) {
+            if (pending != null || ChessComputer.thinking) return
+            if (!(kind == ChessLetter.END || browsing == null)) return
+            selected = null
+            if (!ChessComputer.play(kind, move)) failed()
+            reload(); return
+        }
         val free = pending == null && allowed()
         if (!(if (kind == ChessLetter.END) free else canSend())) return
         if (!(kind == ChessLetter.END || kind == ChessLetter.TIMEOUT || browsing == null)) return
@@ -297,7 +444,7 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
             for (m in moves) {
                 val kind = m.promotion ?: continue
                 addView(ImageView(c).apply {
-                    setImageResource(ChessPiece(g.mySide, kind).art); setPadding(dp(4), dp(4), dp(4), dp(4))
+                    setImageResource(ChessPiece(g.mySide, kind).art); setPadding(dp(4), dp(4), dp(4), dp(4)); contentDescription = c.getString(ChessPiece(g.mySide, kind).word)
                     pressable { dialog.dismiss(); play(m) }
                 }, lp(dp(60), dp(60)).apply { marginEnd = dp(10) })
             }
@@ -324,10 +471,11 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
     }
     fun again(g: ChessGame) {
         browsing = null; selected = null
+        if (computer) { ChessComputer.start(ChessComputer.level, g.whiteIsMine); reload(); return }
         val id = ChessSend.invite(c, ref, g.seconds)
         if (id == null) failed() else { gameId = id; ChessSend.shownGame = id; reload() }
     }
-    fun captured(g: ChessGame, side: ChessSide): String {
+    fun captured(g: ChessGame, side: ChessSide): Pair<List<ChessPiece>, Int> {
         val step = minOf(browsing ?: g.moves.size, g.moves.size)
         val remaining = g.positions[step].board.filterNotNull()
         val taken = ArrayList<ChessPiece>()
@@ -339,18 +487,26 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
             if (piece != null) taken.add(piece) else if (mover.kind == ChessKind.PAWN && m.from % 8 != m.to % 8) taken.add(ChessPiece(side.other, ChessKind.PAWN))
         }
         val advantage = remaining.filter { it.side == side }.sumOf { it.kind.points } - remaining.filter { it.side != side }.sumOf { it.kind.points }
-        return taken.sortedBy { it.kind.points }.joinToString("") { it.glyph } + (if (0 < advantage) " +" + advantage else "")
+        return taken.sortedBy { it.kind.points } to maxOf(0, advantage)
     }
     fun player(row: LinearLayout, g: ChessGame, side: ChessSide) {
         val mine = side == g.mySide
         row.removeAllViews()
-        val name = if (mine) Prefs.userName.ifBlank { c.getString(R.string.coin_you) } else (chat()?.shown?.ifBlank { null } ?: c.getString(R.string.peer))
-        row.addView(if (mine) c.avatar(SelfFace.load(c), name, 42) else c.peerFace(ref, name, 42), lp(c.dp(42), c.dp(42)))
+        val name = if (mine) Prefs.userName.ifBlank { c.getString(R.string.coin_you) }
+            else if (computer) ChessWords.computer(c, ChessComputer.level) else (chat()?.shown?.ifBlank { null } ?: c.getString(R.string.peer))
+        row.addView(if (mine) c.avatar(SelfFace.load(c), name, 42) else if (computer) c.computerFace(42) else c.peerFace(ref, name, 42), lp(c.dp(42), c.dp(42)))
         row.gap(10)
         row.addView(c.vstack(Gravity.NO_GRAVITY) {
             addView(c.text(name, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() })   // USER-DATA: a player's name
-            addView(c.text(captured(g, side), 18f, MT.gray))
+            addView(ChessCapturedView(c).apply { val (p, a) = captured(g, side); set(p, a) }, lp(MATCH, WRAP).apply { topMargin = dp(4) })
         }, lp(0, WRAP, 1f))
+        // the training game has no clock: the engine's side shows its thinking (iOS ProgressView, 44 square)
+        if (computer) {
+            if (!mine && ChessComputer.thinking) row.addView(android.widget.ProgressBar(c).apply {
+                indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE); setPadding(dp(10), dp(10), dp(10), dp(10))
+            }, lp(c.dp(44), c.dp(44)))
+            return
+        }
         val clock = c.text("", 20f, Color.WHITE, bold = true, center = true).apply {
             setPadding(dp(12), 0, dp(12), 0); minWidth = dp(94); minHeight = dp(44); gravity = Gravity.CENTER
             contentDescription = c.getString(if (side == ChessSide.WHITE) R.string.chess_white_clock else R.string.chess_black_clock)
@@ -397,18 +553,18 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
             plateHolder.removeAllViews()
             if (browsing == null && (g.waitingForHistory || g.status != ChessGame.Status.PLAYING)) {
                 plateHolder.addView(c.statePlate {
-                    addView(c.text(ChessWords.status(c, g), 17f, Color.WHITE, bold = true, center = true).apply { maxLines = 3 }, lp(WRAP, WRAP))
+                    addView(c.text(ChessWords.status(c, g, computer), 17f, Color.WHITE, bold = true, center = true).apply { maxLines = 3 }, lp(WRAP, WRAP))
                     addView(c.hstack {
                         gravity = Gravity.CENTER
                         if (g.status == ChessGame.Status.INVITED) {
                             if (!g.whiteIsMine) addView(c.barMark(R.drawable.ic_check, R.string.chess_accept_invitation) { send(ChessLetter.ACCEPT) }, lp(c.dp(44), c.dp(44)))
                             addView(c.barMark(R.drawable.ic_close, if (g.whiteIsMine) R.string.chess_withdraw else R.string.chess_decline_invitation) { send(ChessLetter.DECLINE) }, lp(c.dp(44), c.dp(44)))
-                        } else if (g.status.finished && pairOver) addView(c.barMark(R.drawable.ic_plus, R.string.chess_new_game) { again(g) }, lp(c.dp(44), c.dp(44)))
+                        } else if (g.status.finished && (computer || pairOver)) addView(c.barMark(R.drawable.ic_plus, R.string.chess_new_game) { again(g) }, lp(c.dp(44), c.dp(44)))
                         alpha = if (live()) 1f else 0.4f
                     }, lp(WRAP, WRAP))
                 }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
             }
-            status.text = if (g.status == ChessGame.Status.PLAYING && !g.waitingForHistory) ChessWords.status(c, g) else ""
+            status.text = if (g.status == ChessGame.Status.PLAYING && !g.waitingForHistory) ChessWords.status(c, g, computer) else ""
             drawMark.visibility = if (g.drawOfferedBy == g.mySide.other && g.status == ChessGame.Status.PLAYING) View.VISIBLE else View.GONE
             notes.text = listOfNotNull(if (!allowed()) c.getString(R.string.chess_unavailable) else null,
                 if (claimWithMove) c.getString(R.string.chess_claim_hint) else null).joinToString("\n")
@@ -421,10 +577,24 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
         }
     }
     reload = {
+        if (computer) {
+            val next = ChessComputer.game
+            if (game?.last?.id != next?.last?.id) selected = null
+            game = next; anchor = ChessAnchor.STANDING; pairOver = true; pending = null
+            draw()
+        } else {
         val all = ChessSend.entries(ref)
         val current = ChessGame.current(all)
         val games = all.groupBy { it.letter.game }.mapNotNull { (id, list) -> ChessGame.of(list, id)?.replaced(current) }
-        val next = games.firstOrNull { it.id == gameId }
+        var next = games.firstOrNull { it.id == gameId }
+        // BOTH AT THE BOARD, THE NEXT GAME BEGINS AT ONCE (iOS reload «switched», the author's word 30.09): a board on the screen whose
+        // game is over follows the correspondent's fresh invitation onto its game, as the maker's own board moved onto it (again);
+        // the acceptance stays the person's press on the plate (06.10)
+        if (current != null && current != gameId && next?.status?.finished == true && ChessSend.shownGame == gameId && CallScreen.front != null &&
+            games.firstOrNull { it.id == current }?.meets(ChessSend.now(), ChessSend.MEETING_LIFE) == true) {
+            gameId = current; ChessSend.shownGame = current; browsing = null; sawLive = false
+            next = games.firstOrNull { it.id == current }
+        }
         if (game?.last?.id != next?.last?.id || game?.status != next?.status) selected = null
         game = next
         anchor = next?.let { ChessAnchor.of(it, ref) } ?: ChessAnchor.STANDING
@@ -442,6 +612,7 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
             }
         }
         draw()
+        }
     }
     drawMark.setOnClickListener { send(ChessLetter.DRAW) }
 
@@ -450,17 +621,20 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
         val g = game
         val pm = PopupMenu(c, menu)
         val m = pm.menu
-        m.add(0, 9, 0, ChessWords.score(c, score)).isEnabled = false
+        if (!computer) m.add(0, 9, 0, ChessWords.score(c, score)).isEnabled = false
         m.add(0, 1, 1, R.string.chess_flip)
         m.add(0, 2, 2, R.string.chess_live)
         if (g != null && g.status == ChessGame.Status.PLAYING) {
-            m.add(0, 3, 3, R.string.chess_offer_draw).apply { isCheckable = true; isChecked = offerDraw }
-            m.add(0, 4, 4, R.string.chess_claim_with_move).apply { isCheckable = true; isChecked = claimWithMove; isEnabled = live() && g.position.turn == g.mySide }
+            if (!computer) {
+                m.add(0, 3, 3, R.string.chess_offer_draw).apply { isCheckable = true; isChecked = offerDraw }
+                m.add(0, 4, 4, R.string.chess_claim_with_move).apply { isCheckable = true; isChecked = claimWithMove; isEnabled = live() && g.position.turn == g.mySide }
+            }
             m.add(0, 5, 5, R.string.chess_claim).isEnabled = live() && g.position.turn == g.mySide && g.canClaimDraw
+            if (computer) m.add(0, 10, 5, R.string.chess_take_back).isEnabled = ChessComputer.canTakeBack
             m.add(0, 6, 6, R.string.chess_resign).isEnabled = live()
         }
-        if (g != null && !g.status.finished) m.add(0, 7, 7, R.string.chess_end).isEnabled = pending == null && allowed()
-        if (g != null) m.add(0, 8, 8, R.string.chess_new_game).isEnabled = pairOver && pending == null && allowed()
+        if (g != null && !g.status.finished) m.add(0, 7, 7, R.string.chess_end).isEnabled = pending == null && allowed() && !(computer && ChessComputer.thinking)
+        if (g != null) m.add(0, 8, 8, R.string.chess_new_game).isEnabled = (computer || pairOver) && pending == null && allowed()
         pm.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> { flipped = !flipped; draw() }
@@ -471,6 +645,7 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
                 6 -> AlertDialog.Builder(act).setTitle(R.string.chess_resign_q).setPositiveButton(R.string.chess_resign) { _, _ -> send(ChessLetter.RESIGN) }.setNegativeButton(R.string.chess_cancel, null).show()
                 7 -> AlertDialog.Builder(act).setTitle(R.string.chess_end_q).setPositiveButton(R.string.chess_end) { _, _ -> send(ChessLetter.END) }.setNegativeButton(R.string.chess_cancel, null).show()
                 8 -> game?.let { again(it) }
+                10 -> { ChessComputer.takeBack(); browsing = null; reload() }
             }
             true
         }
@@ -502,10 +677,12 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
         setPadding(dp(22), dp(8), dp(22), dp(8))
         addView(c.barMark(R.drawable.ic_list_bullet, R.string.chess_moves) { moveList() }, lp(c.dp(44), c.dp(44)))
         spacer()
-        addView(c.barMark(R.drawable.ic_bar_chats, R.string.chess_chat) {
-            if (inChat) onBack() else act.push { back -> conversationPage(act, ref, back) }
-        }, lp(c.dp(44), c.dp(44)))
-        spacer()
+        if (!computer) {
+            addView(c.barMark(R.drawable.ic_bar_chats, R.string.chess_chat) {
+                if (inChat) onBack() else act.push { back -> conversationPage(act, ref, back) }
+            }, lp(c.dp(44), c.dp(44)))
+            spacer()
+        }
         addView(c.barMark(R.drawable.ic_arrow_back_ios_new, R.string.chess_previous) { browse(-1) }, lp(c.dp(44), c.dp(44)))
         spacer()
         addView(c.barMark(R.drawable.ic_chevron_right, R.string.chess_next) { browse(1) }, lp(c.dp(44), c.dp(44)))
@@ -538,8 +715,14 @@ fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolea
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         // THE BOARD HOLDS ITS OWN LANE (iOS startBoardPolling/stopBoardPolling, 29.09): the chat's farewell under the pushed board took
         // the hold with it, and the correspondent's move rode the box; while the board stands its moves ride the lane both ways
-        override fun onViewAttachedToWindow(v: View) { ChessSend.shownGame = gameId; Book.listen(heard); reload(); main.post(ticker); Signal.hold(ref, "board") }
-        override fun onViewDetachedFromWindow(v: View) { if (ChessSend.shownGame == gameId) ChessSend.shownGame = null; Book.unlisten(heard); main.removeCallbacks(ticker); Signal.release(ref, "board") }
+        override fun onViewAttachedToWindow(v: View) {
+            if (computer) { ChessComputer.load(); ChessComputer.listen(heard); reload(); return }
+            ChessSend.shownGame = gameId; Book.listen(heard); reload(); main.post(ticker); Signal.hold(ref, "board")
+        }
+        override fun onViewDetachedFromWindow(v: View) {
+            if (computer) { ChessComputer.unlisten(heard); return }
+            if (ChessSend.shownGame == gameId) ChessSend.shownGame = null; Book.unlisten(heard); main.removeCallbacks(ticker); Signal.release(ref, "board")
+        }
     })
     return page
 }
@@ -583,19 +766,42 @@ fun chessLobbyPage(act: MainActivity, onClose: () -> Unit): View {
             for ((id, l) in all.groupBy { it.letter.game }) ChessGame.of(l, id)?.replaced(current)?.let { records.add(Record(chat.ref, it)) }
         }
         records.sortWith(compareBy<Record>({ it.game.status.finished }, { -it.game.last.at }, { it.ref + ":" + it.game.id }))
-        if (records.isEmpty()) {
+        val training = ChessComputer.game
+        if (records.isEmpty() && training == null) {
             list.addView(c.vstack {
                 setPadding(0, dp(48), 0, dp(24))
                 addView(ImageView(c).apply { setImageResource(R.drawable.chess_wn) }, lp(dp(72), dp(72)))
                 gap(10)
                 addView(c.text(c.getString(R.string.chess_title), 22f, Color.WHITE, bold = true, center = true))
-                addView(c.text(c.getString(R.string.chess_invite_someone), 15f, MT.gray, center = true))
+                addView(c.text(c.getString(R.string.chess_empty_note), 15f, MT.gray, center = true))
             }, lp())
-            return
         }
+        // A ROW OF THE PAGE (iOS MTChessPage: the face, the title, the state under it, a trailing word)
+        fun LinearLayout.row(face: View, title: String, note: String, trailing: String?, open: () -> Unit) = addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            addView(face, lp(dp(44), dp(44)))
+            gap(12)
+            addView(c.vstack(Gravity.NO_GRAVITY) {
+                addView(c.text(title, 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() })   // USER-DATA: the name
+                addView(c.text(note, 15f, MT.gray).apply { setPadding(0, dp(5), 0, 0) })
+            }, lp(0, WRAP, 1f))
+            if (trailing != null) addView(c.text(trailing, 15f, Color.WHITE))
+            pressable(open)
+        }, lp())
         list.addView(c.plate {
-            records.forEachIndexed { i, r ->
-                if (0 < i) divider()
+            // THE TRAINING GAME (iOS 4832070d): the computer at its level, the game's state
+            if (training != null) {
+                row(c.computerFace(44), ChessWords.computer(c, ChessComputer.level), ChessWords.status(c, training, true), null) {
+                    act.push { back -> chessBoardPage(act, "", training.id, false, back) }
+                }
+                divider()
+            }
+            // THE TIMER (iOS MTChessTimer, the author's word 04.10 00:10): chess at one board, on one phone
+            row(c.icon(R.drawable.ic_timer, Color.WHITE, 28).apply { setPadding(dp(8), dp(8), dp(8), dp(8)) },
+                c.getString(R.string.chess_timer), c.getString(R.string.chess_timer_note), null) { act.push { back -> chessTimerPage(act, back) } }
+            records.forEach { r ->
+                divider()
                 val chat = Book.chat(r.ref)
                 val name = chat?.shown?.ifBlank { null } ?: c.getString(R.string.peer)
                 addView(c.hstack {
@@ -618,8 +824,76 @@ fun chessLobbyPage(act: MainActivity, onClose: () -> Unit): View {
     val page = chessFrame(act, c.getString(R.string.chess_title), true, onClose, plus, body)
     val heard: () -> Unit = { draw() }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { Book.listen(heard); draw() }
-        override fun onViewDetachedFromWindow(v: View) { Book.unlisten(heard) }
+        override fun onViewAttachedToWindow(v: View) { ChessComputer.load(); ChessComputer.listen(heard); Book.listen(heard); draw() }
+        override fun onViewDetachedFromWindow(v: View) { ChessComputer.unlisten(heard); Book.unlisten(heard) }
+    })
+    return page
+}
+
+/**
+ * THE TIMER (iOS MTChessTimer; the author's word 03.10.2026 21:10 UTC: «a game Timer for offline chess: on one phone switch whose
+ * move it is»): a chess clock for two at one board. Each half is one player's -- the upper one turned to the player across the table
+ * -- and a tap on one's own half ends one's move; the side to move thinks and its clock runs. It mints nothing (iOS 480cd898).
+ */
+fun chessTimerPage(act: MainActivity, onBack: () -> Unit): View {
+    val c: Context = act
+    val main = Handler(Looper.getMainLooper())
+    var turn: Int? = null            // 0 the upper half, 1 the lower
+    val used = longArrayOf(0L, 0L)
+    val clocks = arrayOfNulls<TextView>(2)
+    val words = arrayOfNulls<TextView>(2)
+    val halves = arrayOfNulls<LinearLayout>(2)
+    fun draw() {
+        for (side in 0..1) {
+            val moving = turn == side
+            clocks[side]?.text = ChessWords.clock(used[side])   // USER-DATA: the time this side has thought
+            words[side]?.setText(if (turn == null) R.string.chess_tap_start else if (moving) R.string.chess_your_move else R.string.chess_their_move)
+            halves[side]?.background = if (moving) android.graphics.drawable.ColorDrawable(Color.argb(46, Color.red(MT.blue), Color.green(MT.blue), Color.blue(MT.blue))) else null
+            halves[side]?.isEnabled = turn == null || moving
+        }
+    }
+    val second = object : Runnable {
+        override fun run() { val s = turn ?: return; used[s] += 1000; draw(); main.postDelayed(this, 1000) }
+    }
+    fun pass(side: Int) {
+        if (turn != null && turn != side) return
+        turn = 1 - side
+        main.removeCallbacks(second); main.postDelayed(second, 1000)
+        draw()
+    }
+    fun half(side: Int) = c.vstack {
+        gravity = Gravity.CENTER
+        addView(c.text("", 64f, Color.WHITE, bold = true, center = true).apply {
+            fontFeatureSettings = "tnum"; clocks[side] = this
+        }, lp(WRAP, WRAP))
+        gap(12)
+        addView(c.text("", 17f, MT.gray, bold = true, center = true).also { words[side] = it }, lp(WRAP, WRAP))
+        if (side == 0) rotation = 180f
+        isClickable = true; setOnClickListener { pass(side) }
+        halves[side] = this
+    }
+    val body = c.vstack(Gravity.NO_GRAVITY) {
+        addView(half(0), lp(MATCH, 0, 1f))
+        addView(View(c).apply { setBackgroundColor(Color.argb(60, 255, 255, 255)) }, lp(MATCH, 1))
+        addView(half(1), lp(MATCH, 0, 1f))
+    }
+    val bar = FrameLayout(c).apply {
+        setPadding(c.dp(8), 0, c.dp(8), 0)
+        addView(c.barMark(R.drawable.ic_arrow_back_ios_new, R.string.coin_close) { onBack() }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.CENTER_VERTICAL or Gravity.START))
+        addView(c.text(c.getString(R.string.chess_timer), 17f, Color.WHITE, bold = true, center = true), FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+    }
+    val page = FrameLayout(c).apply {
+        setBackgroundColor(Color.BLACK)
+        addView(c.chatGround(ChatWall.PAGE), FrameLayout.LayoutParams(MATCH, MATCH))
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            addView(bar, lp(MATCH, c.dp(52)))
+            addView(body, lp(MATCH, 0, 1f))
+        }, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+    draw()
+    page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+        override fun onViewAttachedToWindow(v: View) { if (turn != null) { main.removeCallbacks(second); main.postDelayed(second, 1000) } }
+        override fun onViewDetachedFromWindow(v: View) { main.removeCallbacks(second) }
     })
     return page
 }
@@ -631,6 +905,69 @@ fun chessLobbyPage(act: MainActivity, onClose: () -> Unit): View {
 fun newChessPage(act: MainActivity, onBack: () -> Unit): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY)
+    // THE COMPUTER (iOS MTChessNewGame Section «Computer», 4832070d): its level on the platform's slider, the colour by its piece
+    var level = ChessComputer.chosenLevel
+    var white = true
+    val levelWord = c.text(c.getString(R.string.chess_level, level), 15f, Color.WHITE).apply { fontFeatureSettings = "tnum" }
+    val slider = android.widget.SeekBar(c).apply {
+        max = ChessEngine.LEVELS.last - ChessEngine.LEVELS.first; progress = level - ChessEngine.LEVELS.first
+        contentDescription = c.getString(R.string.chess_level_word)
+        setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(s: android.widget.SeekBar, p: Int, user: Boolean) {
+                level = ChessEngine.LEVELS.first + p; ChessComputer.chosenLevel = level
+                levelWord.text = c.getString(R.string.chess_level, level)
+            }
+            override fun onStartTrackingTouch(s: android.widget.SeekBar) {}
+            override fun onStopTrackingTouch(s: android.widget.SeekBar) {}
+        })
+    }
+    val colours = c.hstack { gravity = Gravity.CENTER_VERTICAL; background = c.rounded(Color.rgb(44, 44, 46), 9); setPadding(dp(2), dp(2), dp(2), dp(2)) }
+    fun drawColours() {
+        colours.removeAllViews()
+        for (w in listOf(true, false)) colours.addView(FrameLayout(c).apply {
+            background = if (w == white) c.rounded(Color.rgb(99, 99, 102), 7) else null
+            contentDescription = c.getString(if (w) R.string.chess_white_pieces else R.string.chess_black_pieces)
+            isSelected = w == white
+            addView(ImageView(c).apply { setImageResource(ChessPiece(if (w) ChessSide.WHITE else ChessSide.BLACK, ChessKind.KING).art) },
+                FrameLayout.LayoutParams(c.dp(30), c.dp(30), Gravity.CENTER))
+            pressable { white = w; drawColours() }
+        }, lp(0, c.dp(40), 1f))
+    }
+    drawColours()
+    body.addView(c.text(c.getString(R.string.chess_computer), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
+    body.addView(c.plate {
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            addView(levelWord, lp(WRAP, WRAP))
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(c.text(ChessEngine.LEVELS.first.toString(), 13f, MT.gray), lp(WRAP, WRAP))
+                addView(slider, lp(0, dp(44), 1f))
+                addView(c.text(ChessEngine.LEVELS.last.toString(), 13f, MT.gray), lp(WRAP, WRAP))
+            }, lp())
+        }, lp())
+        divider()
+        addView(c.vstack(Gravity.NO_GRAVITY) {
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(c.text(c.getString(R.string.chess_your_pieces), 13f, MT.gray), lp(WRAP, WRAP))
+            addView(colours, lp().apply { topMargin = dp(6) })
+        }, lp())
+        divider()
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL; minimumHeight = dp(44)
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            addView(c.computerFace(44), lp(dp(44), dp(44)))
+            gap(12)
+            addView(c.text(c.getString(R.string.chess_play_computer), 16f, MT.blue), lp(0, WRAP, 1f))
+            addView(c.icon(R.drawable.ic_play_fill, MT.blue, 20), lp(dp(20), dp(20)))
+            pressable {
+                ChessComputer.start(level, white)
+                val id = ChessComputer.game?.id ?: return@pressable
+                onBack()
+                act.push { back -> chessBoardPage(act, "", id, false, back) }
+            }
+        }, lp())
+    }, lp())
     var seconds = ChessSend.CHAT_CLOCK
     val controls = c.hstack { gravity = Gravity.CENTER_VERTICAL }
     fun drawControls() {

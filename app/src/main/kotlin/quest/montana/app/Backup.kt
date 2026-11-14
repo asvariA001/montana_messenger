@@ -651,7 +651,9 @@ object Card {
         // the posts already named to their walls as seen (MontanaBoard.swift 1186-1203: a list of «wall#post», the copy's word)
         "board.viewed" to Form.LINES,
         // the person's own words (MontanaProfile.swift 623-625)
-        "userName" to Form.WORD, "profileBio" to Form.WORD, "profileLink" to Form.WORD)
+        "userName" to Form.WORD, "profileBio" to Form.WORD, "profileLink" to Form.WORD,
+        // the training game's level (iOS MTChessAppDoor.settingKeys, 86ebc472: MTChessComputer.levelKey, a whole number)
+        ChessComputer.LEVEL_KEY to Form.WHOLE)
 
     /**
      * What a correspondent said of themselves, kept per conversation (iOS SeedScope.dataPrefixes 6170-6171): hiding the exact
@@ -860,6 +862,9 @@ object Card {
         // WHERE A LONG LISTEN STOPPED (iOS SeedScope.dataKeys "playPlaces", MTPlayPlaces: one dictionary of a file to its moment and
         // the moment it was kept), the XML property list an iPhone reads too; a file is named by this phone's own path
         PlayPlaces.carried().takeIf { it.isNotEmpty() }?.let { out.put("p:playPlaces", b64(placesPlist(it))) } ?: out.remove("p:playPlaces")
+        // THE TRAINING GAME (iOS MTChessAppDoor.dataKeys, 86ebc472: MTChessComputer.gameKey): its letters and whose each was, the
+        // iPhone's own JSON
+        ChessComputer.carried()?.let { out.put("d:" + ChessComputer.GAME_KEY, b64(it)) } ?: out.remove("d:" + ChessComputer.GAME_KEY)
         // The moment the calls page was last seen (iOS ChatStore.loadCallsSeenAt 593-603: a sealed word of seconds)
         CallsSeen.kept()?.let { out.put("d:callsSeenAt", b64(secs(it))) } ?: out.remove("d:callsSeenAt")
         val before = Prefs.str(MIRRORED, "").split('\n').filter { it.isNotEmpty() }
@@ -912,6 +917,7 @@ object Card {
         var reactions: Map<String, Int>? = null
         var places: Map<String, Pair<Double, Double>>? = null
         var callsSeen: Long? = null
+        var training: String? = null
         var groups: ByteArray? = null
         var laid = 0
         fun one(tagged: String) {
@@ -963,6 +969,7 @@ object Card {
                 tag == "a:" && k == "montana.stickers.mine" -> stickers = words(v)
                 tag == "p:" && k == "reactionUse" -> reactions = unb64(v)?.let { counts(it) }
                 tag == "p:" && k == "playPlaces" -> places = unb64(v)?.let { placesOf(it) }
+                tag == "d:" && k == ChessComputer.GAME_KEY -> training = unb64(v)?.toString(Charsets.UTF_8)
                 tag == "d:" && k == "callsSeenAt" -> callsSeen = unb64(v)?.let { ms(String(it, Charsets.UTF_8)) }
                 tag == "d:" && k == Groups.STORE -> groups = unb64(v)
             }
@@ -997,6 +1004,7 @@ object Card {
             { reactions?.let { QuickReactions.lay(it) } },
             { places?.let { PlayPlaces.lay(it) } },
             { callsSeen?.let { CallsSeen.lay(it) } },
+            { training?.let { ChessComputer.lay(it) } },
             { groups?.let { Groups.lay(it, avatars) } }
         ).forEach { runCatching(it) }
         // Each value laid takes the copy's moment, as this phone now holds it (iOS layCard: the print of the value read back)

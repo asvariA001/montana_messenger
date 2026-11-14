@@ -336,6 +336,8 @@ object Prefs {
     fun setDbl(key: String, v: Double) { p.edit().putFloat(key, v.toFloat()).apply() }
     fun bool(key: String, def: Boolean): Boolean = p.getBoolean(key, def)
     fun setBool(key: String, v: Boolean) { p.edit().putBoolean(key, v).apply() }
+    fun int(key: String, def: Int): Int = runCatching { p.getInt(key, def) }.getOrDefault(def)
+    fun setInt(key: String, v: Int) { p.edit().putInt(key, v).apply() }
     fun remove(vararg keys: String) { p.edit().apply { keys.forEach { remove(it) } }.apply() }
     /** One listener of every change of the defaults (TwinSelf, as iOS hears UserDefaults.didChangeNotification); held strongly by its owner. */
     fun listen(l: SharedPreferences.OnSharedPreferenceChangeListener) = p.registerOnSharedPreferenceChangeListener(l)

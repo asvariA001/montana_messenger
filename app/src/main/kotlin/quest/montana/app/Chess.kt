@@ -26,13 +26,12 @@ data class ChessPiece(val side: ChessSide, val kind: ChessKind) {
         ChessSide.BLACK -> when (kind) { ChessKind.PAWN -> R.drawable.chess_bp; ChessKind.KNIGHT -> R.drawable.chess_bn; ChessKind.BISHOP -> R.drawable.chess_bb
             ChessKind.ROOK -> R.drawable.chess_br; ChessKind.QUEEN -> R.drawable.chess_bq; ChessKind.KING -> R.drawable.chess_bk }
     }
-    val glyph: String get() = when (kind) {
-        ChessKind.KING -> if (side == ChessSide.WHITE) "♔" else "♚"
-        ChessKind.QUEEN -> if (side == ChessSide.WHITE) "♕" else "♛"
-        ChessKind.ROOK -> if (side == ChessSide.WHITE) "♖" else "♜"
-        ChessKind.BISHOP -> if (side == ChessSide.WHITE) "♗" else "♝"
-        ChessKind.KNIGHT -> if (side == ChessSide.WHITE) "♘" else "♞"
-        ChessKind.PAWN -> if (side == ChessSide.WHITE) "♙" else "♟"
+    /** The piece's spoken name (iOS MTChessWords.piece). */
+    val word: Int get() = when (side) {
+        ChessSide.WHITE -> when (kind) { ChessKind.PAWN -> R.string.chess_piece_wp; ChessKind.KNIGHT -> R.string.chess_piece_wn; ChessKind.BISHOP -> R.string.chess_piece_wb
+            ChessKind.ROOK -> R.string.chess_piece_wr; ChessKind.QUEEN -> R.string.chess_piece_wq; ChessKind.KING -> R.string.chess_piece_wk }
+        ChessSide.BLACK -> when (kind) { ChessKind.PAWN -> R.string.chess_piece_bp; ChessKind.KNIGHT -> R.string.chess_piece_bn; ChessKind.BISHOP -> R.string.chess_piece_bb
+            ChessKind.ROOK -> R.string.chess_piece_br; ChessKind.QUEEN -> R.string.chess_piece_bq; ChessKind.KING -> R.string.chess_piece_bk }
     }
 }
 
@@ -284,6 +283,10 @@ class ChessLetter(
             if (!line.startsWith(LINK)) return null
             val code = line.removePrefix(LINK).replace('-', '+').replace('_', '/')
             val o = runCatching { JSONObject(String(android.util.Base64.decode(code, android.util.Base64.DEFAULT), Charsets.UTF_8)) }.getOrNull() ?: return null
+            return of(o)
+        }
+        /** A letter from its JSON, judged by the wire's bounds (iOS MTChessLetter Codable): the link's words, or a kept training game's. */
+        fun of(o: JSONObject): ChessLetter? {
             return runCatching {
                 val kind = o.getString("kind")
                 if (kind !in KINDS) return null
@@ -415,6 +418,12 @@ class ChessGame private constructor(val id: String, val whiteIsMine: Boolean, va
         if (by == null || by == id || status.finished) return this
         return copy().also { it.status = Status.ENDED; it.waitingForHistory = false }
     }
+    /**
+     * BOTH IN THE CHAT, THE GAME BEGINS AT ONCE (iOS MTChessGame.meets; the author's word 30.09: «when both are in the chat, let them
+     * get into the game at once»): an invitation from the correspondent nobody has answered, made within one presence life of now --
+     * its maker stands on its board this moment -- is followed by the board on this screen; an older invitation, or my own, waits.
+     */
+    fun meets(now: Long, life: Long): Boolean = status == Status.INVITED && !whiteIsMine && !waitingForHistory && abs(now - last.at) < life
     fun held(side: ChessSide): Long = if (side == ChessSide.WHITE) whiteMs else blackMs
     fun remaining(side: ChessSide, elapsed: Long): Long = if (running != side) held(side) else max(0L, held(side) - max(0L, elapsed))
 
