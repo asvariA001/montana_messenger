@@ -4055,6 +4055,27 @@ private fun captionWidth(c: Context, words: String, paint: android.text.TextPain
     return Math.ceil(w.toDouble()).toInt() + c.dp(20)
 }
 
+/**
+ * THE PHOTOS OF ONE CONVERSATION ON THIS PHONE (iOS ChatStore.pictures(in:), 11c34ed7 at 2389): what a tapped picture of it pages
+ * through -- the open conversation's, or the one whose letter holds the file; oldest first, one file once; empty -- the one picture.
+ */
+internal fun chatPictures(f: java.io.File): List<java.io.File> {
+    fun of(ref: String): List<java.io.File>? {
+        val msgs = runCatching { Book.chat(ref)?.msgs?.toList() }.getOrNull() ?: return null
+        if (msgs.none { m -> m.file?.let { java.io.File(it).path } == f.path }) return null
+        val seen = HashSet<String>()
+        return msgs.mapNotNull { m ->
+            if (!m.text.startsWith(Marks.MEDIA)) return@mapNotNull null
+            val man = m.meta?.let { j -> runCatching { JSONObject(j) }.getOrNull() } ?: Media.inline(m.text)
+            if (man?.optString("k") != "img") return@mapNotNull null
+            m.file?.let { java.io.File(it) }?.takeIf { it.exists() && seen.add(it.path) }
+        }
+    }
+    Book.openChat?.let { open -> of(open)?.let { return it } }
+    for (ref in Book.refs()) of(ref)?.let { return it }
+    return emptyList()
+}
+
 /** THE FILE WHOLE: a picture on black, a film in the platform's own player; any other file to the system's viewer. */
 internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
     val c: Context = act
@@ -4065,8 +4086,9 @@ internal fun openMedia(act: MainActivity, f: java.io.File, kind: String) {
         runCatching { act.startActivity(Intent.createChooser(view, null)) }
         return
     }
-    // A PICTURE OPENS AMONG THE CONVERSATION'S PICTURES (iOS PhotoPresenter): pages, pinch, a pull down to close (Viewer.kt)
-    if (kind == "img") { openPictures(act, f); return }
+    // A PICTURE OPENS AMONG THE CONVERSATION'S PICTURES (iOS PhotoPresenter.present(_:among:), 11c34ed7 at 2389): pages, pinch, a pull
+    // down to close (Viewer.kt)
+    if (kind == "img") { openPictures(act, f, chatPictures(f)); return }
     // A FILM OPENS IN ITS OWN PLAYER THAT FOLDS INTO A WINDOW OVER THE CHAT (iOS VideoPresenter, picture in picture): FilmActivity
     if (kind == "vid") { FilmActivity.open(act, f); return }
     lateinit var close: () -> Unit

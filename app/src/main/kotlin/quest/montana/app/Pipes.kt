@@ -2802,6 +2802,22 @@ object Post {
     }
 
     /**
+     * A BURIED LETTER LEAVES THE BOX (iOS ChatStore.forgetInBox, 11c34ed7 at 2389, OZ 1 p.1.7, decision 913 = a): the grave answered
+     * the sender and marked the letter taken by this device, and the node keeps that mark a day while the sender's knocks keep the
+     * letter's row alive -- the next whole read yielded it again (T1 13.11.2026, 31 hours after its deletion for everyone). Deleted
+     * for everyone is deleted for every device of the person: the box forgets it («mids», the burial), once per name in a run.
+     */
+    private val boxForgotten: MutableSet<String> = java.util.Collections.synchronizedSet(HashSet())
+    private fun forgetInBox(mid: String) {
+        if (mid.isEmpty() || !boxForgotten.add(mid)) return
+        val body = JSONObject().put("mids", JSONArray(listOf(mid)))
+        val doors = Doors.ordered("box")
+        val awake = doors.filter { Signal.doorAlive(it) }
+        for (door in (awake.ifEmpty { doors })) Thread { Wire.post(door, "/box-del", body, 5000) }.start()
+        Log.d("Montana", "box_forget m=" + mid.take(8) + " a buried letter came again -- the box forgets it")
+    }
+
+    /**
      * THE FIRST LETTER OF A MEETING (iOS drainInbox «rdv» + MontanaCard.accept): ct[1088] ‖ mid‖0 text‖0 name‖0 glyph‖0 conf‖0.
      * The pipe is born from it, the chat stands with the scanner's name, the face laid beside the pipe is read, and the letter
      * is answered «delivered» — the scanner's proof that the pipe stands at both ends.
@@ -3182,7 +3198,7 @@ object Post {
             PeerSafety.isBlocked(ref) -> {}
             // A LETTER BORN BEFORE ITS CONVERSATION'S FUNERAL IS THE DEAD CONVERSATION'S (iOS append diedBefore, 876ab288): it lands
             // nowhere and revives nothing, and the grave answers it as it answers a buried one
-            Book.diedBefore(ref, mid) -> { Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — born before the conversation's funeral"); receipt(ref, sid) }
+            Book.diedBefore(ref, mid) -> { Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — born before the conversation's funeral"); receipt(ref, sid); forgetInBox(mid) }
             else -> {
                 var isNew = false
                 val quiet = OldRecordings.notice(text)   // an old build's recording notice lands hidden: no count, no banner
@@ -3204,7 +3220,7 @@ object Post {
                         had.text = text; had.meta = null; Media.liftGone(mid)
                         Log.d("Montana", "rx_refill m=" + mid.take(8) + " the row stands without its file — the copy's cargo is taken")
                     }
-                    if (had == null && Book.isBuried(ref, mid)) Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed")
+                    if (had == null && Book.isBuried(ref, mid)) { Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed"); forgetInBox(mid) }
                     else if (had == null) {
                         val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }

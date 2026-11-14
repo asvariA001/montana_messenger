@@ -32,7 +32,11 @@ import kotlin.math.min
  */
 fun openPictures(act: MainActivity, start: File, among: List<File>? = null, films: Set<String> = emptySet(), titles: List<String>? = null) {
     val c: Context = act
-    val files = titles?.let { among?.takeIf { l -> l.size == it.size && l.any { f -> f.path == start.path } } } ?: listOf(start)
+    // THE PICTURES IT STANDS AMONG, PAGED BY THE FINGER (iOS MTPhotoLook.pages, 11c34ed7 at 2389; the author's word 21257 p.2,
+    // 13.11.2026: «when viewing a photo let it be leafed right and left inside the chat, the group, the channel and so on»): the
+    // files of the same chat or post, oldest first; still no strip of covers -- each page is one picture with its own Save and Share
+    val files = (if (titles != null) among?.takeIf { l -> l.size == titles.size && l.any { f -> f.path == start.path } }
+        else among?.takeIf { l -> 1 < l.size && l.any { f -> f.path == start.path } }) ?: listOf(start)
     val paged = 1 < files.size
     var at = files.indexOfFirst { it.path == start.path }.coerceAtLeast(0)
     lateinit var close: () -> Unit
@@ -41,7 +45,8 @@ fun openPictures(act: MainActivity, start: File, among: List<File>? = null, film
     // MTMomentsViewer 2758): the close on the left, the moment's conversation in the middle, the share on the right
     val head = titles?.takeIf { paged }
     val name = head?.let { c.text(it[at], 17f, Color.WHITE, center = true).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END } }   // USER-DATA: the conversation's name
-    val pager = PicturePager(act, files, at, films) { at = it; if (head != null) name?.text = head[it] }
+    var turned: () -> Unit = {}
+    val pager = PicturePager(act, files, at, films) { at = it; if (head != null) name?.text = head[it]; turned() }
     fun mark(glyph: Int, label: Int, work: () -> Unit) = FrameLayout(c).apply {
         background = c.glassPlate(oval = true)
         contentDescription = c.getString(label)
@@ -65,11 +70,12 @@ fun openPictures(act: MainActivity, start: File, among: List<File>? = null, film
             addView(mark(R.drawable.ic_share, R.string.share) { share() }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.END).apply { rightMargin = c.dp(16) })
         }
     }
-    // SAVE AND SHARE UNDER ONE PICTURE (iOS MontanaPhotoViewer onShare/onSave, ca301892): Share at the left, Save at the right; Save
-    // lays the file into the library by the one road (SavedMedia, iOS MontanaSavedToPhotos) and turns to the checkmark, done
-    val foot: FrameLayout? = if (paged) null else FrameLayout(c).apply {
+    // SAVE AND SHARE UNDER EVERY PICTURE (iOS MontanaPhotoViewer onShare/onSave, ca301892; every page since 11c34ed7 at 2389): Share
+    // at the left, Save at the right, for the page on screen; Save lays the file into the library by the one road (SavedMedia, iOS
+    // MontanaSavedToPhotos) and turns to the checkmark, done; each page saves on its own. The moments' gallery shares from its bar.
+    val foot: FrameLayout? = if (head != null) null else FrameLayout(c).apply {
         addView(mark(R.drawable.ic_share, R.string.share) { share() }, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.START).apply { leftMargin = c.dp(24) })
-        var saved = SavedMedia.has(start.name)
+        var saved = SavedMedia.has(files[at].name)
         lateinit var save: FrameLayout
         fun dress() {
             (save.getChildAt(0) as? android.widget.ImageView)?.setImageResource(if (saved) R.drawable.ic_check else R.drawable.ic_save_media)
@@ -79,14 +85,16 @@ fun openPictures(act: MainActivity, start: File, among: List<File>? = null, film
         save = mark(R.drawable.ic_save_media, R.string.save_photo) {
             if (saved || !save.isEnabled) return@mark
             save.isEnabled = false
+            val f = files[at]
             Thread {
-                val ok = SavedMedia.save(c, start, false)
+                val ok = SavedMedia.save(c, f, false)
                 android.util.Log.i("Montana", "save_photos ok=" + (if (ok) 1 else 0) + " video=0")
-                MainThread.post { saved = ok; save.isEnabled = true; dress() }
+                MainThread.post { if (files[at] == f) saved = ok; save.isEnabled = true; dress() }
             }.start()
         }
         addView(save, FrameLayout.LayoutParams(c.dp(44), c.dp(44), Gravity.END).apply { rightMargin = c.dp(24) })
         dress()
+        turned = { saved = SavedMedia.has(files[at].name); dress() }
     }
     fun lay() {
         for (v in listOfNotNull(bar, foot)) {

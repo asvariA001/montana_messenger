@@ -400,10 +400,12 @@ object KeepCopy {
         var short = false                     // the last asking found nobody
         /** THE ATTEMPT IS THE MOMENT THE RHYTHM COUNTS FROM (iOS triedAt): a renewal refused on the way waits the day as one done. */
         var triedAt: Double? = null
+        /** THE ASKING A NEW ATTACHMENT MADE DUE (iOS Owner.urgent, 11c34ed7 at 2389, decision 872 = v): its copy goes on the battery. */
+        var urgent: Boolean? = null
         var light = JSONObject()              // lightGen, lightAt, lightTriedAt, lightFace, lightName, lightPeople
         fun json(): JSONObject = JSONObject(light.toString()).put("generation", generation).put("askedAt", askedAt).put("yes", org.json.JSONArray(yes))
             .put("n", n).put("keepers", JSONObject().apply { keepers.forEach { (c, k) -> put(c, k.json()) } }).put("renewedAt", renewedAt).put("short", short)
-            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) } }
+            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) }; urgent?.let { put("urgent", it) } }
         companion object {
             fun of(o: JSONObject): Owner = Owner(o.optLong("generation")).apply {
                 asking = if (o.has("asking")) o.optLong("asking") else null
@@ -414,6 +416,7 @@ object KeepCopy {
                 renewedAt = o.optDouble("renewedAt", 0.0)
                 short = o.optBoolean("short")
                 triedAt = if (o.has("triedAt")) o.optDouble("triedAt") else null
+                urgent = if (o.optBoolean("urgent")) true else null
                 light = JSONObject().also { l -> for (k in o.keys()) if (k.startsWith("light")) l.put(k, o.get(k)) }
             }
         }
@@ -451,11 +454,12 @@ object KeepCopy {
     /**
      * A WORK OF GIGABYTES WAITS FOR THE CHARGER (iOS MontanaPower.bulkHeld, the author's word 04.11.2026): the copy runs only on the
      * charger, outside the battery saver, at a heat no higher than fair (Android LIGHT and MODERATE) and on a path that is not
-     * metered. Null -- go; else why it waits.
+     * metered. Null -- go; else why it waits. A COPY A NEW ATTACHMENT MADE DUE GOES ON THE BATTERY (iOS bulkHeld(onBattery:), 11c34ed7
+     * at 2389, decision 872 = v): onBattery lifts the charger alone; the battery saver, the heat and a metered path hold it still.
      */
-    private fun bulkHeld(): String? {
+    private fun bulkHeld(onBattery: Boolean = false): String? {
         val c = Book.ctx
-        if (c.getSystemService(android.os.BatteryManager::class.java)?.isCharging != true) return "battery"
+        if (!onBattery && c.getSystemService(android.os.BatteryManager::class.java)?.isCharging != true) return "battery"
         val pm = c.getSystemService(android.os.PowerManager::class.java)
         if (pm?.isPowerSaveMode == true) return "lowpower"
         if (android.os.Build.VERSION.SDK_INT >= 29 && (pm?.currentThermalStatus ?: 0) >= android.os.PowerManager.THERMAL_STATUS_SEVERE) return "thermal"
@@ -501,9 +505,25 @@ object KeepCopy {
             }
             return later(120)
         }
-        if (t - maxOf(o.renewedAt, o.triedAt ?: 0.0) < 86_400) return
-        bulkHeld()?.let { return heldOnce("keep_ask", it) }
+        val fresh = attachmentDue(t, o)
+        if (!fresh && t - maxOf(o.renewedAt, o.triedAt ?: 0.0) < 86_400) return
+        bulkHeld(onBattery = fresh)?.let { return heldOnce("keep_ask", it) }
+        synchronized(lock) { o.urgent = if (fresh) true else null }
         ask()
+    }
+    /**
+     * THE FULL COPY FOLLOWS A NEW ATTACHMENT (iOS attachmentDue, 11c34ed7 at 2389, decision 872 = v): a gif never reached the restored
+     * iPad -- no copy was laid with it, its renewal waited the day and the charger. A letter whose attachment is newer than the last
+     * copy asked or tried makes the copy due at once, ten minutes after that one at the least, so a run of photos folds into one copy.
+     */
+    private fun attachmentDue(t: Double, o: Owner): Boolean {
+        val last = synchronized(lock) { maxOf(o.renewedAt, o.triedAt ?: 0.0, o.askedAt) }
+        if (t - last < 600) return false
+        val edge = (last * 1000).toLong()
+        return Book.refs().any { ref ->
+            runCatching { Book.chat(ref)?.msgs?.lastOrNull { it.text.startsWith(Marks.MEDIA) || it.text.startsWith(Marks.VOICE) }?.let { it.at > edge } == true }
+                .getOrDefault(false)   // a feed written this moment is read at the next look
+        }
     }
     private fun ask() {
         val people = people().take(2 * KeepRing.MOST)   // twice a full ring, so that the ring fills when some stay silent
@@ -562,10 +582,11 @@ object KeepCopy {
         if (renewing) return
         val o = owner()
         if (synchronized(lock) { o.yes.isEmpty() }) return
-        bulkHeld()?.let { heldOnce("keep_copy", it); return later(300) }
+        val urgent = synchronized(lock) { o.urgent == true }
+        bulkHeld(onBattery = urgent)?.let { heldOnce("keep_copy", it); return later(300) }
         renewing = true
         val chosen = synchronized(lock) {
-            o.asking = null; o.triedAt = now(); saveOwner()
+            o.asking = null; o.urgent = null; o.triedAt = now(); saveOwner()
             // THE RING IN THE ORDER OF THE LATEST LETTER (Network): the people written to last stand first, a full ring at most
             val rank = people().withIndex().associate { it.value to it.index }
             o.yes.sortedBy { rank[it] ?: Int.MAX_VALUE }.take(KeepRing.MOST)
@@ -582,7 +603,7 @@ object KeepCopy {
                 }
                 val made = MontanaBackup.create(c, CopyInventory.gather(c).scope(CopyPlan.load())) {}
                 if (made !is CopyResult.Made) Log.i("Montana", "keep_copy refused " + ((made as? CopyResult.Refused)?.why?.javaClass?.simpleName ?: "?"))
-                else try { hand(made.file, g, chosen) } finally { made.file.delete() }
+                else try { hand(made.file, g, chosen, urgent) } finally { made.file.delete() }
             } catch (e: Throwable) { Log.w("Montana", "keep_copy " + e.javaClass.simpleName) }
             finally { renewing = false }
         }
@@ -591,7 +612,7 @@ object KeepCopy {
      * THE COPY HANDED AROUND THE RING (iOS hand): cut at the sixteen slots of a group, every share laid on the nodes ONCE and its road
      * handed to each keeper of its slot -- the ring costs the network a copy and a third, whatever the number of keepers.
      */
-    private fun hand(copy: File, g: Long, keepers: List<String>) {
+    private fun hand(copy: File, g: Long, keepers: List<String>, urgent: Boolean) {
         val n = KeepCode.GROUP
         val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) } ?: return
         val key = KeepDerive.keepKey(master) ?: return
@@ -602,8 +623,9 @@ object KeepCopy {
         try {
             val roads = HashMap<Int, JSONObject>()
             for (k in 0 until n) {
-                // the charger taken away, the phone grown hot, a metered path: the rest of the copy waits for the next renewal
-                val why = bulkHeld()
+                // the charger taken away (unless a new attachment made the copy due), the phone grown hot, a metered path: the rest
+                // of the copy waits for the next renewal
+                val why = bulkHeld(onBattery = urgent)
                 if (why != null) { Log.i("Montana", "keep_hand held at share $k of $n: $why -- the rest waits for the next renewal"); return }
                 Keeping.lay(cut.shares[k])?.let { roads[k] = it }
             }

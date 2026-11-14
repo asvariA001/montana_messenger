@@ -92,6 +92,10 @@ object ChatFolders {
     /** What a conversation is to the folders (iOS kind(of:)). */
     fun kindOf(ref: String, contacts: Set<String>?): String = when {
         Groups.isKey(ref) -> if (Groups.isChannel(ref)) CHANNELS else GROUPS
+        // THE MONTANA ROOM IS A CHANNEL (iOS MTChatFolders.kind, 11c34ed7 at 2389, OZ 1 p.1.5, the author's words 21257 and 21282:
+        // «the official Montana channel with the updates must not stand in the list of chats -- it is a channel»): no group key,
+        // it stood among the person's chats
+        Book.isMontana(ref) -> CHANNELS
         contacts?.contains(ref) == true -> CONTACTS
         else -> NON_CONTACTS
     }

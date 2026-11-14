@@ -2057,8 +2057,11 @@ private fun openTile(act: MainActivity, wall: String, p: JSONObject, i: Int, inF
     Thread {
         val f = Board.file(wall, p, i) ?: return@Thread
         if (kind == "vid") { MainThread.post { FilmActivity.open(act, f) }; return@Thread }
-        // EVERY PICTURE IS SEEN ON ITS OWN (iOS ca301892, the author's word 20455 p.4): no album of the wall's pictures
-        MainThread.post { openPictures(act, f) }
+        // A PICTURE OPENS AMONG ITS POST'S PICTURES (iOS PhotoPresenter.present(_:among: MTBoard.pictures(p)), 11c34ed7 at 2389; the
+        // author's word 21257 p.2): the post's pictures here, a swipe turns the page; still no strip of covers (20455 p.4)
+        val media = p.optJSONArray("media")
+        val among = (0 until (media?.length() ?: 0)).mapNotNull { j -> if (media?.optJSONObject(j)?.optString("kind") != "img") null else if (j == i) f else Board.here(p, j) }
+        MainThread.post { openPictures(act, f, among) }
     }.start()
 }
 
