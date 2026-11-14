@@ -1629,7 +1629,7 @@ private class PostWords(private val open: () -> Unit) : android.text.method.Link
     }
 }
 
-fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null, sources: List<File>? = null, tiles: View? = null): View = act.vstack(Gravity.NO_GRAVITY) {
+fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWall: Boolean = false, sending: Boolean = false, field: View? = null, sources: List<File>? = null, tiles: View? = null, nought: Boolean = false): View = act.vstack(Gravity.NO_GRAVITY) {
     val c: Context = act
     val openComments = { act.push { close -> wallCommentsPage(act, it.wall, it.post.optString("id"), close) } }
     val p = it.post
@@ -1760,9 +1760,12 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
         // the page that writes a post lays its files here (iOS MTBoardComposer: the cell draws them; the page redraws them alone, the field stays)
         tiles?.let { t -> addView(t, lp()) }
         // THE COUNTS (iOS counters 445-487), a row of their own: a mark draws this row again and nothing above it (PostCells)
-        if (sending) return@vstack
+        // THE MARKS AT NOUGHT (iOS 0ba63ede; MTBoardCell `if !sending { counters.allowsHitTesting(draft == nil) }`): the page that writes
+        // a post, the page that edits one and my page's preview draw the row as the wall will, and a touch on it is the post's own
+        if (sending && !nought) return@vstack
         gap(4)
         var counts = postCounts(act, it, whole, openComments)
+        if (nought) { addView(MarksAsleep(c).apply { addView(counts) }, lp()); return@vstack }
         addView(counts, lp())
         // THE EYE REACHES THE PLATE'S CORNER (the author's word 06.11.2026, her finger recorded on A1): a finger aimed at the eye lay 1-14 px
         // under its row and 11 px right of it, on the plate's own padding, so the post took the touch and the hold never came. The plate
@@ -1796,6 +1799,13 @@ fun postCell(act: MainActivity, it: Board.Item, whole: Boolean = false, onItsWal
  * for now»): the like is this phone's own, Save and Repost are real (Board.tableMarked, keep, repost).
  */
 private const val EYE_REACH = "eye"   // NOT-UI: the tag the plate finds its eye by
+
+/** The marks drawn and asleep (iOS allowsHitTesting(false)): every touch passes through them to the post that wears them. */
+private class MarksAsleep(c: Context) : FrameLayout(c) {
+    override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean = true
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    override fun onTouchEvent(e: android.view.MotionEvent): Boolean = false
+}
 
 private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openComments: () -> Unit): View = act.hstack {
     val c: Context = act
@@ -2429,7 +2439,7 @@ private fun postEditor(act: MainActivity, p: JSONObject, onClose: () -> Unit): V
         override fun afterTextChanged(s: android.text.Editable?) { done.isEnabled = changed(); done.alpha = if (done.isEnabled) 1f else 0.4f }
     })
     val page = settingsPage(act, c.getString(R.string.wall_edit_post), onClose, cross = true, trailing = done) {
-        addView(postCell(act, Board.Item("", p), whole = true, onItsWall = true, sending = true, field = field), lp().apply { topMargin = dp(12) })
+        addView(postCell(act, Board.Item("", p), whole = true, onItsWall = true, sending = true, field = field, nought = true), lp().apply { topMargin = dp(12) })
     }
     field.post {
         field.requestFocus()

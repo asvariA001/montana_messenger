@@ -396,7 +396,7 @@ fun newPostPage(act: MainActivity, onClose: () -> Unit, sharedWords: String = ""
         // THE NEW POST'S PAGE IS THE POST ONE TO ONE (iOS MTBoardComposer's MTBoardCell with its draft, 0ba63ede, 24.09): my face,
         // my name and the moment it was begun as the wall will draw them, the words a field where the post's words stand, at the
         // wall's own width; a touch anywhere on the post gives the field the keys again (24.09)
-        addView(postCell(act, Board.Item(wall, draftPost(wall, at, "")), whole = true, onItsWall = true, sending = true, field = field, tiles = tiles).apply {
+        addView(postCell(act, Board.Item(wall, draftPost(wall, at, "")), whole = true, onItsWall = true, sending = true, field = field, tiles = tiles, nought = true).apply {
             setOnClickListener { if (sending == null && !field.hasFocus()) { field.requestFocus(); c.getSystemService(android.view.inputmethod.InputMethodManager::class.java).showSoftInput(field, 0) } }
         }, lp().apply { topMargin = dp(12) })
         addView(picks, lp().apply { topMargin = dp(16) })

@@ -381,7 +381,7 @@ private fun pageDress(act: MainActivity): View {
         setPadding(dp(12), dp(12), dp(12), 0)
         addView(writeFace(act), lp())
         val sample = draftPost("", System.currentTimeMillis() / 1000.0, c.getString(R.string.wall_preview_post)).put("id", "preview")
-        addView(postCell(act, Board.Item("", sample), onItsWall = true, sending = true), lp().apply { topMargin = dp(12) })
+        addView(postCell(act, Board.Item("", sample), onItsWall = true, sending = true, nought = true), lp().apply { topMargin = dp(12) })
     }, lp())
     return body
 }
