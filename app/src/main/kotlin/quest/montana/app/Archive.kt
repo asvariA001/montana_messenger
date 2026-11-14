@@ -29,6 +29,8 @@ object Archive {
     fun isTranscript(ref: String) = ref.startsWith(TRANSCRIPT_HEAD)
     /** A ROW THE ARCHIVE GAVE BACK, ONE OWNER (iOS MTRestoredMid.archive): its mid's head. */
     private const val RESTORED_MID = "arc:"
+    /** NOT-UI: a restored row's file name kept in its text while the file is not on this phone -- its seal asks its sender (Media.restoredFile). */
+    const val KEPT_FILE = "kf"
     fun isRestored(mid: String) = mid.startsWith(RESTORED_MID)
     /** A ROW A CORRESPONDENT GAVE BACK, ONE OWNER (iOS MTRestoredMid.given and wire, bb0ba721): its mid's head, and the one unwrap of
      *  the wire name inside it -- the keeping and the restore read it. */
@@ -259,6 +261,7 @@ object Archive {
             rec.optString("cap").takeIf { c -> c.isNotEmpty() }?.let { c -> man.put("cap", c) }
             rec.optDouble("d", 0.0).takeIf { d -> d > 0 }?.let { d -> man.put("du", d) }
             val file = File(Media.dir(Book.ctx), f).takeIf { x -> x.isFile }?.path
+            if (file == null) man.put(KEPT_FILE, f)   // iOS keeps the row's attachment name: it is the one tie to its letter (6549e6c6)
             out.add(Msg(mid, Marks.MEDIA + man.toString(), it.mine, it.at * 1000, state = state, file = file))
         }
         return out

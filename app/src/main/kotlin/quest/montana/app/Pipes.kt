@@ -2949,6 +2949,15 @@ object Post {
      * (iOS settleRefused → MTGroup.copyRefused).
      */
     private fun cargoReported(ref: String, lost: String) {
+        // A RESTORED PHONE ASKS BY A SEAL (iOS 6549e6c6 serveKeptFile, OZ 2 p.1.1): the letter of mine whose wire name seals to it;
+        // the file goes again under that letter's own name, and the restored row takes the name there (Media.nameRestored)
+        Media.sealOf(lost)?.let { seal ->
+            val m = listOf(ref, SamePair.root(ref)).distinct()
+                .firstNotNullOfOrNull { r -> Book.chat(r)?.msgs?.find { it.mine && it.text.startsWith(Marks.MEDIA) && Media.seal(it.mid) == seal } }
+                ?: return Log.d("Montana", "kept_file seal=$seal no letter of mine with a file by this seal -- nothing to lay").let {}
+            Media.serveKept(Book.ctx, ref, m)
+            return
+        }
         val copy = Groups.copyRow(lost)
         val m = copy ?: Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
         // A RESTORED PHONE ASKS FOR A DELIVERED LETTER'S FILE (iOS 8d68358c, OZ 1 p.10.1): no letter of this name rides any more, the
@@ -3284,7 +3293,10 @@ object Post {
                 // A LETTER CARRYING A SET'S LINK NAMES ITS GIVER (iOS ChatStore 4597-4601): the hand that passed it is whom it is asked of
                 if (text.contains("montana://pack/", ignoreCase = true)) StickerWire.noteLink(text, ref)
                 Book.edit(ref) { c ->
-                    val had = c.msgs.find { it.mid == mid }
+                    var had = c.msgs.find { it.mid == mid }
+                    // A RESTORED ROW TAKES THIS LETTER'S NAME FIRST (iOS 6549e6c6 DeliveryEngine, OZ 2 p.1.1): its sender laid the file
+                    // again for a seal it was asked by; the row stood before its file came, so it is no news and rings nothing (P-218)
+                    if (had == null && text.startsWith(Marks.MEDIA)) had = Media.nameRestored(c.msgs, mid)
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
                     // THE PICTURE CATCHES UP TOO (iOS enrichLinkPreview, MontanaChatStore.swift at 2155, the critic 22.09): the
                     // envelope leg rides without the picture, so a card that came by it carried no face until the mesh copy

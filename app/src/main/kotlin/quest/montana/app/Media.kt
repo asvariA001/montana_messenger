@@ -503,6 +503,8 @@ object Media {
         // A FILE YOUR NODE KEEPS (iOS MTHomeKeep.want, 6f24f091): the cache cleared it, a look brings it back by the download
         // setting, else it waits for a tap as a letter's attachment does -- mine as well as theirs
         if (HomeKeep.kept(m.file)) { HomeKeep.want(c, m); return !autoAllowed(c) }
+        // a restored row without its file has no pieces to fetch by itself: it waits for the tap that asks its sender (iOS 6549e6c6)
+        if (Archive.isRestored(m.mid)) return !m.mine && m.file?.let { File(it).exists() } != true
         return !m.mine && m.file?.let { File(it).exists() } != true && (!autoAllowed(c) || cargoGone(m.mid))
     }
     /**
@@ -520,6 +522,7 @@ object Media {
     fun tapped(c: Context, m: Msg) {
         if (HomeKeep.kept(m.file)) return HomeKeep.bring(c, m, force = true)   // iOS retryOneMedia: a file your node keeps comes back from it
         val ref = Book.rooms().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
+        if (Archive.isRestored(m.mid)) return askRestored(ref, m)   // its pieces were never known here: only its sender holds the file
         askKept(ref, m)
         fetch(c, ref, m.mid, m.text, manual = true)
     }
@@ -539,6 +542,56 @@ object Media {
         if (book.has(name)) return false
         Prefs.setStr(KEPT_ASKS, book.put(name, now).toString())
         true
+    }
+    // A RESTORED ROW ASKS BY ITS FILE'S SEAL (iOS 6549e6c6, OZ 2 p.1.1-1.2, P-215/P-216, the author's words 22141, 22151): a row laid
+    // back from the archive is named «arc:» on this phone alone, and its sender holds no letter by that name. Its file keeps its
+    // letter's name: an iOS file is named by the seal of the letter's wire name (att_/voice_/vnote_ + 16 hex, ChatStore.fileSeal), this
+    // build's by the letter's name itself. So the restored row asks by «seal:» and the 16 hex (or by the bare letter name, a word every
+    // build reads), the sender finds its letter whose name seals to it and lays the file again under the letter's own name, and the
+    // restored row takes that name (nameRestored) -- the copy refills it and no second row is born.
+    const val SEAL = "seal:"   // NOT-UI: a restored row's ask on the wire, never a row's name
+    private val SENT_PREFIXES = listOf("att_", "voice_", "vnote_")   // NOT-UI: an iOS received file's name
+    private fun hex16(s: String) = s.length == 16 && s.all { it in '0'..'9' || it in 'a'..'f' }
+    /** THE ONE SEAL OF A LETTER'S NAME (iOS ChatStore.fileSeal): the 16 hex of sha256 over its wire name, «mid:» and the bare name. */
+    fun seal(name: String): String = Wire.hex(Wire.sha(("mid:" + name.removePrefix("mid:")).toByteArray())).take(16)
+    /** The seal an ask names (seal: and 16 hex), null for any other word (iOS MTRestoredMid.sealOf). */
+    fun sealOf(word: String): String? = word.takeIf { it.startsWith(SEAL) }?.removePrefix(SEAL)?.takeIf(::hex16)
+    /** The file name a restored row was laid back with: its file if it stayed, else the record's name kept in its text (Archive.KEPT_FILE). */
+    fun restoredFile(m: Msg): String? = m.file?.let { File(it).name }
+        ?: runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)).optString(Archive.KEPT_FILE) }.getOrNull()?.ifEmpty { null }
+    /** The word a restored row asks by: an iOS file's seal (seal:…), this build's letter name, null for a name that carries neither. */
+    fun restoredAsk(name: String): String? {
+        val base = name.substringBeforeLast('.')
+        if (SENT_PREFIXES.any { name.startsWith(it) }) return base.takeLast(16).takeIf(::hex16)?.let { SEAL + it }
+        return base.takeIf { Groups.isLetterName(it) && Marks.birthMs(it) != null }
+    }
+    /** THE RESTORED ROW TAKES ITS LETTER'S NAME (iOS ChatStore.nameRestoredRow): a letter with a file comes under a name no row here
+     *  holds, and a row laid back without its file wears a file of that letter -- it is the same letter. The row is laid again under
+     *  the wire name (a group's with its speaker: the archive kept none, and the group's refill lays cargo only into its speaker's row);
+     *  null -- no restored row is this letter's. */
+    fun nameRestored(rows: MutableList<Msg>, mid: String, speaker: String? = null): Msg? {
+        val s = seal(mid)
+        val i = rows.indexOfFirst { m ->
+            if (m.mine || !Archive.isRestored(m.mid) || m.file?.let { File(it).exists() } == true) return@indexOfFirst false
+            val ask = restoredFile(m)?.let(::restoredAsk) ?: return@indexOfFirst false
+            ask == mid || sealOf(ask) == s
+        }
+        if (i < 0) return null
+        val o = rows[i]
+        val n = Msg(mid, o.text, o.mine, o.at, o.state, o.edited, o.qt, o.qm, o.reactions, o.myReact, o.file, o.meta, o.statusAt,
+            o.heard, o.lp, o.from ?: speaker, o.peerReact)
+        rows[i] = n
+        Log.d("Montana", "kept_file m=" + mid.take(8) + " a restored row takes its letter's name -- the copy refills it")
+        return n
+    }
+    /** A restored row's ask (iOS askKeptFile for an «arc:» row): by its file's seal, on the group's own road for a group's row. */
+    private fun askRestored(ref: String, m: Msg) {
+        if (m.mine || m.file?.let { File(it).exists() } == true) return
+        val word = restoredFile(m)?.let(::restoredAsk)
+            ?: run { Log.d("Montana", "kept_file m=" + m.mid.take(16) + " a restored row's file carries no seal -- nobody to ask by it"); return }
+        if (!mayKept("ask:" + word)) { Log.d("Montana", "kept_file m=" + word.take(21) + " asked within the span -- nothing sent"); return }
+        if (Groups.isKey(ref)) Groups.askKeptFile(ref, word) else Post.askKept(ref, word)
+        Log.d("Montana", "kept_file m=" + word.take(21) + " a restored row stands without its file -- its sender is asked")
     }
     /** The receiver's half: their letter's row stands without its file and every store called its pieces gone -- its sender is asked;
      *  a group's letter on the group's own road (iOS ChatStore.tellCargoLost, 11c34ed7 at 2389). */

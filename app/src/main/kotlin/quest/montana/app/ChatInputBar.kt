@@ -283,10 +283,6 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     fun cancelRecording() = record.cancelHold()
     /** The tape rolling is a round note, not a voice (iOS st.video). */
     val recordingNote: Boolean get() = record.note
-    /** The reply at the ear starts a voice tape with no finger (iOS rec.begin(.voice, why: "ear")); false -- it could not start. */
-    fun earStart(): Boolean = record.earStart()
-    /** The phone left the ear: the tape stands locked for the screen to decide (iOS rec.lock(why: "ear")); false -- no tape rolls. */
-    fun earLock(): Boolean = record.earLock()
     /** THE LOCK (iOS MTHoldOverlayView lockPlate): the finger's way up, 0…1, shown over the key; 1 — the tape rolls hands-free. */
     var onRecLift: ((Float) -> Unit)? = null
     var onRecLocked: (() -> Unit)? = null
@@ -522,19 +518,6 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         }
         fun endHold() = finish(cancel = false)
         fun cancelHold() = finish(cancel = true)
-        fun earStart(): Boolean {
-            if (recording) return false
-            val start = onVoiceStart ?: return false
-            st.begin(false, "ear")   // a voice, whatever the key's mode (iOS .voice)
-            if (!start.invoke()) { st.end("start-failed"); return false }
-            field.isEnabled = false; draw()
-            return true
-        }
-        fun earLock(): Boolean {
-            if (!recording || recordingNote) return false
-            lockTape("ear")
-            return true
-        }
         private val video get() = Prefs.str(MODE_KEY, "mic") == "video"
         /** While a tape rolls the key is the send artwork, whole (iOS swell: MTComposeMark .send); at rest the mode's artwork, cut round. */
         private fun draw() {

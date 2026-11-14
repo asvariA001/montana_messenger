@@ -1925,21 +1925,13 @@ object Proximity {
     @Volatile private var near = false
     /** The sensor's word now, as iOS reads UIDevice.proximityState; meaningful while a hand holds the sensor. */
     val isNear: Boolean get() = near
-    /** THE SENSOR'S LAST «NEAR» (iOS MTProximity.lastNearAt, 51fca1bf): one owner of the reading, read by the ear's reply. */
-    @Volatile private var lastNearAt = 0L
-    /** The ear within a window (iOS MTProximity.nearWithin): the sensor says «near» now, or said it within the last `ms`. */
-    fun nearWithin(ms: Long): Boolean = near || android.os.SystemClock.elapsedRealtime() - lastNearAt < ms
-    /** Who hears the sensor change (iOS UIDevice.proximityStateDidChangeNotification): the reply at the ear, on the main thread. */
-    var onChange: ((Boolean) -> Unit)? = null
     private val ear = object : android.hardware.SensorEventListener {
         override fun onSensorChanged(e: android.hardware.SensorEvent) {
             val max = e.sensor?.maximumRange ?: 5f
             val now = e.values.isNotEmpty() && e.values[0] < minOf(max, 5f)
-            if (now) lastNearAt = android.os.SystemClock.elapsedRealtime()
             if (now == near) return
             near = now
             note(if (now) "near" else "far", "sensor")
-            onChange?.invoke(now)
             if (!now && holders.isEmpty()) stopListening()
         }
         override fun onAccuracyChanged(s: android.hardware.Sensor?, a: Int) {}

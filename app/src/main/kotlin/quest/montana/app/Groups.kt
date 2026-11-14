@@ -2828,6 +2828,10 @@ object Groups {
         if (told) save()
         if (id in gone) return Verdict.HELD
         val key = key(g.id)
+        // A RESTORED ROW TAKES ITS LETTER'S NAME AND ITS SPEAKER (iOS 6549e6c6, OZ 2 p.1.2): the file laid again for a seal lands in
+        // the row the archive laid back -- its file's seal is this letter's name -- and no second row is born
+        if (words.startsWith(Marks.MEDIA) && Book.chat(key)?.msgs?.none { it.mid == id } == true)
+            Book.edit(key) { c -> if (c.msgs.none { it.mid == id }) Media.nameRestored(c.msgs, id, speaker(g.id, seat)) }
         // a repeat: the row stands -- with new cargo, the row's file comes (iOS refill, 11c34ed7 at 2389, OZ 1 p.10.1)
         runCatching { Book.chat(key)?.msgs?.firstOrNull { it.mid == id } }.getOrNull()?.let { row -> refill(row, words, id, seat, g, key); return Verdict.HELD }
         if (g.mine) {
@@ -2881,7 +2885,10 @@ object Groups {
     fun askKeptFile(key: String, id: String) {
         synchronized(lock) {
             val g = state(key) ?: return
-            if (g.left || !isLetterName(id)) return
+            // a restored row asks by its file's seal (iOS 6549e6c6, OZ 2 p.1.2): «seal:» is no letter name and was dropped here
+            if (g.left || !isLetterName(id) && Media.sealOf(id) == null) {
+                Log.i("Montana", "kept_file m=" + id.take(21) + " a group letter's file is not asked -- no group held or no name to ask by"); return
+            }
             val w = JSONObject().put("t", "fk").put("g", g.id).put("k", g.kind).put("id", id)
             val targets = if (g.mine) g.members.map { it.pipe } else listOf(g.owner)
             val n = targets.mapNotNull { carry(w, it, "", own = false) }.size
@@ -2893,12 +2900,14 @@ object Groups {
     private fun keptAsked(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.REFUSED
         val id = w.optString("id")
-        if (g.left || !isLetterName(id)) return Verdict.REFUSED
+        if (g.left || !isLetterName(id) && Media.sealOf(id) == null) return Verdict.REFUSED
         val root = SamePair.root(pipe)
         val road = if (g.mine) g.members.any { SamePair.root(it.pipe) == root } else SamePair.root(g.owner) == root
         if (!road) return Verdict.REFUSED
         val key = key(g.id)
-        val row = runCatching { Book.chat(key)?.msgs?.firstOrNull { it.mid == id } }.getOrNull()
+        // a seal finds the letter whose wire name seals to it (iOS 6549e6c6, OZ 2 p.1.2); a letter name finds its own row
+        val seal = Media.sealOf(id)
+        val row = runCatching { Book.chat(key)?.msgs?.firstOrNull { if (seal != null) Media.seal(it.mid) == seal else it.mid == id } }.getOrNull()
             ?.takeIf { it.text.startsWith(Marks.MEDIA) } ?: return Verdict.HELD
         if (row.mine) { Media.serveKept(Book.ctx, key, row); return Verdict.HELD }
         if (!g.mine) return Verdict.HELD
