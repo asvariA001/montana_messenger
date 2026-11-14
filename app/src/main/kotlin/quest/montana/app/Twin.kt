@@ -380,9 +380,9 @@ object Twin {
         val fresh = synchronized(lock) {
             val asked = strings(ASKED)
             val have = asked.toHashSet()
-            val f = items.filter { (s, _, h) -> "$chat/$s/$h" !in have }.take(200)
+            val f = items.filter { (s, _, h) -> askedName(chat, s, h) !in have }.take(200)
             if (f.isEmpty()) return
-            keepStrings(ASKED, (asked + f.map { (s, _, h) -> "$chat/$s/$h" }).takeLast(5000))
+            keepStrings(ASKED, (asked + f.map { (s, _, h) -> askedName(chat, s, h) }).takeLast(5000))
             f
         }
         val js = JSONObject().put("i", JSONArray(fresh.map { (s, mine, h) -> JSONArray().put(s).put(if (mine) 1 else 0).put(h) }))
@@ -392,7 +392,13 @@ object Twin {
     /** How many rows stand asked (iOS mt.twin.asked count): a row unasked changes the archive's face, so the gap is measured again. */
     fun askedCount(): Int = synchronized(lock) { strings(ASKED).size }
     /** A row whose file did not come whole is asked again the next time the gap is measured. */
-    private fun unask(chat: String, s: Long, h: String) = synchronized(lock) { keepStrings(ASKED, strings(ASKED).filter { it != "$chat/$s/$h" }) }
+    private fun unask(chat: String, s: Long, h: String) = synchronized(lock) { keepStrings(ASKED, strings(ASKED).filter { it != askedName(chat, s, h) }) }
+    /**
+     * THE NAME OF ONE ASK, ONE OWNER (iOS askedName, 93023210, the author's word 21972): Saved Messages asks under a name of its own
+     * since iOS 2397 -- before it an iPhone gave back no named row of Saved Messages, and the rows asked then stood «asked» for ever;
+     * a new name asks them once more of a device that now answers.
+     */
+    private fun askedName(chat: String, s: Long, h: String) = (if (chat == Book.SAVED) "$chat#2397" else chat) + "/$s/$h"
 
     /**
      * THE OTHER DEVICE ASKS FOR ROWS ITS ARCHIVE HOLDS AND ITS FEED DOES NOT (iOS ChatStore.giveTwinRows): each row held here under the
@@ -415,6 +421,15 @@ object Twin {
             n++
         }
         Log.d("Montana", "twin_answer chat=" + chat.take(10) + " asked=" + want.size + " given=" + n)
+    }
+    /**
+     * SAVED MESSAGES REACH THE SEED'S OTHER DEVICES AT THEIR BIRTH (iOS 93023210, giveToTwin, P-207, the author's word 21972: «sent to
+     * Saved from T1, nothing on the Mac»): the room has no wire, so no queue and no mirror carried its letter. A row born there -- a
+     * text where it is written, a file where it settles -- is given to the twin by its name, as the answer to the twin's ask gives it.
+     */
+    fun born(chat: String, mid: String) {
+        if (chat != Book.SAVED || MontanaSeed.twin == null) return
+        ex.execute { Book.chat(chat)?.msgs?.firstOrNull { it.mid == mid && it.mine }?.let { m -> give(chat, m); Log.d("Montana", "twin_give saved") } }
     }
     private fun give(chat: String, m: Msg) {
         val o = JSONObject()

@@ -2111,7 +2111,7 @@ object Post {
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
         if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
         // THE ROOM WITHOUT AN ADDRESS HAS NO WIRE (iOS isLocalRoom): its own letter is settled where it was written, never queued
-        if (Book.isLocal(to0)) { Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; return }
+        if (Book.isLocal(to0)) { Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; Twin.born(to0, mid); return }
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         var refused = false
         synchronized(outLock) {

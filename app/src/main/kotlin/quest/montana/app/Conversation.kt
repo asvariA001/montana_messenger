@@ -1989,7 +1989,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (!earReply) return@later android.util.Log.d("Montana", "voice_ear_reply left before the tone ended").let {}
             when {
                 !Proximity.isNear -> { android.util.Log.d("Montana", "voice_ear_reply far after the tone"); endEarReply() }
-                bar.earStart() -> android.util.Log.d("Montana", "voice_ear_reply record")
+                // A TAPE WITH NO FINGER STANDS LOCKED FROM ITS FIRST SECOND (iOS 93023210, P-206, the author's word 21886 p.1: «at
+                // the ear, no recording, and the buttons vanished from the bar»): begun at the ear it rolled in the held shape with
+                // no finger, and its controls came only with the lock taken when the phone left the ear -- a far the page did not
+                // hear left a tape with no bin and no arrow. The lock is taken at once; leaving the ear pauses it (endEarReply).
+                bar.earStart() -> { bar.earLock(); android.util.Log.d("Montana", "voice_ear_reply record") }
                 else -> { android.util.Log.d("Montana", "voice_ear_reply the tape did not start"); endEarReply() }
             }
         }
@@ -4090,7 +4094,13 @@ private fun gifBody(c: Context, m: Msg, f: java.io.File?, into: LinearLayout): I
                     setPadding(c.dp(10), c.dp(10), c.dp(10), c.dp(10))
                 }, FrameLayout.LayoutParams(c.dp(52), c.dp(52), Gravity.CENTER))
                 setOnClickListener { Media.tapped(c, m) }
-            } else addView(android.widget.ProgressBar(c).also { spinner = it }, FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+            } else {
+                addView(android.widget.ProgressBar(c).also { spinner = it }, FrameLayout.LayoutParams(c.dp(36), c.dp(36), Gravity.CENTER))
+                // A GIF WITHOUT ITS FILE TAKES THE DOCUMENT'S ROAD ON A TAP (iOS 31d48a28, P-214, the author's word 22098: every phone
+                // is a keeper): a phone installed anew holds the letter and no file, and its keeper was never asked -- the tap asks
+                // the letter's keeper again and fetches, as every other kind does
+                setOnClickListener { Media.tapped(c, m) }
+            }
         }
         // ONE INDICATOR ON THE PLATE (iOS gifBubble .overlay { mediaProgressOverlay }): the pill top-left over the dim, going or coming
         addView(TransferMark(c, m.mid, null, spinner), FrameLayout.LayoutParams(MATCH, MATCH))

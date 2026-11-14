@@ -172,18 +172,30 @@ object VoiceTape {
 }
 
 /**
- * THE EAR TONE (iOS MontanaEarTone, MontanaMedia.swift:3217-3250 at 2155, the author's words 14.09 and 16.09): one dull low note,
- * as a dictaphone marks the start of a tape -- 320 Hz for a seventh of a second, a soft rise and a long fall, an eighth of the
- * amplitude -- played through the voice's own road, so it lands where the voice landed, the receiver at the ear. Built in memory.
+ * THE EAR TONE (iOS MontanaEarTone, 93023210, P-210, the author's word 21984, 14.11.2026: «a short, dull bell, pleasant to the ear,
+ * as the native one of Voice Memos, that my voice message began»; before it 16.09: duller than three bright notes): the one note of
+ * 320 Hz at an eighth of the amplitude stood under the hearing at the receiver. Two soft notes upward, as the recorder's start sounds
+ * -- A4 then D5, 70 and 130 ms -- each struck softly and dying fast, a quiet second harmonic for warmth, no bright edge; played
+ * through the voice's own road, so it lands where the voice landed, the receiver at the ear. Built in memory.
  */
 object EarTone {
     fun play() {
         val rate = 44_100
-        val count = (rate * 0.14).toInt()
-        val pcm = ShortArray(count) { i ->
-            val env = minOf(1.0, i / 900.0, (count - i) / 3000.0)   // no clicks, no edge at all
-            (Math.sin(2 * Math.PI * 320.0 * i / rate) * 0.12 * env * 32767).toInt().toShort()
+        val notes = listOf(440.0 to 0.07, 587.33 to 0.13)
+        val pcm = ShortArray(notes.sumOf { (rate * it.second).toInt() })
+        var at = 0
+        for ((hz, s) in notes) {
+            val n = (rate * s).toInt()
+            for (i in 0 until n) {
+                val t = i.toDouble() / rate
+                val attack = minOf(1.0, i / 220.0)           // 5 ms: struck, never clicked
+                val tail = minOf(1.0, (n - i) / 400.0)       // the last 9 ms close to silence
+                val env = attack * tail * Math.exp(-t * 18)  // the strike dies fast: dull, not ringing
+                val wave = Math.sin(2 * Math.PI * hz * t) + 0.18 * Math.sin(4 * Math.PI * hz * t)
+                pcm[at++] = (wave * 0.36 * env * 32767).toInt().coerceIn(-32768, 32767).toShort()
+            }
         }
+        val count = pcm.size
         val ok = runCatching {
             val t = android.media.AudioTrack.Builder()
                 .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION).setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build())

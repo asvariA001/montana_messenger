@@ -519,12 +519,13 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
     private val slop = android.view.ViewConfiguration.get(act).scaledTouchSlop
     private var downX = 0f; private var downY = 0f; private var startT = 0f
     private var dragging = false
+    private var away = false   // the open drawer's own sideways stroke to the right (iOS swipeAway)
     private var tracker: android.view.VelocityTracker? = null
 
     override fun onInterceptTouchEvent(e: android.view.MotionEvent): Boolean {
         when (e.actionMasked) {
             android.view.MotionEvent.ACTION_DOWN -> {
-                downX = e.x; downY = e.y; dragging = false
+                downX = e.x; downY = e.y; dragging = false; away = false
                 tracker?.recycle(); tracker = android.view.VelocityTracker.obtain().also { it.addMovement(e) }
             }
             android.view.MotionEvent.ACTION_MOVE -> {
@@ -533,7 +534,16 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
                 if (!dragging && kotlin.math.abs(dx) > slop && kotlin.math.abs(dx) > 1.5f * kotlin.math.abs(dy)) {
                     // THE ROW'S LEFT END (iOS turnAtRowStart): the pages turn under the stroke; past the first page a stroke to
                     // the right is the drawer's; with the drawer open, a stroke to the left closes it.
-                    if (isOpen) { if (dx > 0) return false }
+                    // THE OPEN DRAWER CLOSES BY A SIDEWAYS STROKE ANYWHERE ON IT (iOS swipeAway, 93023210, P-209, the author's word
+                    // 21981: «a swipe from left to right from any place of the side panel must close it»): a flat stroke to the
+                    // right was nobody's; it is the drawer's now and closes it at the release, past 40 or quick
+                    if (isOpen) {
+                        if (dx > 0) {
+                            away = true; dragging = true
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                            return true
+                        }
+                    }
                     else if (turner?.begin(if (dx < 0) 1 else -1) == true) {
                         turning = true; dragging = true; downX = e.x
                         parent?.requestDisallowInterceptTouchEvent(true)
@@ -562,6 +572,7 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
         when (e.actionMasked) {
             android.view.MotionEvent.ACTION_MOVE -> {
                 if (turning) { turner?.move(e.x - downX); return true }
+                if (away) return true
                 val t = (startT + e.x - downX).coerceIn(0f, width78.toFloat())
                 page.translationX = t
                 dim.alpha = DIM * t / width78.coerceAtLeast(1)
@@ -572,6 +583,15 @@ class DrawerShell(private val act: MainActivity) : FrameLayout(act) {
                 val v = tracker?.xVelocity ?: 0f
                 tracker?.recycle(); tracker = null
                 if (turning) { turning = false; turner?.end(e.x - downX, v); return true }
+                if (away) {
+                    away = false
+                    val dx = e.x - downX
+                    if (e.actionMasked == android.view.MotionEvent.ACTION_UP && (kotlin.math.abs(dx) > dp(40) || kotlin.math.abs(v) > dp(300))) {
+                        android.util.Log.d("Montana", "drawer swipe-away dx=" + dx.toInt() + " v=" + v.toInt())
+                        settle(false)
+                    }
+                    return true
+                }
                 val fling = dp(400)
                 settle(if (kotlin.math.abs(v) > fling) v > 0 else page.translationX > width78 / 2f)
             }
@@ -738,6 +758,13 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     }
     private var foldLaid = false
     private lateinit var drawerGlyph: ImageView
+    private val mutedBadge: View = FrameLayout(act).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.red) }
+        addView(act.icon(R.drawable.ic_speaker_slash, Color.WHITE, 11), LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        contentDescription = act.getString(R.string.notifications)
+        visibility = View.GONE
+        setOnClickListener { act.push { notificationsPage(act, it) } }
+    }
     private var refused = false
     private var authzSaid: Boolean? = null
     /**
@@ -750,8 +777,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         if (authzSaid != on) { authzSaid = on; android.util.Log.i("Montana", "NOTIFY-AUTHZ on=" + (if (on) 1 else 0) + " refused=" + (if (no) 1 else 0) + " why=" + why) }
         if (no == refused) return
         refused = no
-        drawerGlyph.setImageResource(if (no) R.drawable.ic_speaker_slash else R.drawable.ic_bar_drawer)
-        drawerGlyph.contentDescription = if (no) act.getString(R.string.notifications) else null
+        mutedBadge.visibility = if (no) View.VISIBLE else View.GONE
     }
     // the person comes back from the system's settings, or from the question's own window: the answer is read again
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
@@ -764,11 +790,9 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         background = act.glassPlate()
         addView(puck, LayoutParams(0, 0))
         addView(row, LayoutParams(MATCH, MATCH))
-        // THE CROSSED SPEAKER IN THE MENU'S PLACE (iOS MTNotifyAllowed and barSlot(0), MontanaChatsList.swift:351-358 and
-        // MontanaP2PNode.swift:1228-1247 at 2155; atom 562ac469509d, the author's word 06.10 20:5x): while the system refuses the
-        // notifications the first slot says so and opens the notifications' page; the drawer stays one stroke from the left edge
-        drawerGlyph = glyph(R.drawable.ic_bar_drawer, 26) { if (refused) act.push { notificationsPage(act, it) } else onDrawer(it) }
-        readNotify("entry")
+        // THE FIRST SLOT KEEPS ITS OWN GLYPH AND WAY WHATEVER THE SYSTEM ANSWERED (iOS 93023210, P-208, the author's word 21970: «remove
+        // the replacement of this button»): the refused notifications are a badge over the logo (mutedBadge), never a button taken
+        drawerGlyph = glyph(R.drawable.ic_bar_drawer, 26) { onDrawer(it) }
         glyph(R.drawable.ic_bar_contacts, 26) { onPane(Pane.CONTACTS) }
         glyph(R.drawable.ic_bar_calls, 26, badge = callsBadge) { onPane(Pane.CALLS) }
         // THE LOGO ON THE GLASS (iOS MTFeedGlyph): the gold sign on a round glass plate, a quarter of its side around it.
@@ -787,6 +811,14 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
                 addView(ring, LayoutParams(MATCH, MATCH))
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
             addView(logoBadge, LayoutParams(WRAP, dp(20), Gravity.CENTER))
+            // THE MUTED SOUND IS A BADGE OVER THE LOGO, NOT A BUTTON TAKEN (iOS MTMutedBadge, 93023210, P-208, the author's word 21970):
+            // while the system refuses the notifications, a small crossed speaker in a red circle -- the count badge's size and fill --
+            // stands over the logo's top-leading edge and opens the notifications' page
+            addView(mutedBadge, LayoutParams(dp(20), dp(20), Gravity.CENTER).also {
+                mutedBadge.translationX = -dp(16).toFloat()
+                mutedBadge.translationY = -dp(36) / 2f - dp(4) + dp(10)
+            })
+            readNotify("entry")
             logoBadge.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
                 v.translationX = dp(36) / 2f + dp(10) - v.width / 2f
                 v.translationY = -dp(36) / 2f - dp(4) + v.height / 2f

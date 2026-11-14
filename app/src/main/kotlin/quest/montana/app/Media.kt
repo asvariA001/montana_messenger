@@ -225,7 +225,7 @@ object Media {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = told } }
             }
             // THE LOCAL ROOM KEEPS ITS FILE (iOS isLocalRoom): nothing is sealed or laid -- the letter is settled with the file beside it
-            if (Book.isLocal(ref)) { Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(2) }; return@work }
+            if (Book.isLocal(ref)) { Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(2) }; Twin.born(ref, mid); return@work }
             if (deliver(c, ref, mid, pw, caption, local, qt, group)) return@work
             // THE INTENT SURVIVES ITS BROKEN UPLOAD (iOS 1675, 1677): the bubble stands at the clock and the upload waits for the drain
             keepIntent(ref, mid, local, told, caption, qt)
@@ -960,8 +960,20 @@ object MediaPlace {
     private val missedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
     private const val REST_MS = 3_000L
 
+    /**
+     * THE LOOK TELLS WHOM IT ANSWERS (iOS 31d48a28, P-213, the author's words 22009, 22055-22064: a GIF stood as a dark plate while
+     * its file lay whole): a bubble asked while the launch's look was on its way was answered «not there» and rested three seconds;
+     * nothing drew it again, so it stood on that first answer. A name the look learns while someone had asked it is told: the rows
+     * draw again once.
+     */
     fun warm(c: Context) = Thread {
-        runCatching { Media.dir(c).listFiles()?.forEach { if (it.isFile && !it.name.endsWith(".part")) standing.putIfAbsent(it.path, true) } }
+        var asked = 0
+        runCatching {
+            Media.dir(c).listFiles()?.forEach {
+                if (it.isFile && !it.name.endsWith(".part") && standing.putIfAbsent(it.path, true) == null && missedAt.remove(it.path) != null) asked++
+            }
+        }
+        if (asked > 0) { Log.d("Montana", "media_place told=$asked"); Book.redraw() }
     }.start()
 
     fun has(path: String?): Boolean {
