@@ -60,6 +60,8 @@ class BoxJob : JobService() {
 
 /** The app's first breath, whatever woke it — the screen, the music, or the box job: the job is laid if it is not. */
 class MontanaApp : Application() {
+    /** Before Android 13 the app's context speaks the chosen language too: the notifications, the services' words (iOS 8a91d3b3). */
+    override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(AppLanguage.wrap(base))
     override fun onCreate() {
         super.onCreate()
         BoxJob.schedule(this)

@@ -211,11 +211,26 @@ object AppLanguage {
                 if (id.isEmpty()) LocaleList.getEmptyLocaleList() else LocaleList.forLanguageTags(tag(id))
         } else act.recreate()
     }
-    /** Before Android 13: the chosen language laid over the context the activity starts with. */
+    /** The system's own locale as the process was born with it, before any choice of ours was laid over the default. */
+    private val system: java.util.Locale by lazy { java.util.Locale.getDefault() }
+    /**
+     * Before Android 13: the chosen language laid over the context the activity starts with -- and over the process's
+     * default locale, so EVERY FORMATTER THAT SPEAKS WORDS SPEAKS THE ONE LANGUAGE (iOS 8a91d3b3, MTLanguage.locale: the
+     * contacts' minutes, the weekday, the month stayed in the system's language on a phone switched to another): the chosen
+     * language under the system's region, so the clock keeps the region's hours. From Android 13 the platform's per-app
+     * language sets the default itself.
+     */
     fun wrap(base: Context): Context {
         if (Build.VERSION.SDK_INT >= 33) return base
         val id = base.getSharedPreferences("mt.lang", Context.MODE_PRIVATE).getString(KEY, "") ?: ""
-        if (id.isEmpty()) return base
+        val sys = system
+        if (id.isEmpty()) { java.util.Locale.setDefault(sys); return base }
+        val chosen = java.util.Locale.forLanguageTag(tag(id))
+        val spoken = runCatching {
+            java.util.Locale.Builder().setLanguage(chosen.language).setRegion(sys.country)
+                .apply { if (chosen.language == "zh") setScript("Hans") }.build()
+        }.getOrDefault(chosen)
+        java.util.Locale.setDefault(spoken)
         val conf = android.content.res.Configuration(base.resources.configuration)
         conf.setLocales(LocaleList.forLanguageTags(tag(id)))
         return base.createConfigurationContext(conf)
