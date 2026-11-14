@@ -159,11 +159,13 @@ enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS
 /**
  * WHERE THE TIME PANEL STANDS (iOS MontanaOctagon.barBottomKey, b9b212d4, OZ 1 p.1.8.1, the author's words 21179 and 21207): at the
  * top, as it always stood, or at the bottom of the screen -- the person's choice in Appearance under one key. iOS is born at the
- * bottom in Messenger and at the top in the Protocol; Android is one edition and keeps the top it always had until the author's word.
+ * bottom in Messenger and at the top in the Protocol; Android is one edition and is born at the bottom (the author's word 14.11.2026:
+ * «давай пока оставим внизу»).
  */
 object BarPlace {
     const val KEY = "timePanelBottom"   // NOT-UI: a stored setting's name, the same as iOS
-    val bottom: Boolean get() = Prefs.bool(KEY, false)
+    const val BIRTH = true               // with no choice made, the panel stands at the bottom (iOS barBottomBirth of Messenger)
+    val bottom: Boolean get() = Prefs.bool(KEY, BIRTH)
     /** The main screen moves the panel at once when the choice changes (iOS @AppStorage redraws). */
     var moved: ((Boolean) -> Unit)? = null
     fun choose(bottom: Boolean) { Prefs.setBool(KEY, bottom); moved?.invoke(bottom) }
