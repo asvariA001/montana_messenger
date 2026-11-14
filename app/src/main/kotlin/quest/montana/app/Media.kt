@@ -529,7 +529,7 @@ object Media {
     private const val KEPT_ASKS = "keptFileAsks"   // NOT-UI: a key's name
     private const val KEPT_SPAN = 6 * 3600_000L
     /** THE ONE CLOCK OF A KEPT FILE'S ASK AND ANSWER: true with the moment kept, false while the last one is younger than the span. */
-    private fun mayKept(name: String): Boolean = synchronized(KEPT_ASKS) {
+    fun mayKept(name: String): Boolean = synchronized(KEPT_ASKS) {
         val now = System.currentTimeMillis()
         val old = runCatching { JSONObject(Prefs.str(KEPT_ASKS, "{}")) }.getOrNull() ?: JSONObject()
         val book = JSONObject()
@@ -538,12 +538,12 @@ object Media {
         Prefs.setStr(KEPT_ASKS, book.put(name, now).toString())
         true
     }
-    /** The receiver's half: their letter's row stands without its file and every store called its pieces gone -- its sender is asked.
-     *  A group's letter is not asked here (iOS: the group's road has its own half). */
+    /** The receiver's half: their letter's row stands without its file and every store called its pieces gone -- its sender is asked;
+     *  a group's letter on the group's own road (iOS ChatStore.tellCargoLost, 11c34ed7 at 2389). */
     private fun askKept(ref: String, m: Msg) {
-        if (m.mine || Groups.isKey(ref) || m.file?.let { File(it).exists() } == true || !cargoGone(m.mid)) return
+        if (m.mine || m.file?.let { File(it).exists() } == true || !cargoGone(m.mid)) return
         if (!mayKept("ask:" + m.mid)) { Log.d("Montana", "kept_file m=" + m.mid.take(8) + " asked within the span -- nothing sent"); return }
-        Post.askKept(ref, m.mid)
+        if (Groups.isKey(ref)) Groups.askKeptFile(ref, m.mid) else Post.askKept(ref, m.mid)
         Log.d("Montana", "kept_file m=" + m.mid.take(8) + " the row stands without its file -- its sender is asked")
     }
     /** The holder's half: a cargo-lost word about a letter already delivered is a restored phone asking; the file still on this disk is
@@ -585,6 +585,8 @@ object Media {
                     if (chunks != null && (0 until chunks.length()).any { Wire.isGone(chunks.getJSONObject(it).optString("bid")) }) {
                         markGone(mid); Book.edit(ref) { }   // the row's spinner gives way to the tap's arrow
                         if (!own && !Groups.isKey(ref)) Post.cargoLost(ref, mid)
+                        // a group's key is no pipe: the group's own road asks the letter's author (iOS tellCargoLost, OZ 1 p.1.1)
+                        else if (!own && mayKept("ask:" + mid)) Groups.askKeptFile(ref, mid)
                     }
                     return@Thread
                 }

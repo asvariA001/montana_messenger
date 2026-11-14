@@ -688,7 +688,11 @@ object Groups {
                 Log.i("Montana", "group_refused media -- group=" + (if (g == null) 0 else 1))
                 return false
             }
-            val n = spread(word("say", g).put("id", mid).put("s", g.me).put("tx", letter).also { dress(it, g) }, g, null, own = true)
+            val w = word("say", g).put("id", mid).put("s", g.me).put("tx", letter).also { dress(it, g) }
+            // A KEPT FILE LAID AGAIN UNDER ITS CARRIED LETTER (iOS carryMedia, 11c34ed7 at 2389, OZ 1 p.10.1): the row stands everywhere,
+            // nobody is rung
+            if (runCatching { Book.chat(key)?.msgs?.any { it.mine && it.mid == mid && 2 <= it.state } }.getOrNull() == true) w.put("hs", 1)
+            val n = spread(w, g, null, own = true)
             if (n == 0 && alone(g)) { Book.edit(key) { c -> c.msgs.find { it.mid == mid }?.advance(2) }; return true }   // held here (A.2)
             return n > 0
         }
@@ -2554,6 +2558,7 @@ object Groups {
             "sp" -> passported(w, pipe)   // COMPAT-GATED: a sticker's passport (iOS 17.10, 2df34a13), an older build buries it
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "pc" -> cardLaid(w, pipe)   // COMPAT-GATED: a member's card (iOS 07d5fc70, OZ 1 p.8), laid only where the owner names seats
+            "fk" -> keptAsked(w, pipe)   // COMPAT-GATED: a restored phone asks a group letter's file again (iOS 11c34ed7, OZ 1 p.10.1)
             "kp" -> Verdict.HELD   // an older build's «kept» word: taken, told to nobody (iOS 2358, 16165 p.5)
             "cm" -> commented(w, pipe)   // COMPAT-GATED: a comment under a channel's post (iOS MTChannelComments, 2315)
             "vw" -> seen(w, pipe)   // COMPAT-GATED: a subscriber's posts shown, to a channel's owner (iOS 17.10)
@@ -2728,7 +2733,8 @@ object Groups {
         if (told) save()
         if (id in gone) return Verdict.HELD
         val key = key(g.id)
-        if (Book.chat(key)?.msgs?.any { it.mid == id } == true) return Verdict.HELD   // a repeat: the row stands
+        // a repeat: the row stands -- with new cargo, the row's file comes (iOS refill, 11c34ed7 at 2389, OZ 1 p.10.1)
+        runCatching { Book.chat(key)?.msgs?.firstOrNull { it.mid == id } }.getOrNull()?.let { row -> refill(row, words, id, seat, g, key); return Verdict.HELD }
         if (g.mine) {
             // THE GROUP'S PERMISSIONS AT THE DOOR (iOS heard, G.5): the owner carries every letter, so the owner refuses what the members
             // may not send -- whatever a member's build shows -- and holds a letter that came inside its slow mode's interval: it knocks again
@@ -2769,6 +2775,58 @@ object Groups {
             spread(on, g, seat, own = false)
         }
         return Verdict.HELD
+    }
+
+    // A GROUP LETTER'S FILE ASKED FOR AGAIN (iOS MTGroup askKeptFile / keptAsked / refill, 11c34ed7 at 2389, OZ 1 p.10.1; decisions
+    // 875 = a, 883 = a): a phone restored from the light copy holds the group's rows and none of their files, and a delivered letter's
+    // pieces have left the nodes. It asks by «fk» on the group's own road -- a member the owner, the owner every member; the letter's
+    // author lays the file again under the same name (Media.serveKept, carryMedia), the owner carries the new cargo on, and the row
+    // without its file takes it. Each side keeps the one clock of a kept file (Media.mayKept).
+    /** The asker's half (Media holds its clock): one word to everyone this phone carries to; its receipts move no row. */
+    fun askKeptFile(key: String, id: String) {
+        synchronized(lock) {
+            val g = state(key) ?: return
+            if (g.left || !isLetterName(id)) return
+            val w = JSONObject().put("t", "fk").put("g", g.id).put("k", g.kind).put("id", id)
+            val targets = if (g.mine) g.members.map { it.pipe } else listOf(g.owner)
+            val n = targets.mapNotNull { carry(w, it, "", own = false) }.size
+            Log.i("Montana", "kept_file m=" + id.take(8) + " a group letter's file is asked n=" + n)
+        }
+    }
+    /** The holder's half: the letter's author lays its file again; the owner, not its author, passes the ask to the author's seat
+     *  once in the span; anyone else holds the word. Only the group's own road asks. */
+    private fun keptAsked(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.optString("g")] ?: return Verdict.REFUSED
+        val id = w.optString("id")
+        if (g.left || !isLetterName(id)) return Verdict.REFUSED
+        val root = SamePair.root(pipe)
+        val road = if (g.mine) g.members.any { SamePair.root(it.pipe) == root } else SamePair.root(g.owner) == root
+        if (!road) return Verdict.REFUSED
+        val key = key(g.id)
+        val row = runCatching { Book.chat(key)?.msgs?.firstOrNull { it.mid == id } }.getOrNull()
+            ?.takeIf { it.text.startsWith(Marks.MEDIA) } ?: return Verdict.HELD
+        if (row.mine) { Media.serveKept(Book.ctx, key, row); return Verdict.HELD }
+        if (!g.mine) return Verdict.HELD
+        val to = speakerPipe(row.from) ?: return Verdict.HELD
+        if (SamePair.root(to) == root || !Media.mayKept("pass:" + id)) return Verdict.HELD
+        carry(JSONObject().put("t", "fk").put("g", g.id).put("k", g.kind).put("id", id), to, "", own = false)
+        Log.i("Montana", "kept_file m=" + id.take(8) + " the ask passes to the letter's author")
+        return Verdict.HELD
+    }
+    /** A REPEAT WITH NEW CARGO: the author laid a letter's file again under its name. The row without its file takes it; the owner
+     *  carries the new cargo on once in the span, silent -- the row stands everywhere already. Only the row's own speaker lays it. */
+    private fun refill(row: Msg, words: String, id: String, seat: String, g: State, key: String) {
+        if (!words.startsWith(Marks.MEDIA) || words == row.text || row.mine || row.from != speaker(g.id, seat)) return
+        if (row.file?.let { java.io.File(it).exists() } != true) {
+            Book.edit(key) { c -> c.msgs.find { it.mid == id }?.let { it.text = words; it.meta = null } }
+            Media.liftGone(id)
+            Log.i("Montana", "rx_refill m=" + id.take(8) + " a group row stands without its file -- the new cargo is taken")
+            Media.fetch(Book.ctx, key, id, words)
+        }
+        if (!g.mine || !Media.mayKept("carry:" + id)) return
+        val on = JSONObject().put("t", "say").put("g", g.id).put("k", g.kind).put("ti", g.title).put("id", id).put("s", seat).put("tx", words)
+            .put("hs", 1)   // the row stands everywhere: the new cargo rings nobody
+        spread(on, g, seat, own = false)
     }
 
     /**
