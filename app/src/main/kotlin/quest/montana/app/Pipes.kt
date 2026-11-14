@@ -2112,7 +2112,7 @@ object Book {
         }
         FloorGuard.wipe(); Archive.forgetPurge()   // the clock guard and the purge's mark are this seat's, as the book (iOS SeedScope.seatKeys)
         File(ctx.filesDir, "faces").deleteRecursively()
-        DeviceVault.delete(Post.OUTBOX)
+        DeviceVault.delete(Post.OUTBOX); DeviceVault.delete(Post.RESTORED)
         Meeting.wipe(); SamePair.wipe(); Groups.wipe(); PeerLinks.wipe(); Retired.forget()
         CoinBook.setAside()   // the book of a person forgotten leaves with them (iOS MTCoinPlace.setAside)
         // NOTHING OF THE PERSON OUTLIVES THEM ON THIS PHONE BUT WHAT THE WORDS ALONE REOPEN (iOS SeedScope.forget; the absolute privacy,
@@ -2246,6 +2246,67 @@ object Post {
             for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optString("m") != mid) keep.put(it) }
             if (keep.length() != a.length()) keepOutbox(keep)
         }
+    }
+    /**
+     * THE LETTERS ON THEIR WAY TRAVEL IN THE COPY (iOS SeedScope.outboxNow, MontanaBackup outboxTag «q:outbox», cc147308): a restore
+     * turned every row «sending» red, the queue stayed behind. The copy carries it in iOS's own form (MTOutbox.Item: to, chat, mid,
+     * text, silent, since, tries, lastTry, kind), so an iPhone's copy and ours read each other; null when nothing waits.
+     */
+    fun carried(): ByteArray? {
+        val a = synchronized(outLock) { outbox() }
+        if (a.length() == 0) return null
+        val now = System.currentTimeMillis() / 1000.0
+        val out = JSONArray()
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            val to = o.optString("to"); val mid = o.optString("m")
+            if (to.isEmpty() || mid.isEmpty()) continue
+            out.put(JSONObject().put("to", to).put("chat", SamePair.root(to)).put("mid", mid).put("text", o.optString("t"))
+                .put("silent", o.optBoolean("q", false)).put("since", now).put("tries", 0).put("lastTry", 0.0).put("kind", "letter")
+                .apply { for (f in listOf("qt", "qm", "lp")) o.optString(f).takeIf { it.isNotEmpty() }?.let { put(f, it) } })
+        }
+        return if (out.length() == 0) null else out.toString().toByteArray()
+    }
+    /** A copy's letters, held until the archive's heads stand their pipes again (iOS restoredOutbox / mt.restore.outbox). */
+    const val RESTORED = "mt.restore.outbox"   // NOT-UI
+    /**
+     * THE QUEUE WAITS FOR ITS CHANNELS (iOS takeStored, cc147308): to the drain a letter whose pipe this device does not hold yet has no
+     * road and turns red. A laid copy's letters are kept aside, in either form (iOS mid/text/silent, an older Android m/t/q), and join
+     * the queue only once the archive's heads have re-established the pipes (adoptRestored).
+     */
+    fun holdRestored(raw: ByteArray) {
+        val a = runCatching { JSONArray(String(raw, Charsets.UTF_8)) }.getOrNull() ?: return
+        val held = DeviceVault.get(RESTORED)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
+        val have = HashSet<String>()
+        for (i in 0 until held.length()) held.optJSONObject(i)?.optString("m")?.let { have.add(it) }
+        for (i in 0 until a.length()) {
+            val o = a.optJSONObject(i) ?: continue
+            val to = o.optString("to"); val mid = o.optString("mid").ifEmpty { o.optString("m") }
+            val text = if (o.has("text")) o.optString("text") else o.optString("t")
+            if (to.isEmpty() || mid.isEmpty() || text.isEmpty() || !have.add(mid)) continue
+            held.put(JSONObject().put("to", to).put("m", mid).put("t", text).put("qt", o.optString("qt")).put("qm", o.optString("qm"))
+                .put("lp", o.optString("lp")).apply { if (o.optBoolean("silent", false) || o.optBoolean("q", false)) put("q", true) })
+        }
+        if (held.length() > 0) DeviceVault.set(RESTORED, held.toString().toByteArray())
+        Log.i("Montana", "queue_held letters=" + held.length())
+    }
+    /** The pipes stand (Archive.restore): the copy's letters join the queue, one place per letter, and ride at once (iOS adoptRestored). */
+    fun adoptRestored() {
+        val raw = DeviceVault.get(RESTORED) ?: return
+        val items = runCatching { JSONArray(String(raw, Charsets.UTF_8)) }.getOrNull()
+        var fresh = 0
+        val kept = synchronized(outLock) {
+            val a = outbox()
+            val have = HashSet<String>()
+            for (i in 0 until a.length()) a.optJSONObject(i)?.optString("m")?.let { have.add(it) }
+            if (items != null) for (i in 0 until items.length()) items.optJSONObject(i)?.let { if (have.add(it.optString("m"))) { a.put(it); fresh++ } }
+            fresh == 0 || keepOutbox(a)
+        }
+        if (!kept) return   // the stored queue does not open: the copy's letters wait for a read that does
+        DeviceVault.delete(RESTORED)
+        if (fresh == 0) return
+        Log.i("Montana", "queue_restored letters=$fresh")
+        Thread { flush() }.start()
     }
     /**
      * «CANNOT READ» IS NOT «EMPTY» (iOS storeUnreadable, MontanaDeliveryEngine 602-609, 662-700; atom e6cb9251482f): a stored queue

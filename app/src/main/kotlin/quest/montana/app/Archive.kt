@@ -307,7 +307,7 @@ object Archive {
         // and asked rows stand as at the last whole reading would find the same gaps and build nothing, so it reads no log; any change
         // (a block written, a chat born or emptied, a pipe, a row unasked) changes the face, and the archive is read
         val face = if (only == null) face(chatsDir, folders) else null
-        if (face != null && face == Prefs.str(FACE_KEY, "")) { Log.d("Montana", "archive_same chats=" + Book.held().size); return }
+        if (face != null && face == Prefs.str(FACE_KEY, "")) { Log.d("Montana", "archive_same chats=" + Book.held().size); Post.adoptRestored(); return }
         val book = convBook()
         val pipesBefore = Book.refs().size
         var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0; var retired = 0
@@ -417,6 +417,7 @@ object Archive {
         if (0 < faces) Book.dropSharedFaces()
         if (0 < retired) Log.d("Montana", "archive_named transcripts=" + retired)
         if (0 < gapRows) Log.d("Montana", "archive_gap total chats=" + gapChats + " rows=" + gapRows)
+        Post.adoptRestored()   // the pipes stand: a laid copy's letters join the queue only now (iOS afterPipes → adoptRestored, cc147308)
         if (Book.refs().size > pipesBefore) Presence.peersGrew()   // the grown book is greeted and asked for its faces at once (iOS 3ed661fa)
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
         if (face != null) Prefs.setStr(FACE_KEY, face)

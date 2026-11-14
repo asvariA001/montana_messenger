@@ -682,6 +682,7 @@ object Card {
      * longer meets its print is stamped now. This phone's alone, never in a copy; it leaves with the words (MontanaSeed.clear).
      */
     const val MOMENTS = "mt.card.moments"   // NOT-UI: iOS MontanaBackup.momentsKey
+    private const val OUTBOX_TAG = "q:outbox"   // NOT-UI: iOS outboxTag, the letters on their way
     private const val MOMENTS_TAG = "t:moments"   // NOT-UI: iOS momentsTag; a build before 0be1c720 passes it by
     /** The card's shape (iOS MontanaBackup.cardEngine): 2 -- each plain value carries its moment; a light copy laid in an older shape is laid anew. */
     const val ENGINE = 2
@@ -801,6 +802,8 @@ object Card {
             TwinSelf.HELD to DeviceVault.get(TwinSelf.HELD), TwinSelf.BOOK to DeviceVault.get(TwinSelf.BOOK)) +
             MontanaCard.RECORDS.map { it to MontanaCard.record(it) }
         for ((k, v) in records) if (v == null) out.remove("d:$k") else out.put("d:$k", b64(v))
+        // The letters still on their way (iOS SeedScope.outboxNow, cc147308): laid back into the queue once their pipes stand again
+        Post.carried()?.let { out.put(OUTBOX_TAG, b64(it)) } ?: out.remove(OUTBOX_TAG)
         // What each correspondent said of themselves (iOS MTPeerAbout, MontanaE2E.swift 74-125: one sealed map of conversation to bio,
         // link and moment) and the daily links they handed us with their births (MTPeerLinks 45-68: two sealed maps by conversation)
         PeerAbout.all().takeIf { it.isNotEmpty() }?.let { m ->
@@ -993,6 +996,7 @@ object Card {
             { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } },
             { readMarks?.let { Post.PeerRead.lay(it) } },
             { nameRecord?.let { DeviceVault.set("mt.name", it) } },
+            { map.optString(OUTBOX_TAG).takeIf { it.isNotEmpty() }?.let { unb64(it) }?.let { Post.holdRestored(it) } },   // iOS cardOutbox → takeStored
             { for ((k, d) in twinRecords) DeviceVault.set(k, d) },   // iOS SeedScope.dataKeys «mt.twin.self», «mt.twin.book» (56177404)   // iOS keeps the key in SeedScope.dataKeys at 2361: a copy carries it unread
             { for ((k, d) in cards) MontanaCard.lay(k, d) },
             { about?.let { PeerAbout.lay(it) } },
@@ -1180,7 +1184,7 @@ object Card {
             // a left-out group leaves the groups held with its conversation: the map names it by its id, the conversation by its key
             if (k == "d:" + Groups.STORE) { out.put(k, json(v)?.let { g -> g.keys().asSequence().toList().filter { Groups.key(it) in people }.forEach { g.remove(it) }; b64(g.toString()) } ?: v); continue }
             if (k == MOMENTS_TAG) continue   // laid below, naming only the values still on the card
-            out.put(k, if (tag == "d:" || tag == "a:" || tag == "m:" || tag == "k:") unb64(v)?.let { without(people, it) }?.let { b64(it) } ?: v else v)
+            out.put(k, if (tag == "d:" || tag == "a:" || tag == "m:" || tag == "k:" || tag == "q:") unb64(v)?.let { without(people, it) }?.let { b64(it) } ?: v else v)
         }
         json(o.optString(MOMENTS_TAG))?.let { m ->
             m.keys().asSequence().toList().filter { !out.has("s:$it") && !out.has("n:$it") }.forEach { m.remove(it) }
