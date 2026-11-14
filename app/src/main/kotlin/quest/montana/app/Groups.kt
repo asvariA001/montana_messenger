@@ -702,6 +702,23 @@ object Groups {
     fun carryMedia(key: String, mid: String, letter: String): Boolean {
         synchronized(lock) {
             val g = state(key)
+            // ANOTHER'S LETTER LAID BACK TO ITS RESTORED AUTHOR (iOS 2c0498fd, OZ 2 p.1.2.4): the copy goes as «fo» under its author's
+            // seat to the pipe that asked, never to the group. Its row is another's: no answer of this send may paint it red, so the
+            // send says yes.
+            val theirs = runCatching { Book.chat(key)?.msgs?.firstOrNull { !it.mine && it.mid == mid } }.getOrNull()
+            if (g != null && theirs != null) {
+                val ref = theirs.from
+                val to = ref?.let { synchronized(ownLays) { ownLays[it] } }
+                val at = ref?.let { seatOf(it, key) }
+                if (to == null || at == null || !letter.startsWith(Marks.MEDIA) || !isLetterName(mid)) {
+                    Log.i("Montana", "kept_file m=" + mid.take(8) + " a copy of another's letter nobody asked for -- not carried")
+                    return true
+                }
+                val back = JSONObject().put("t", "fo").put("g", g.id).put("k", g.kind).put("id", mid).put("s", at).put("tx", letter)
+                val sent = carry(back, to, "", own = false) != null
+                Log.i("Montana", "kept_file m=" + mid.take(8) + " a copy laid back to its restored author sent=" + (if (sent) 1 else 0))
+                return true
+            }
             if (g == null || g.left || !posts(g, g.me) || !letter.startsWith(Marks.MEDIA) || !carries(letter) || !isLetterName(mid)) {
                 Log.i("Montana", "group_refused media -- group=" + (if (g == null) 0 else 1))
                 return false
@@ -2651,6 +2668,7 @@ object Groups {
             "sp" -> passported(w, pipe)   // COMPAT-GATED: a sticker's passport (iOS 17.10, 2df34a13), an older build buries it
             "lp" -> carded(w, pipe)   // COMPAT-GATED: a letter's link card (iOS 17.10, 89dfd51d), an older build buries it
             "pc" -> cardLaid(w, pipe)   // COMPAT-GATED: a member's card (iOS 07d5fc70, OZ 1 p.8), laid only where the owner names seats
+            "fo" -> keptLaid(w, pipe)   // COMPAT-GATED: my own letter's copy laid back after a restore (iOS 2c0498fd, OZ 2 p.1.2.4)
             "fk" -> keptAsked(w, pipe)   // COMPAT-GATED: a restored phone asks a group letter's file again (iOS 11c34ed7, OZ 1 p.10.1)
             "kp" -> Verdict.HELD   // an older build's «kept» word: taken, told to nobody (iOS 2358, 16165 p.5)
             "cm" -> commented(w, pipe)   // COMPAT-GATED: a comment under a channel's post (iOS MTChannelComments, 2315)
@@ -2886,7 +2904,7 @@ object Groups {
         synchronized(lock) {
             val g = state(key) ?: return
             // a restored row asks by its file's seal (iOS 6549e6c6, OZ 2 p.1.2): «seal:» is no letter name and was dropped here
-            if (g.left || !isLetterName(id) && Media.sealOf(id) == null) {
+            if (g.left || !isLetterName(id) && Media.sealOf(id) == null && Media.ownOf(id) == null) {
                 Log.i("Montana", "kept_file m=" + id.take(21) + " a group letter's file is not asked -- no group held or no name to ask by"); return
             }
             val w = JSONObject().put("t", "fk").put("g", g.id).put("k", g.kind).put("id", id)
@@ -2900,11 +2918,25 @@ object Groups {
     private fun keptAsked(w: JSONObject, pipe: String): Verdict {
         val g = groups[w.optString("g")] ?: return Verdict.REFUSED
         val id = w.optString("id")
-        if (g.left || !isLetterName(id) && Media.sealOf(id) == null) return Verdict.REFUSED
+        val own = Media.ownOf(id)
+        if (g.left || !isLetterName(id) && Media.sealOf(id) == null && own == null) return Verdict.REFUSED
         val root = SamePair.root(pipe)
         val road = if (g.mine) g.members.any { SamePair.root(it.pipe) == root } else SamePair.root(g.owner) == root
         if (!road) return Verdict.REFUSED
         val key = key(g.id)
+        // A RESTORED AUTHOR ASKS FOR ITS OWN LETTER'S FILE (iOS 2c0498fd, OZ 2 p.1.2.4, the author's words 22141, 22151): its row of
+        // mine there is named by a UUID, mine here by the letter's name. The asker's seat is the one its pipe holds -- a member on the
+        // owner's phone, the owner on a member's; its letter of that kind born in [second, second+120], the place-th, goes back to it
+        // alone (carryMedia «fo»).
+        if (own != null) {
+            val asker = (if (g.mine) g.members.firstOrNull { SamePair.root(it.pipe) == root }?.seat else OWNER_SEAT) ?: return Verdict.REFUSED
+            val who = speaker(g.id, asker)
+            val row = runCatching { Book.chat(key)?.msgs?.let { Media.ownLetter(it, own, who) } }.getOrNull()
+                ?: return Verdict.HELD.also { Log.i("Montana", "kept_file m=" + id.take(24) + " no letter of that seat by this second -- nothing to lay") }
+            synchronized(ownLays) { ownLays[who] = pipe }
+            Media.serveKept(Book.ctx, key, row)
+            return Verdict.HELD
+        }
         // a seal finds the letter whose wire name seals to it (iOS 6549e6c6, OZ 2 p.1.2); a letter name finds its own row
         val seal = Media.sealOf(id)
         val row = runCatching { Book.chat(key)?.msgs?.firstOrNull { if (seal != null) Media.seal(it.mid) == seal else it.mid == id } }.getOrNull()
@@ -2915,6 +2947,35 @@ object Groups {
         if (SamePair.root(to) == root || !Media.mayKept("pass:" + id)) return Verdict.HELD
         carry(JSONObject().put("t", "fk").put("g", g.id).put("k", g.kind).put("id", id), to, "", own = false)
         Log.i("Montana", "kept_file m=" + id.take(8) + " the ask passes to the letter's author")
+        return Verdict.HELD
+    }
+    /** MY COPY OF ANOTHER'S LETTER GOES BACK TO ITS RESTORED AUTHOR ALONE (iOS MTGroup.ownLays): the asker's pipe by its speaker, kept
+     *  for this run while the copy uploads (keptAsked to carryMedia); a copy nobody asked for is never carried. */
+    private val ownLays = HashMap<String, String>()
+    /** MY OWN GROUP LETTER'S FILE LAID BACK (iOS MTGroup.keptLaid, OZ 2 p.1.2.4): a copy of my letter from the group's own road -- the
+     *  owner's pipe on a member's phone, a member's on the owner's -- under my own seat, for a row of mine this phone asked by own:. My
+     *  restored row takes the letter's name (Media.nameOwnRestored) and the copy fills it; no second row is born, nothing rings. */
+    private fun keptLaid(w: JSONObject, pipe: String): Verdict {
+        val g = groups[w.optString("g")] ?: return Verdict.REFUSED
+        val id = w.optString("id"); val words = w.optString("tx")
+        if (g.left || !isLetterName(id) || !carries(words) || !words.startsWith(Marks.MEDIA) || w.optString("s") != g.me) return Verdict.REFUSED
+        val root = SamePair.root(pipe)
+        val laid = if (g.mine) g.members.any { SamePair.root(it.pipe) == root } else SamePair.root(g.owner) == root
+        if (!laid) return Verdict.REFUSED   // only the group's own road lays
+        val key = key(g.id)
+        val kind = Media.manifest(words)?.optString("k")?.ifEmpty { null }
+        var mine = false
+        Book.edit(key) { c ->
+            if (c.msgs.none { it.mid == id }) Media.nameOwnRestored(c.msgs, id, kind)
+            c.msgs.find { it.mid == id && it.mine }?.let { r ->
+                mine = true
+                if (r.file?.let { java.io.File(it).exists() } != true) { r.text = words; r.meta = null }
+            }
+        }
+        if (!mine) { Log.i("Montana", "kept_file m=" + id.take(8) + " a copy of my letter for no row of mine this phone asked by -- not taken"); return Verdict.HELD }
+        Media.liftGone(id)
+        Media.fetch(Book.ctx, key, id, words)
+        Log.i("Montana", "kept_file m=" + id.take(8) + " my restored group row takes my letter's copy")
         return Verdict.HELD
     }
     /** A REPEAT WITH NEW CARGO: the author laid a letter's file again under its name. The row without its file takes it; the owner

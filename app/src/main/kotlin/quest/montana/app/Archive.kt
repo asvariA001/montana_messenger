@@ -37,6 +37,8 @@ object Archive {
     const val GIVEN_MID = "given:"
     fun isGiven(mid: String) = mid.startsWith(GIVEN_MID)
     fun wire(mid: String) = mid.removePrefix(GIVEN_MID)
+    /** A row laid back without its letter's name -- the archive's or a correspondent's (iOS MTRestoredMid.holds). */
+    fun holds(mid: String) = isRestored(mid) || isGiven(mid)
     /** THE ONE NAME OF A LETTER BY ITS SECOND, ITS SIDE AND ITS WORDS (iOS ChatStore.rowSig, bb0ba721): the archive's rows, the feed
      *  measured against them and the letters a correspondent gave back are known by it. An «arc:» name hashes these bytes: they
      *  never change. */
@@ -120,8 +122,9 @@ object Archive {
      */
     fun archivedText(m: Msg): String? {
         if (!m.text.startsWith(Marks.MEDIA)) return m.text
-        val f = m.file?.let { File(it).name } ?: return null
         val j = runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull() ?: return null
+        // a restored row without its file keeps the record's name (KEPT_FILE): its archive key is the one the twin is asked by
+        val f = m.file?.let { File(it).name } ?: j.optString(KEPT_FILE).ifEmpty { null } ?: return null
         val rec = JSONObject()
         j.optString("cap").takeIf { it.isNotEmpty() }?.let { rec.put("cap", it) }
         j.optDouble("du", 0.0).takeIf { it > 0 }?.let { rec.put("d", it) }

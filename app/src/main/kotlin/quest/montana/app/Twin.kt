@@ -375,11 +375,11 @@ object Twin {
 
     // ── the twin's past (iOS askTwin / giveTwinRows / takeTwinRow, f376b4ef) ──
     /** The rows of a conversation the archive holds and the feed does not: asked once, two hundred at most a round. */
-    fun ask(chat: String, items: List<Triple<Long, Boolean, String>>) {
+    fun ask(chat: String, items: List<Triple<Long, Boolean, String>>, again: Boolean = false) {
         if (MontanaSeed.twin == null) return
         val fresh = synchronized(lock) {
             val asked = strings(ASKED)
-            val have = asked.toHashSet()
+            val have = if (again) emptySet() else asked.toHashSet()   // a tap asks a row once more (its clock is Media.mayKept's)
             val f = items.filter { (s, _, h) -> askedName(chat, s, h) !in have }.take(200)
             if (f.isEmpty()) return
             keepStrings(ASKED, (asked + f.map { (s, _, h) -> askedName(chat, s, h) }).takeLast(5000))
@@ -479,9 +479,21 @@ object Twin {
         o.optDouble("d", 0.0).takeIf { it > 0 }?.let { man.put("du", it) }
         val dest = File(Media.dir(Book.ctx), name)
         val row = { file: String? -> Msg(mid, Marks.MEDIA + man.toString(), own, ms, state = if (own) 2 else 3, file = file, meta = man.toString(), from = sr) }
-        if (dest.isFile) { lay(chat, row(dest.path)); return }
-        val road = o.optJSONObject("road") ?: return
         val h = Archive.rowHash(Archive.archivedText(row(dest.path)) ?: "")
+        // A ROW STANDING WITHOUT ITS FILE TAKES THE FILE ALONE (iOS 598cb6cf, OZ 1 p.1.4.2): a restored row stands from the archive by
+        // the same key (second, side, words and file name) and holds no file; the twin's copy fills it and lays no second row.
+        val sig = Archive.rowSig(ms / 1000, own, h)
+        val standing = rows.firstOrNull { m -> Archive.archivedText(m)?.let { Archive.rowSig(m.at / 1000, m.mine, Archive.rowHash(it)) } == sig }
+        if (standing != null && standing.file?.let { File(it).isFile } != false) return
+        val put = { file: String ->
+            if (standing == null) lay(chat, row(file))
+            else {
+                Book.edit(chat) { c -> c.msgs.find { it.mid == standing.mid }?.let { it.text = Marks.MEDIA + man.toString(); it.meta = man.toString(); it.file = file } }
+                Log.d("Montana", "twin_row chat=" + chat.take(10) + " a standing row only wears its file now")
+            }
+        }
+        if (dest.isFile) { put(dest.path); return }
+        val road = o.optJSONObject("road") ?: return
         ex.execute {
             val tmp = scratch()
             try {
@@ -490,7 +502,7 @@ object Twin {
                     Log.d("Montana", "twin_row a file did not come whole -- asked again at the next gap"); return@execute
                 }
             } finally { tmp.delete() }
-            lay(chat, row(dest.path))
+            put(dest.path)
         }
     }
     private fun lay(chat: String, m: Msg) {

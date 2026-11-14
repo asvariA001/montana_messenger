@@ -1017,10 +1017,22 @@ object KeepCopy {
         if (!others || t - (answeredBack[conv] ?: 0.0) < 600) return Unit.also { Log.d("Montana", "keep_back quiet conv=" + conv.take(10)) }
         answeredBack[conv] = t
         val since = o.optDouble("a", 0.0)
-        val rows = Book.chat(conv)?.msgs.orEmpty().filter { it.at / 1000.0 > since && it.text.isNotEmpty() && it.file == null && !it.text.startsWith(Marks.MEDIA) }
+        // A FILE'S ROW OF MINE RIDES TOO (iOS 82064e7a, OZ 2 p.1.4.1, the author's words 22141, 22151): the file I sent, under the wire
+        // name it went by, with no words in «x» (a build before this one skips the row) and the archive's record in «md» -- the asker
+        // takes it as its received letter and asks the file by that name (Media.serveKept).
+        val rows = Book.chat(conv)?.msgs.orEmpty().filter {
+            it.at / 1000.0 > since && (it.text.isNotEmpty() && it.file == null && !it.text.startsWith(Marks.MEDIA) ||
+                it.mine && it.text.startsWith(Marks.MEDIA) && Groups.isLetterName(it.mid) && Archive.archivedText(it) != null)
+        }
         if (rows.isEmpty()) { say(conv, JSONObject().put("w", "given").put("c", 0)); return }
         val list = org.json.JSONArray()
-        for (r in rows) list.put(JSONObject().put("i", Archive.wire(r.mid)).put("m", if (r.mine) 1 else 0).put("t", r.at / 1000.0).put("x", r.text))
+        for (r in rows) {
+            val file = r.text.startsWith(Marks.MEDIA)
+            val e = JSONObject().put("i", if (file) "mid:" + r.mid else Archive.wire(r.mid)).put("m", if (r.mine) 1 else 0).put("t", r.at / 1000.0)
+                .put("x", if (file) "" else r.text)
+            if (file) Archive.archivedText(r)?.let { e.put("md", it) }
+            list.put(e)
+        }
         val dir = MontanaBackup.shelf(Book.ctx) ?: return
         val f = File(dir, UUID.randomUUID().toString() + ".given")
         try {
@@ -1061,7 +1073,26 @@ object KeepCopy {
                 val t = e.optDouble("t", 0.0)
                 val ms = (t * 1000).toLong()
                 val x = e.optString("x")
-                if (ms <= since || x.isEmpty()) continue
+                if (ms <= since) continue
+                // A FILE'S ROW OF THE OTHER SIDE (iOS 82064e7a, OZ 2 p.1.4.1): the giver's own sent file is this phone's received one,
+                // named by the letter's wire name as a received file is (Media.file), so a tap asks the giver by that name and the
+                // row takes the name on the copy's arrival (Media.nameRestored). A row of my own is not taken here: own: carries it.
+                val md = e.optString("md")
+                if (md.startsWith(Marks.MEDIA)) {
+                    val w = e.optString("i")
+                    val rec = runCatching { JSONObject(md.removePrefix(Marks.MEDIA)) }.getOrNull()
+                    val k = rec?.optString("k").orEmpty()
+                    val bare = w.removePrefix("mid:")
+                    if (e.optInt("m", 0) != 1 || !w.startsWith("mid:") || !Groups.isLetterName(bare) || rec == null || k !in listOf("img", "vid", "aud", "doc")) continue
+                    val ext = rec.optString("f").substringAfterLast('.', "")
+                    val man = JSONObject().put("k", k).put("e", ext).put(Archive.KEPT_FILE, Media.file(Book.ctx, bare, ext).name)
+                    rec.optString("n").takeIf { it.isNotEmpty() }?.let { man.put("n", it) }
+                    rec.optString("cap").takeIf { it.isNotEmpty() }?.let { man.put("cap", it) }
+                    rec.optDouble("d", 0.0).takeIf { it > 0 }?.let { man.put("du", it) }
+                    rows.add(Msg(Archive.GIVEN_MID + w, Marks.MEDIA + man.toString(), false, ms, state = 3))
+                    continue
+                }
+                if (x.isEmpty()) continue
                 val wire = e.optString("i").ifEmpty { null }
                 val claimedMine = e.optInt("m", 0) == 0   // the other side's own letter is the other side's here
                 if (claimedMine) {

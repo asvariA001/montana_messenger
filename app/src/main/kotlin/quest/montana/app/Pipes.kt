@@ -2958,6 +2958,15 @@ object Post {
             Media.serveKept(Book.ctx, ref, m)
             return
         }
+        // A RESTORED PHONE ASKS FOR ITS OWN FILE (iOS b06f5362 serveKeptFile, OZ 2 p.1.1(d)): the letter it sent me, of its kind, born
+        // in its second or within two minutes after it, the place-th of them; my copy goes again under that letter's own name, and its
+        // restored row takes the name there (Media.nameOwnRestored)
+        Media.ownOf(lost)?.let { own ->
+            val m = listOf(ref, SamePair.root(ref)).distinct().firstNotNullOfOrNull { r -> Book.chat(r)?.msgs?.let { Media.ownLetter(it, own) } }
+                ?: return Log.d("Montana", "kept_file m=" + lost.take(24) + " no letter of theirs with a file by this second -- nothing to lay").let {}
+            Media.serveKept(Book.ctx, ref, m)
+            return
+        }
         val copy = Groups.copyRow(lost)
         val m = copy ?: Book.chat(ref)?.msgs?.find { it.mid == lost && it.mine } ?: return
         // A RESTORED PHONE ASKS FOR A DELIVERED LETTER'S FILE (iOS 8d68358c, OZ 1 p.10.1): no letter of this name rides any more, the
@@ -3297,6 +3306,8 @@ object Post {
                     // A RESTORED ROW TAKES THIS LETTER'S NAME FIRST (iOS 6549e6c6 DeliveryEngine, OZ 2 p.1.1): its sender laid the file
                     // again for a seal it was asked by; the row stood before its file came, so it is no news and rings nothing (P-218)
                     if (had == null && text.startsWith(Marks.MEDIA)) had = Media.nameRestored(c.msgs, mid)
+                    // MY OWN RESTORED ROW TAKES MY LETTER'S NAME (iOS b06f5362, OZ 2 p.1.1(d)): the correspondent laid my file again
+                    if (had == null && text.startsWith(Marks.MEDIA)) had = Media.nameOwnRestored(c.msgs, mid, Media.manifest(text)?.optString("k")?.ifEmpty { null })
                     // THE SAME LETTER AGAIN, NOW WITH ITS CARD (iOS attachPreview's copy): the card joins the row, nothing else moves
                     // THE PICTURE CATCHES UP TOO (iOS enrichLinkPreview, MontanaChatStore.swift at 2155, the critic 22.09): the
                     // envelope leg rides without the picture, so a card that came by it carried no face until the mesh copy
