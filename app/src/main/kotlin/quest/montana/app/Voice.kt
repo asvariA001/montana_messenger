@@ -396,7 +396,7 @@ private fun playChatVoice(path: String, queue: List<Triple<String, String, Boole
 
 fun voiceBody(c: Context, m: Msg, du: Double, into: LinearLayout, wave: FloatArray? = null, chat: Chat? = null) {
     val tint = BubbleStyle.text(m.mine)
-    val path = m.file?.takeIf { File(it).exists() }
+    val path = m.file?.takeIf(MediaPlace::has)   // the place in memory, never the disk (iOS MTMediaPlace, f10468e7)
     fun fmt(ms: Int) = "%d:%02d".format(ms / 60000, (ms / 1000) % 60)
     // The length is the sender's word; a letter without it is measured from the file itself.
     val total = if (du > 0) (du * 1000).toInt() else path?.let { p -> VoiceLength.of(p) } ?: 0
@@ -542,7 +542,7 @@ private fun chatTracks(c: Context, chat: Chat): List<Pair<String, Track>> {
  */
 fun trackBody(c: Context, m: Msg, man: JSONObject, into: LinearLayout, chat: Chat?) {
     val tint = BubbleStyle.text(m.mine)
-    val f = m.file?.let(::File)?.takeIf { it.exists() }
+    val f = MediaPlace.file(m.file)
     val uri = f?.let { android.net.Uri.fromFile(it) }
     fun fmt(s: Double) = "%d:%02d".format(s.toInt() / 60, s.toInt() % 60)
     val title = man.optString("n").ifEmpty { f?.name ?: "" }

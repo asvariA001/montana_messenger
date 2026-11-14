@@ -200,7 +200,7 @@ object HomeShelf {
         val held = have(candidates.flatMap { all.getValue(it.name).p }) ?: return null
         val gone = candidates.filter { f -> all.getValue(f.name).p.all(held::contains) }
         var bytes = 0L
-        for (f in gone) { bytes += f.length(); f.delete() }
+        for (f in gone) { bytes += f.length(); f.delete(); MediaPlace.told(f.path, false) }
         Log.i("Montana", "home_clear files=${gone.size} bytes=$bytes of=${candidates.size} kept=${all.size} chosen=${only?.size ?: -1}")
         return gone.map { it.name }.toSet() to bytes
     }
@@ -233,7 +233,7 @@ object HomeShelf {
         val held = have(going.flatMap { all.getValue(it.f.name).p }) ?: return null
         val gone = going.filter { all.getValue(it.f.name).p.all(held::contains) }
         var bytes = 0L
-        for (g in gone) { bytes += g.size; g.f.delete() }
+        for (g in gone) { bytes += g.size; g.f.delete(); MediaPlace.told(g.f.path, false) }
         Log.i("Montana", "home_trim files=${gone.size} bytes=$bytes days=$days limit_gb=$limitGB")
         return gone.size to bytes
     }
@@ -404,6 +404,7 @@ object HomeKeep {
             // the file stands again where the row names it: the row is told, as a landing tells it (iOS fillMedia)
             val placed = File(Media.dir(c), name)
             if (placed.path != path) placed.renameTo(File(path))
+            MediaPlace.told(path, true)
             Book.rooms().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref?.let { ref -> Book.edit(ref) { ch -> ch.msgs.find { it.mid == m.mid }?.file = path } }
         }.start()
     }

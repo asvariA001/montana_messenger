@@ -95,7 +95,7 @@ private val AUDIO_NAMES = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus
 fun rowKind(m: Msg): String? {
     Calls.info(m.text)?.let { return if (it.video) "vcall" else "acall" }
     if (!m.text.startsWith(Marks.MEDIA)) return if (LinkPreview.webURLs(m.text).isNotEmpty()) "link" else null
-    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() } ?: return null
+    MediaPlace.file(m.file) ?: return null
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
     return when (man?.optString("k")) {
         "aud" -> "aud"
@@ -113,7 +113,7 @@ private fun rowPoster(c: Context, m: Msg, kind: String): android.graphics.Bitmap
     rowPosters.get(m.mid)?.let { return it }
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
     val pic = Media.thumbOf(man)
-        ?: m.file?.let { java.io.File(it) }?.takeIf { it.exists() }?.let { Media.preview(c, it, if (kind == "img") "img" else "vid", 96) }
+        ?: MediaPlace.file(m.file)?.let { Media.preview(c, it, if (kind == "img") "img" else "vid", 96) }
     pic?.let { rowPosters.put(m.mid, it) }
     return pic
 }
@@ -3061,7 +3061,7 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             }
             // THE VOICE'S WORDS UNDER ITS CAPSULE (iOS voiceTranscript, b2fe4814 at 2315): read on this phone, between the capsule
             // and its pills, where the person opened them; the glyph that opens them stands after the stamp's pill (below)
-            val voiceFile = if (voice && VoiceText.canRead(c)) m.file?.takeIf { java.io.File(it).exists() } else null
+            val voiceFile = if (voice && VoiceText.canRead(c)) m.file?.takeIf(MediaPlace::has) else null
             if (voiceFile != null) addView(voiceWordsView(c, voiceFile, mine, bubbleCeiling(c, chat.ref)), lp(WRAP, WRAP).apply { topMargin = dp(6); if (!mine) gravity = Gravity.START })
             // THE FOLD (iOS MontanaBubble 815-835, MTFilterFold): nothing of the letter is read by surprise, its speaker, quote and link card
             // included; the person's own tap gives it back whole, with its time and the bubble's own room
@@ -3325,7 +3325,7 @@ private const val SPEAKER_FACE = 30
 private fun edgePlate(m: Msg): Boolean {
     if (!m.text.startsWith(Marks.MEDIA) || Stickers.bare(m)) return false
     val man = Media.manifestOf(m)
-    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() }
+    val f = MediaPlace.file(m.file)
     val ext = (f?.extension ?: man?.optString("e") ?: "").lowercase()
     val byExt = when (ext) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
     return when (man?.optString("k")?.ifEmpty { null } ?: byExt) {
@@ -3645,7 +3645,7 @@ private fun mediaPlateOffset(v: View, ancestor: View): Int {
  */
 private fun mediaBody(c: Context, m: Msg, into: LinearLayout, chat: Chat? = null) {
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
-    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() }
+    val f = MediaPlace.file(m.file)   // the place in memory, never the disk; a press still asks the disk (iOS MTMediaPlace, f10468e7)
     val byExt = when (f?.extension?.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     val tint = BubbleStyle.text(m.mine)
@@ -3747,7 +3747,7 @@ internal fun captionView(c: Context, words: String, tint: Int, maxW: Int): TextV
 private fun saveMediaFile(m: Msg): Pair<java.io.File, Boolean>? {
     if (m.mine || !m.text.startsWith(Marks.MEDIA)) return null
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
-    val f = m.file?.let { java.io.File(it) }?.takeIf { it.exists() } ?: return null
+    val f = MediaPlace.file(m.file) ?: return null
     val byExt = when (f.extension.lowercase()) { "jpg", "jpeg", "png", "gif", "webp", "heic", "heif" -> "img"; "mp4", "mov", "m4v", "webm", "3gp" -> "vid"; else -> "doc" }
     val kind = man?.optString("k")?.ifEmpty { null } ?: byExt
     if (kind != "img" && kind != "vid") return null

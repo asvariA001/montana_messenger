@@ -98,6 +98,7 @@ class MainActivity : Activity() {
         Diary.start(this)   // the diary on disk and its shipper (iOS MontanaLog, MontanaDiagShip; 1340)
         Exits.witness(this)   // how the last run ended, said once (iOS run sentinel, 1336)
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
+        MediaPlace.warm(this)   // where every chat file lies, listed once off the main thread (iOS MTMediaPlace, f10468e7)
         TwinSelf.watch()   // one's own name, face, words and choices ride to the seed's other devices (iOS MTTwinSelf.watch, 56177404)
         // «Share → Montana» from another app, else an invitation's link
         if (takeUpdate(intent)) return

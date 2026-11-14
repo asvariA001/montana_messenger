@@ -188,6 +188,7 @@ object Media {
         val mid = named ?: Marks.mintMid()   // a sticker names its letter first: its passport rides under the same name (iOS letterMidFor)
         val local = file(c, mid, p.ext)
         local.writeBytes(p.bytes)
+        MediaPlace.told(local.path, true)
         val provisional = Marks.MEDIA + JSONObject().put("k", p.kind).put("e", p.ext).put("sz", p.bytes.size).apply {
             p.name?.let { put("n", it) }; if (caption.isNotEmpty()) put("cap", caption); p.du?.let { put("du", it) }
             if (p.round) put("r", true)
@@ -252,6 +253,7 @@ object Media {
     fun wipe(c: Context) {
         synchronized(intentLock) { DeviceVault.delete(INTENTS) }
         File(c.filesDir, "media").deleteRecursively()
+        MediaPlace.forgetAll()
     }
     private fun intents(): JSONArray = DeviceVault.get(INTENTS)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
     private fun keepIntent(ref: String, mid: String, local: File, provisional: String, caption: String, qt: String?) = synchronized(intentLock) {
@@ -601,6 +603,7 @@ object Media {
      * once -- the row takes its file, a sticker is kept, the receipt and the drop follow.
      */
     fun landed(c: Context, ref: String, mid: String, man: JSONObject, dest: File, own: Boolean) {
+        MediaPlace.told(dest.path, true)
         var fresh = false
         synchronized(landing) {
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.let { fresh = it.file != dest.path; it.file = dest.path; it.meta = man.toString() } }
@@ -943,4 +946,40 @@ object Waveform {
         val loud = maxOf(sorted[((sorted.size - 1) * 0.92).toInt()], 1e-6f)
         FloatArray(BARS) { Math.pow(minOf(1f, raw[it] / loud).toDouble(), 0.7).toFloat() }
     }.getOrNull()
+}
+
+/**
+ * WHERE A MEDIA FILE STANDS, IN MEMORY (iOS MTMediaPlace, MontanaMedia.swift, f10468e7 p.1): a bubble asks this, never the disk.
+ * The store's folder is listed once off the main thread at the launch; a name found is held as standing until a remover says
+ * it left (Media.wipe, the home shelf's clearing and trim); a name missed is asked of the disk again only three seconds later.
+ * The writers (a letter sent, a file landed) tell it at once, so the bubble that wears the name stands with it at its next
+ * draw. Deeds (play, open, save) still ask the disk.
+ */
+object MediaPlace {
+    private val standing = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+    private val missedAt = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private const val REST_MS = 3_000L
+
+    fun warm(c: Context) = Thread {
+        runCatching { Media.dir(c).listFiles()?.forEach { if (it.isFile && !it.name.endsWith(".part")) standing.putIfAbsent(it.path, true) } }
+    }.start()
+
+    fun has(path: String?): Boolean {
+        if (path.isNullOrEmpty()) return false
+        if (standing[path] == true) return true
+        val now = android.os.SystemClock.uptimeMillis()
+        missedAt[path]?.let { if (now - it < REST_MS) return false }
+        val lies = File(path).exists()
+        if (lies) { standing[path] = true; missedAt.remove(path) } else missedAt[path] = now
+        return lies
+    }
+
+    fun file(path: String?): File? = if (has(path)) File(path!!) else null
+
+    fun told(path: String, lies: Boolean) {
+        missedAt.remove(path)
+        if (lies) standing[path] = true else standing.remove(path)
+    }
+
+    fun forgetAll() { standing.clear(); missedAt.clear() }
 }
