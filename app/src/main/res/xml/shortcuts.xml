@@ -4,6 +4,11 @@
      page with that chat already chosen (MainActivity's ACTION_SEND filters). -->
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
     <share-target android:targetClass="quest.montana.app.MainActivity">
+        <data android:mimeType="image/*" />
+        <data android:mimeType="video/*" />
+        <data android:mimeType="audio/*" />
+        <data android:mimeType="text/*" />
+        <data android:mimeType="application/*" />
         <data android:mimeType="*/*" />
         <category android:name="quest.montana.app.SHARE_CHAT" />
     </share-target>
