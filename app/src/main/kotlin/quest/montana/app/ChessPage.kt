@@ -368,8 +368,11 @@ private fun Context.barMark(glyph: Int, word: Int, tint: Int = Color.WHITE, onTa
  * status, the delivery of my last letter, and the bar: the moves, the chat, the move before and after. The menu holds the
  * flip, the live position, the draws, the resignation, the end and the next game under the pair's score.
  */
-fun chessBoardPage(act: MainActivity, ref: String, game0: String, inChat: Boolean, onBack: () -> Unit): View {
+fun chessBoardPage(act: MainActivity, ref0: String, game0: String, inChat: Boolean, onBack: () -> Unit): View {
     val c: Context = act
+    // THE GAME LIVES IN THE PAIR'S CONVERSATION (iOS MTChessSend.conversation, 8a627c90): a pipe folded into another reads and sends
+    // the game where its letters now land, so a fold never strands a game
+    val ref = if (ref0.isEmpty()) "" else SamePair.root(ref0)
     // THE TRAINING GAME'S SEAT (iOS MTChessGameScreen seat .computer): no pair, the phone's own engine across the board (ChessComputer)
     val computer = ref.isEmpty()
     var gameId = game0

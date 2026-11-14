@@ -1269,7 +1269,9 @@ class Msg(
     fun advance(next: Int): Boolean {
         val ok = when (next) {
             -1 -> state == 0 || state == 1
-            3 -> state == 2
+            // A STEP OF A GAME I SENT STOPS AT «DELIVERED» (iOS 27e6e671): the board reads it, not the person, and the moment of its
+            // delivery is where the correspondent's clock begins on my screen (ChessAnchor) -- a read word arriving later must not move it
+            3 -> state == 2 && !(mine && ChessLetter.isStep(text))
             else -> next > state
         }
         if (ok) { state = next; statusAt = System.currentTimeMillis() }
