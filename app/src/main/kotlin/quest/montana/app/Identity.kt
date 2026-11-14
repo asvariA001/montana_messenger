@@ -300,6 +300,9 @@ object Prefs {
     fun bool(key: String, def: Boolean): Boolean = p.getBoolean(key, def)
     fun setBool(key: String, v: Boolean) { p.edit().putBoolean(key, v).apply() }
     fun remove(vararg keys: String) { p.edit().apply { keys.forEach { remove(it) } }.apply() }
+    fun has(key: String): Boolean = p.contains(key)
+    /** One listener of every change of the defaults (TwinSelf, as iOS hears UserDefaults.didChangeNotification); held strongly by its owner. */
+    fun listen(l: SharedPreferences.OnSharedPreferenceChangeListener) = p.registerOnSharedPreferenceChangeListener(l)
     /** Every key of the store under one beginning: the marks kept per person, which a copy carries (Card.build). */
     fun keys(prefix: String): List<String> = p.all.keys.filter { it.startsWith(prefix) }
 

@@ -62,6 +62,7 @@ object SelfFace {
     private fun changed() = Thread {
         Book.refs().filter { SamePair.merged(it) == null }.forEach { Post.announce(it) }
         MontanaCard.faceChanged(Book.ctx)   // the face beside every live card follows at once (iOS MontanaCard.faceChanged)
+        TwinSelf.soon()   // the face rides to the seed's other devices (iOS MTTwinSelf hears avatarData)
     }.start()
 }
 

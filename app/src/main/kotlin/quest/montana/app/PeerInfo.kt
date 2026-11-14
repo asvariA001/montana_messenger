@@ -169,6 +169,8 @@ object PeerSafety {
 object PeerContact {
     fun isKept(ref: String) = Prefs.bool("contact.$ref", false)
     fun keep(ref: String) = Prefs.setBool("contact.$ref", true)
+    /** OUT OF THE BOOK, the one road (iOS ContactsTabView.dropFromBook, 56177404): the contact leaves, and the name given by hand with it. */
+    fun drop(ref: String) { Prefs.remove("contact.$ref"); Book.pinName(ref, null) }
     /** Every person kept, for a copy (iOS «mtContacts», isInContacts MontanaPeerInfo.swift 395-399: kept when the list names them). */
     fun all(): List<String> = Prefs.keys("contact.").filter { Prefs.bool(it, false) }.map { it.removePrefix("contact.") }
 }

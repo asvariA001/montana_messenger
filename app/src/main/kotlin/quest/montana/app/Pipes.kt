@@ -1965,6 +1965,12 @@ object Book {
         if (any) changed()
     }
 
+    /** A NAME GIVEN BY HAND ON ANOTHER DEVICE OF THE SEED (TwinSelf, iOS MTNameBook.setManual from MTTwinSelf.lay): null or empty clears it. */
+    fun pinName(ref: String, name: String?) {
+        if (chat(ref) == null) return
+        edit(ref) { c -> c.pin = name?.trim()?.ifEmpty { null }?.takeIf { it != c.name.trim() } }
+    }
+
     /** A COPY LAID (iOS layCard «manualPhotos», a union): the picture my hand set on a person, where this phone holds none. */
     fun layMyFace(ref: String, src: File): Boolean {
         val dst = myFace(ref)

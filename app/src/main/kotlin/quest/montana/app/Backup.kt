@@ -795,7 +795,8 @@ object Card {
         // The records sealed in the same JSON on both phones (iOS SeedScope.dataKeys 6132-6133): the peers' read marks (ChatStore
         // notePeerRead 2872-2879), the name held in the network (MontanaNames.swift 113-132), the permanent link, its keys and the
         // day's cards (MontanaFirstContact.swift 626-868)
-        val records = listOf("peerReadMap" to Post.PeerRead.carried(), "mt.name" to DeviceVault.get("mt.name")) +
+        val records = listOf("peerReadMap" to Post.PeerRead.carried(), "mt.name" to DeviceVault.get("mt.name"),
+            TwinSelf.HELD to DeviceVault.get(TwinSelf.HELD), TwinSelf.BOOK to DeviceVault.get(TwinSelf.BOOK)) +
             MontanaCard.RECORDS.map { it to MontanaCard.record(it) }
         for ((k, v) in records) if (v == null) out.remove("d:$k") else out.put("d:$k", b64(v))
         // What each correspondent said of themselves (iOS MTPeerAbout, MontanaE2E.swift 74-125: one sealed map of conversation to bio,
@@ -896,6 +897,7 @@ object Card {
         var mesh: Boolean? = null
         var readMarks: Map<String, Long>? = null
         var nameRecord: ByteArray? = null
+        val twinRecords = HashMap<String, ByteArray>()
         val cards = HashMap<String, ByteArray>()
         var about: Map<String, PeerAbout.About>? = null
         var links: Map<String, String>? = null
@@ -942,6 +944,7 @@ object Card {
                 tag == "b:" && k == "avatarData" -> face = unb64(v)
                 tag == "d:" && k == "peerReadMap" -> readMarks = json(v)?.let { o -> o.keys().asSequence().associateWith { o.getLong(it) } }
                 tag == "d:" && k == "mt.name" -> nameRecord = unb64(v)
+                tag == "d:" && (k == TwinSelf.HELD || k == TwinSelf.BOOK) -> unb64(v)?.let { twinRecords[k] = it }
                 tag == "d:" && k in MontanaCard.RECORDS -> unb64(v)?.let { cards[k] = it }
                 tag == "d:" && k == "peerAbout" -> about = json(v)?.let { o ->
                     o.keys().asSequence().associateWith { r -> o.getJSONObject(r).let { a -> PeerAbout.About(a.getString("bio"), a.getString("link"), a.getDouble("at")) } }
@@ -977,7 +980,8 @@ object Card {
             { face?.let { SelfFace.set(c, it) } },
             { mesh?.let { if (it != Mesh.discoverable) Mesh.setDiscoverable(it) } },
             { readMarks?.let { Post.PeerRead.lay(it) } },
-            { nameRecord?.let { DeviceVault.set("mt.name", it) } },   // iOS keeps the key in SeedScope.dataKeys at 2361: a copy carries it unread
+            { nameRecord?.let { DeviceVault.set("mt.name", it) } },
+            { for ((k, d) in twinRecords) DeviceVault.set(k, d) },   // iOS SeedScope.dataKeys «mt.twin.self», «mt.twin.book» (56177404)   // iOS keeps the key in SeedScope.dataKeys at 2361: a copy carries it unread
             { for ((k, d) in cards) MontanaCard.lay(k, d) },
             { about?.let { PeerAbout.lay(it) } },
             { links?.let { PeerLinks.lay(it, born ?: emptyMap()) } },

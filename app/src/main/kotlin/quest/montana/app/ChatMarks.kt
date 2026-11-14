@@ -73,6 +73,12 @@ object ChatMarks {
 
     fun toggleMute(ref: String) = change { if (!muted.remove(ref)) muted.add(ref) }
 
+    // a twin's word lays one entry as it stands on the other device (TwinSelf.lay, iOS MTTwinSelf.lay: a set, no count of pins)
+    fun setPinned(ref: String, on: Boolean) = change { if (!on) pinned.remove(ref) else if (ref !in pinned) pinned.add(0, ref) }
+    fun setMuted(ref: String, on: Boolean) = change { if (on) muted.add(ref) else muted.remove(ref) }
+    fun setContactPinned(ref: String, on: Boolean) = change { if (!on) contactPins.remove(ref) else if (ref !in contactPins) contactPins.add(0, ref) }
+    fun setContactArchived(ref: String, on: Boolean) = change { if (on) contactArchive.add(ref) else contactArchive.remove(ref) }
+
     fun archive(ref: String) = change { archived.add(ref) }
     fun unarchive(ref: String) = change { archived.remove(ref) }
 

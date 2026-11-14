@@ -107,7 +107,7 @@ object Twin {
     private val ex = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "twin").apply { isDaemon = true } }
     private val lock = Any()
 
-    fun forget() = synchronized(lock) { listOf(MIRROR, SEEN, ASKED).forEach { DeviceVault.delete(it) }; given.clear() }
+    fun forget() = synchronized(lock) { listOf(MIRROR, SEEN, ASKED, TwinSelf.HELD, TwinSelf.BOOK).forEach { DeviceVault.delete(it) }; given.clear() }
 
     fun secret(): ByteArray? = Archive.historyKey()?.let { hk ->
         Wire.sha("mt-twin-box".toByteArray(), byteArrayOf(0), APP.toByteArray(), byteArrayOf(0), hk)
@@ -295,6 +295,8 @@ object Twin {
         if (c.isEmpty() || m.isEmpty() || x.isEmpty()) return
         when {
             x.startsWith(READ) -> readByTwin(c, x.removePrefix(READ).toLongOrNull())
+            // one's own name, face or words, or the person's choices, the seed's other device changed (iOS landMirrored, 56177404)
+            x.startsWith(TwinSelf.MARK) -> TwinSelf.take(x.removePrefix(TwinSelf.MARK))
             x.startsWith(ASK) -> giveRows(c, x.removePrefix(ASK))
             // a card the other device gave birth to: this device opens the introductions it brings (iOS MontanaCard.takeTwin)
             x.startsWith(CARD) -> MontanaCard.takeTwin(x.removePrefix(CARD))
