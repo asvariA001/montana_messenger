@@ -58,8 +58,16 @@ object LinkPreview {
     val enabled get() = Prefs.bool("linkPreviewsEnabled", true)
 
     private val linkRE = Regex("""https?://[^\s<>"']+""", RegexOption.IGNORE_CASE)
-    fun webURLs(text: String): List<String> = linkRE.findAll(text).map { wired(it.value.trimEnd('.', ',', ')', '!', '?', ';', ':')) }
-        .filter { runCatching { URL(it).host }.getOrNull()?.isNotEmpty() == true }.toList()
+    fun webURLs(text: String): List<String> {
+        // A TEXT'S LINKS ARE KEPT BY THE TEXT (iOS MTLinkPreview, a6b58ad3, OZ 1 p.1.4): every pass of the list asked the detector over
+        // every chat's last letter again; a text read once answers from memory (short texts only, so the memory stays small)
+        if (text.length <= 4096) urlsKept.get(text)?.let { return it }
+        val found = linkRE.findAll(text).map { wired(it.value.trimEnd('.', ',', ')', '!', '?', ';', ':')) }
+            .filter { runCatching { URL(it).host }.getOrNull()?.isNotEmpty() == true }.toList()
+        if (text.length <= 4096) urlsKept.put(text, found)
+        return found
+    }
+    private val urlsKept = android.util.LruCache<String, List<String>>(256)
     /**
      * A LINK AS THE REFERENCE WRITES IT (iOS NSDataDetector's URL.absoluteString): a letter beyond ASCII is percent-escaped by its
      * UTF-8 bytes, so a card's «u» is one string on both sides. The author's iPhone → A1 21.10 10:27 UTC, the main page of ru.wikipedia.org:

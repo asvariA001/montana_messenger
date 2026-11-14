@@ -24,7 +24,42 @@ object DeviceVault {
     private const val PREFS = "mt.vault"
     private lateinit var prefs: SharedPreferences
 
-    fun init(ctx: Context) { prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    private lateinit var loads: java.io.File
+
+    fun init(ctx: Context) {
+        prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        loads = java.io.File(ctx.noBackupFilesDir, "MontanaVault")
+    }
+
+    /**
+     * A LOAD LIES IN A FILE OF ITS OWN (iOS MontanaLocalVault, bb1df962 and 52b57e0e, OZ 1 p.1.3): the vault's settings file is read
+     * whole at its first word and written whole at every change, and the twin's asked rows alone stood hundreds of KB in it (iOS T1:
+     * 326 KB of 1.67 MB, 699 ms on the main thread). A sealed value from 64 KB on is laid in its own file, written whole before its
+     * name is kept; the settings keep only «file:» and that name. A load still inside the settings leaves for its file at its first
+     * read. The words of the seed and every small value stay where they were.
+     */
+    private const val LOAD = 64 * 1024
+    private const val FILE_MARK = "file:"
+    private fun loadFile(name: String): java.io.File =
+        java.io.File(loads, MessageDigest.getInstance("SHA-256").digest(name.toByteArray()).joinToString("") { "%02x".format(it) }.take(32) + ".vault")
+    private fun keep(name: String, sealed: ByteArray): Boolean {
+        if (sealed.size < LOAD) {
+            val ok = prefs.edit().putString(name, Base64.encodeToString(sealed, Base64.NO_WRAP)).commit()
+            if (ok) runCatching { loadFile(name).delete() }
+            return ok
+        }
+        val f = loadFile(name)
+        loads.mkdirs()
+        val tmp = java.io.File(loads, f.name + ".tmp")
+        java.io.FileOutputStream(tmp).use { it.write(sealed); it.fd.sync() }
+        if (!tmp.renameTo(f)) { tmp.delete(); return false }
+        return prefs.edit().putString(name, FILE_MARK + f.name).commit()
+    }
+    private fun sealedOf(name: String): ByteArray? {
+        val s = prefs.getString(name, null) ?: return null
+        if (s.startsWith(FILE_MARK)) return java.io.File(loads, s.removePrefix(FILE_MARK)).takeIf { it.isFile }?.readBytes()
+        return Base64.decode(s, Base64.NO_WRAP)
+    }
 
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
@@ -44,26 +79,28 @@ object DeviceVault {
     fun set(name: String, value: ByteArray): Boolean = try {
         val c = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.ENCRYPT_MODE, key()) }
         val sealed = c.iv + c.doFinal(value)
-        prefs.edit().putString(name, Base64.encodeToString(sealed, Base64.NO_WRAP)).commit()
-                && get(name)?.contentEquals(value) == true
+        keep(name, sealed) && get(name)?.contentEquals(value) == true
     } catch (e: Exception) {
         Log.e("Montana", "vault write refused: ${e.javaClass.simpleName}")
         false
     }
 
     fun get(name: String): ByteArray? = try {
-        prefs.getString(name, null)?.let { s ->
-            val sealed = Base64.decode(s, Base64.NO_WRAP)
+        sealedOf(name)?.let { sealed ->
             val c = Cipher.getInstance("AES/GCM/NoPadding")
             c.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, sealed, 0, 12))
-            c.doFinal(sealed, 12, sealed.size - 12)
+            val open = c.doFinal(sealed, 12, sealed.size - 12)
+            // a load found inside the settings leaves for its file now, the same sealed bytes (iOS bb1df962)
+            if (LOAD <= sealed.size && prefs.getString(name, null)?.startsWith(FILE_MARK) == false)
+                if (runCatching { keep(name, sealed) }.getOrDefault(false)) Log.i("Montana", "vault_load_out bytes=${sealed.size}")
+            open
         }
     } catch (e: Exception) {
         Log.e("Montana", "vault read refused: ${e.javaClass.simpleName}")
         null
     }
 
-    fun delete(name: String) { prefs.edit().remove(name).commit() }
+    fun delete(name: String) { prefs.edit().remove(name).commit(); runCatching { loadFile(name).delete() } }
     /** Whether a value is stored at all, opened or not: a store that would not open is not an empty one (Groups). */
     fun has(name: String): Boolean = prefs.contains(name)
 

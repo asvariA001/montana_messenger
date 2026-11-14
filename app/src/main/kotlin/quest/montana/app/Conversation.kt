@@ -108,14 +108,25 @@ fun rowKind(m: Msg): String? {
 
 private val rowPosters = Caches.kept("row_posters", android.util.LruCache<String, android.graphics.Bitmap>(48))
 
-/** The small picture of a letter: the face its manifest carries, else the file's own first frame, kept while the list lives. */
-private fun rowPoster(c: Context, m: Msg, kind: String): android.graphics.Bitmap? {
+/**
+ * The small picture of a letter: the face its manifest carries, else the file's own first frame, kept while the list lives.
+ * A ROW MAKES NOTHING ON THE MAIN THREAD (iOS MontanaSmallPicture, 205dc1c2, OZ 1 p.1.5 -- a frame of the list stood 224 ms in the
+ * thumbnailer on T1): the file's frame not yet made is made on one worker, and the row that asked wears it when it comes (came).
+ */
+private val rowPosterWorker = java.util.concurrent.Executors.newSingleThreadExecutor()
+private val rowPosterAsked = java.util.Collections.synchronizedSet(HashSet<String>())
+private fun rowPoster(c: Context, m: Msg, kind: String, came: ((android.graphics.Bitmap) -> Unit)? = null): android.graphics.Bitmap? {
     rowPosters.get(m.mid)?.let { return it }
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
-    val pic = Media.thumbOf(man)
-        ?: MediaPlace.file(m.file)?.let { Media.preview(c, it, if (kind == "img") "img" else "vid", 96) }
-    pic?.let { rowPosters.put(m.mid, it) }
-    return pic
+    Media.thumbOf(man)?.let { rowPosters.put(m.mid, it); return it }
+    val f = MediaPlace.file(m.file) ?: return null
+    if (came != null && rowPosterAsked.add(m.mid)) rowPosterWorker.execute {
+        val pic = Media.preview(c, f, if (kind == "img") "img" else "vid", 96)
+        if (pic != null) rowPosters.put(m.mid, pic)
+        rowPosterAsked.remove(m.mid)
+        if (pic != null) MainThread.post { came(pic) }
+    }
+    return null
 }
 
 /**
@@ -144,9 +155,7 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
             addView(icon(R.drawable.ic_play_fill, Color.WHITE), FrameLayout.LayoutParams(side * 2 / 5, side * 2 / 5, Gravity.CENTER))
         }
         "vnote", "img", "vid" -> {
-            val pic = rowPoster(this, m, kind)
-            if (pic == null && kind != "vnote") plate(if (kind == "img") R.drawable.ic_photo else R.drawable.ic_peer_video)
-            else ImageView(this).apply {
+            fun picView(pic: android.graphics.Bitmap?) = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
                 if (pic != null) setImageBitmap(pic) else setBackgroundColor(Color.BLACK)
                 outlineProvider = object : android.view.ViewOutlineProvider() {
@@ -154,6 +163,14 @@ fun Context.letterThumb(m: Msg, kind: String, sideDp: Int = 20): View {
                         if (kind == "vnote") o.setOval(0, 0, v.width, v.height) else o.setRoundRect(0, 0, v.width, v.height, v.width * 0.22f)
                 }
                 clipToOutline = true
+            }
+            // the frame not yet made stands as its plate and is laid over it when the worker brings it (iOS 205dc1c2)
+            var holder: FrameLayout? = null
+            val pic = rowPoster(this, m, kind) { b -> holder?.addView(picView(b), FrameLayout.LayoutParams(MATCH, MATCH)) }
+            if (pic != null) picView(pic)
+            else FrameLayout(this).apply {
+                holder = this
+                addView(if (kind == "vnote") picView(null) else plate(if (kind == "img") R.drawable.ic_photo else R.drawable.ic_peer_video), FrameLayout.LayoutParams(MATCH, MATCH))
             }
         }
         "music" -> plate(R.drawable.ic_play_fill)
