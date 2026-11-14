@@ -240,6 +240,12 @@ fun groupPage(act: MainActivity, key: String, onClose: () -> Unit,
             rows += if (remove == null) row else SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete, red = true) { remove() }),
                 ground = GLASS_TONE or (0xFF shl 24))   // the section's card, not the list's black (iOS insetGrouped row)
         }
+        // THE PEOPLE THE OWNER COUNTS BUT NAMES TO NO ONE (iOS 5ed85a6b, OZ 1 p.4, the author's word 21000): one row says how many,
+        // a hand on it says why
+        val unnamed = Groups.unnamed(key)
+        if (0 < unnamed) rows += c.navRow(R.drawable.ic_app_groups, c.resources.getQuantityString(R.plurals.gp_more_members, unnamed, unnamed), null) {
+            AlertDialog.Builder(c).setMessage(R.string.gp_unnamed_why).setPositiveButton(android.R.string.ok, null).show()
+        }
         body.section(null, null, *rows.toTypedArray())
     }
     fun draw() {

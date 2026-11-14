@@ -315,4 +315,7 @@
     <string name="ch_silent_broadcast">Silent Broadcast...</string>
     <string name="ch_loud_said">Members will be notified when you post</string>
     <string name="ch_silent_said">Members will not be notified when you post</string>
+    <!-- iOS 5ed85a6b: the people a group owner counts but names to no one -->
+    <plurals name="gp_more_members"><item quantity="one">%d more member</item><item quantity="other">%d more members</item></plurals>
+    <string name="gp_unnamed_why">They are listed once the group\'s owner updates Montana.</string>
 </resources>

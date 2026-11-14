@@ -628,10 +628,11 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls, { CallsSeen.unseen() }) { onPane(Pane.CALLS) }, lp())
         addView(row(feedMark(), R.string.app_feed) { onPane(Pane.FEED) }, lp())
         // THE COUNTS (iOS MTApplication.badge, ContentView.swift:1489-1498): the chats with something unread, the groups' and the channels' each their own
-        addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats, { Book.listed().count { !Groups.isKey(it.ref) && ChatMarks.hasUnread(it) } }) { onPane(Pane.CHATS) }, lp())
+        // by the one answer of a row's list (iOS d096082e, ChatFolders.room): the Montana room counts over Channels, not over Chats
+        addView(row(glyph(R.drawable.ic_bar_chats), R.string.chats, { ChatFolders.unread(null) }) { onPane(Pane.CHATS) }, lp())
         // the groups and the channels, apps of their own under the chats (iOS MTApplication .groups, .channels: person.3.fill, megaphone.fill)
-        addView(row(glyph(R.drawable.ic_app_groups), R.string.app_groups, { Book.all().count { Groups.isKey(it.ref) && !Groups.isChannel(it.ref) && ChatMarks.hasUnread(it) } }) { onPane(Pane.GROUPS) }, lp())
-        addView(row(glyph(R.drawable.ic_app_channels), R.string.app_channels, { Book.all().count { Groups.isChannel(it.ref) && ChatMarks.hasUnread(it) } }) { onPane(Pane.CHANNELS) }, lp())
+        addView(row(glyph(R.drawable.ic_app_groups), R.string.app_groups, { ChatFolders.unread(ChatFolders.GROUPS) }) { onPane(Pane.GROUPS) }, lp())
+        addView(row(glyph(R.drawable.ic_app_channels), R.string.app_channels, { ChatFolders.unread(ChatFolders.CHANNELS) }) { onPane(Pane.CHANNELS) }, lp())
         addView(row(glyph(R.drawable.ic_bar_play), R.string.app_music) { onPane(Pane.MUSIC) }, lp())
         addView(row(glyph(R.drawable.ic_app_gallery), R.string.app_gallery) { onPane(Pane.GALLERY) }, lp())
         addView(row(android.widget.ImageView(c).apply { setImageResource(R.drawable.chess_knight) }, R.string.app_chess, onTap = onChess), lp())   // chess (iOS MTChessPage)
@@ -669,14 +670,22 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     // live, the chats with something unread where the chats live -- the platform's corner badge, 10 right and 4 up of the glyph's corner
     private val callsBadge = act.countBadge()
     private val chatsBadge = act.countBadge()
+    private val groupsBadge = act.countBadge()
+    private val channelsBadge = act.countBadge()
     private val logoBadge = act.countBadge()
     /** Unfolded, the missed calls on the calls glyph and the unread on the chats glyph; folded, their sum on the logo (iOS 369-394, panelBadge 486). */
     fun badges() {
         val calls = CallsSeen.unseen()
-        val chats = Book.listed().count { ChatMarks.hasUnread(it) }
+        // every badge over its own icon, by one answer (iOS d096082e, ChatFolders.room, OZ 1 p.5): a person's chats, the groups, the
+        // channels with the Montana room
+        val chats = ChatFolders.unread(null)
+        val groups = ChatFolders.unread(ChatFolders.GROUPS)
+        val channels = ChatFolders.unread(ChatFolders.CHANNELS)
         callsBadge.showCount(if (open) calls else 0)
         chatsBadge.showCount(if (open) chats else 0)
-        logoBadge.showCount(if (open) 0 else calls + chats)
+        groupsBadge.showCount(if (open) groups else 0)
+        channelsBadge.showCount(if (open) channels else 0)
+        logoBadge.showCount(if (open) 0 else calls + chats + groups + channels)
     }
 
     /**
@@ -788,8 +797,8 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         row.addView(logoBox, lp(0, MATCH, 1f))
         glyph(R.drawable.ic_bar_chats, 24, badge = chatsBadge) { onPane(Pane.CHATS) }
         // THE GROUPS AND THE CHANNELS RIGHT OF THE CHATS (iOS groupsSlot/channelsSlot, b9b212d4, the author's words 21097, 21176)
-        glyph(R.drawable.ic_app_groups, 26) { onPane(Pane.GROUPS) }
-        glyph(R.drawable.ic_app_channels, 26) { onPane(Pane.CHANNELS) }
+        glyph(R.drawable.ic_app_groups, 26, badge = groupsBadge) { onPane(Pane.GROUPS) }
+        glyph(R.drawable.ic_app_channels, 26, badge = channelsBadge) { onPane(Pane.CHANNELS) }
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             place(false)
             if (!foldLaid && width > 0) { foldLaid = true; if (!open) post { applyFold(0f) } }   // a panel left folded is born folded

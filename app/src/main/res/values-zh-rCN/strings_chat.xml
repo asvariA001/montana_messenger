@@ -315,4 +315,7 @@
     <string name="ch_silent_broadcast">静音广播...</string>
     <string name="ch_loud_said">您发布时订阅者会收到通知</string>
     <string name="ch_silent_said">您发布时订阅者不会收到通知</string>
+    <!-- iOS 5ed85a6b: the people a group owner counts but names to no one -->
+    <plurals name="gp_more_members"><item quantity="other">另有 %d 名成员</item></plurals>
+    <string name="gp_unnamed_why">群主更新 Montana 后，他们将显示在列表中。</string>
 </resources>

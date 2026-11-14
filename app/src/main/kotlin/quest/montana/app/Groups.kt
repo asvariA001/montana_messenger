@@ -39,6 +39,8 @@ object Groups {
     private const val NAME_LIMIT = 64
     private const val FACE_LIMIT = 24_000
     private const val FACE_SIDE = 160   // iOS faceSide
+    private const val FULL_FACE_SIDE = 1024   // iOS fullFaceSide (06c8eaf1)
+    private const val FULL_FACE_LIMIT = 1_048_576   // iOS fullFaceLimit
     /** A speaker's face on its letter (iOS speakerFaceSide, MTGroupWord.sf): the feed's face at three pixels a point. */
     private const val SPEAKER_FACE_SIDE = 96
     /** A speaker gives its face again a day after it last did (iOS faceAgain): one who came in since is not left with an initial. */
@@ -124,6 +126,11 @@ object Groups {
         val cards: MutableMap<String, String> = mutableMapOf(),
         /** The seat and the name this phone last laid its own card under (iOS cardGiven, giveCards): a new seat or a new name lays it again. */
         var cardGiven: String? = null,
+        /** THE FULL FACE THIS PHONE WEARS (iOS faceFull, 06c8eaf1, OZ 1 p.1): the invitation's «blob.key» it came by -- the same word is
+         *  not fetched again. */
+        var faceFull: String? = null,
+        /** The owner told every member its full face once (iOS fullFaced, 06c8eaf1): a face given before rode the small one alone. */
+        var fullFaced: Boolean = false,
     ) {
         val mine: Boolean get() = owner.isEmpty()
         fun json(): JSONObject = JSONObject().put("id", id).put("k", kind).put("ti", title).put("ds", about).put("ow", owner).put("me", me)
@@ -141,6 +148,7 @@ object Groups {
             .apply { faceGiven?.let { put("fg", JSONObject().put("t", it.tag).put("c", it.count).put("at", it.at)) } }
             .apply { seats?.let { put("ps", JSONArray(it)) } }.apply { round?.let { put("rr", it) } }
             .put("pc", JSONObject(cards.toMap())).put("cg", cardGiven ?: "")
+            .put("fu", faceFull ?: "").put("fd", fullFaced)
         companion object {
             fun of(o: JSONObject) = State(o.getString("id"), o.getString("k"), o.optString("ti"), o.optString("ds"), o.optString("ow"),
                 o.getString("me"),
@@ -164,7 +172,7 @@ object Groups {
                 o.optJSONObject("fg")?.let { FaceGiven(it.optString("t"), it.optInt("c"), it.optLong("at")) },
                 o.optJSONArray("ps")?.let { a -> List(a.length()) { a.getString(it) } }, if (o.has("rr")) o.optInt("rr") else null,
                 o.optJSONObject("pc")?.let { f -> f.keys().asSequence().associateWith { f.getString(it) }.toMutableMap() } ?: mutableMapOf(),
-                o.optString("cg").ifEmpty { null })
+                o.optString("cg").ifEmpty { null }, o.optString("fu").ifEmpty { null }, o.optBoolean("fd"))
         }
     }
 
@@ -259,7 +267,8 @@ object Groups {
                 .put("adminTaken", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } }).put("ranks", JSONObject(g.ranks.toMap()))
                 .put("approval", g.approval).put("history", g.history).put("banned", seats(g.banned))
                 .put("requests", JSONArray().apply { g.requests.forEach { put(JSONObject().put("pipe", it.pipe).put("name", it.name).put("at", it.at / 1000.0)) } })
-            for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite, "cardGiven" to g.cardGiven)) if (v == null) o.remove(k) else o.put(k, v)
+            for ((k, v) in listOf("faceTag" to g.faceTag, "invite" to g.invite, "cardGiven" to g.cardGiven, "faceFull" to g.faceFull)) if (v == null) o.remove(k) else o.put(k, v)
+            if (g.fullFaced) o.put("fullFaced", true) else o.remove("fullFaced")
             // the seats, the roster told and the cards ride as iOS MTGroupState keeps them (07d5fc70, OZ 1 p.1, p.8)
             g.seats?.let { o.put("seats", JSONArray(it)) } ?: o.remove("seats")
             o.remove("rostered")   // iOS d28805b6 keeps the owner's round instead
@@ -326,7 +335,8 @@ object Groups {
             seats = if (kind == GROUP) s.optJSONArray("seats")?.let { a -> words(a).filter(::isSeat) } else null,
             round = if (s.has("round")) s.optInt("round") else null,
             cards = if (kind == GROUP) map(s.optJSONObject("cards")).filterValues(::isCard).toMutableMap() else mutableMapOf(),
-            cardGiven = s.optString("cardGiven").ifEmpty { null })
+            cardGiven = s.optString("cardGiven").ifEmpty { null },
+            faceFull = s.optString("faceFull").ifEmpty { null }, fullFaced = s.optBoolean("fullFaced"))
     }
 
     /**
@@ -367,8 +377,16 @@ object Groups {
     /** A GROUP'S NUMBER IS ITS PAGE'S LIST AND THIS PHONE, ONE OWNER (iOS people, 07d5fc70, OZ 1 p.1: the head said 11 and the list 6);
      *  a channel's is its owner's count. */
     private fun people(g: State): Int = if (g.kind != GROUP) g.count else synchronized(lock) {
-        if (g.mine) g.members.size + 1 else 2 + pageRest(g).size
+        if (g.mine) g.members.size + 1 else 2 + pageRest(g).size + unnamedOf(g)
     }
+    /**
+     * THE PEOPLE A MEMBER'S PHONE CANNOT LIST (iOS unnamed, 5ed85a6b, OZ 1 p.4, the author's word 21000): an owner that names no seats
+     * -- an older build -- counts its people (count) and names only whoever spoke; the rest are counted and never invented. None on the
+     * owner's phone, none where the owner named every seat.
+     */
+    fun unnamed(key: String): Int = state(key)?.let { g -> synchronized(lock) { unnamedOf(g) } } ?: 0
+    private fun unnamedOf(g: State): Int =
+        if (g.kind != GROUP || g.mine || g.seats != null) 0 else maxOf(0, g.count - 2 - pageRest(g).size)
     /** The seats of a member's page after the owner (iOS pagePeople): every seat the owner named, or everyone who spoke where it names none. */
     private fun pageRest(g: State): List<String> =
         (g.seats ?: g.names.keys.toList()).filter { it != OWNER_SEAT && it != g.me }.distinct()
@@ -1002,6 +1020,7 @@ object Groups {
                 mutableMapOf(), System.currentTimeMillis())
             if (g.kind == GROUP) g.round = ownBuild()   // its invitations name the seats and the round (iOS d28805b6, OZ 1 p.1, p.8)
             if (g.kind == GROUP) g.history = true   // A NEW GROUP SHOWS ITS PAST TO NEW MEMBERS (iOS 99825581, the author's word 20455 p.2)
+            g.fullFaced = true   // its invitations carry the full face beside the small one (iOS 06c8eaf1, OZ 1 p.1)
             groups[id] = g
             save()
             stand(g, face, revive = true)   // the group is born here
@@ -1019,10 +1038,16 @@ object Groups {
     private fun tellAll(g: State, face: String?, only: Set<String>? = null, by: String = OWNER_SEAT) {
         // the group's link, minted once, for the administrators who may invite by it (iOS 1957-1958, G.6)
         val link = if (g.admins.any { adminCan(g, it, INVITE) }) standingLink(g) else null
+        // the picture itself beside the small face, laid once for every member it rides to (iOS 06c8eaf1, OZ 1 p.1)
+        val full = if (face == null) null else Book.face(key(g.id)).takeIf { it.isFile }?.let { f -> runCatching { f.readBytes() }.getOrNull() }
+            ?.let(::layFullFace)
         for (m in g.members) {
             val w = word("inv", g).put("k", g.kind).put("ti", g.title).put("c", g.count).put("me", m.seat)
             if (g.about.isNotEmpty()) w.put("ds", g.about)
-            if (face != null && (only == null || m.seat in only)) w.put("fc", face)
+            if (face != null && (only == null || m.seat in only)) {
+                w.put("fc", face)
+                full?.let { w.put("ff", it) }   // the full face rides with the small one alone (iOS 06c8eaf1)
+            }
             if (g.admins.isNotEmpty()) w.put("ad", JSONArray(g.admins))   // the administrators the owner named (iOS ad, stage R.6)
             // the administrators' rights left out and the custom titles (iOS ax, rk, G.6); an older build skips the keys
             if (g.taken.isNotEmpty()) w.put("ax", JSONObject().apply { g.taken.forEach { (k, v) -> put(k, JSONArray(v)) } })
@@ -1079,6 +1104,15 @@ object Groups {
             g.round = build
             save()
             if (g.members.isNotEmpty()) tellAll(g, null)
+        }
+        // THE FULL FACE ONCE TO THOSE WHO HOLD THE SMALL ONE (iOS 06c8eaf1, OZ 1 p.1): a face given before rode the small one alone.
+        for (id in groups.keys.sorted()) {
+            val g = groups[id] ?: continue
+            if (!g.mine || g.left || g.fullFaced || g.members.isEmpty()) continue
+            val d = Book.face(key(id)).takeIf { it.isFile }?.let { runCatching { it.readBytes() }.getOrNull() } ?: continue
+            tellAll(g, thumb(d))
+            g.fullFaced = true
+            save()
         }
         giveCards()
     }
@@ -2216,6 +2250,64 @@ object Groups {
         return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP).takeIf { it.length <= FACE_LIMIT }
     }
 
+    /**
+     * A GROUP'S FULL FACE (iOS layFullFace, 06c8eaf1, OZ 1 p.1, the author's word 20586: the group's picture was blurred when opened --
+     * a member held the invitation's small face alone and drew it large): the invitation keeps the small face so the word stays a
+     * letter; the picture goes up to the node once, sealed under a fresh key, named by its content, and the invitation hands the name
+     * and the key over the pipe as «blob.key». The node holds it a week and reads nothing.
+     */
+    private fun layFullFace(face: ByteArray): String? {
+        val b = BitmapFactory.decodeByteArray(face, 0, face.size) ?: return null
+        val scale = minOf(FULL_FACE_SIDE.toFloat() / b.width, FULL_FACE_SIDE.toFloat() / b.height, 1f)   // iOS avatarResized: fit, never grow
+        val fit = if (scale < 1f) Bitmap.createScaledBitmap(b, maxOf(1, (b.width * scale).toInt()), maxOf(1, (b.height * scale).toInt()), true) else b
+        val full = ByteArrayOutputStream().also { fit.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
+        if (full.size > FULL_FACE_LIMIT) return null
+        val key = MtBindings.nativeRandom(32) ?: return null
+        val nonce = MtBindings.nativeRandom(12) ?: return null
+        val sealed = MtBindings.nativeSealBlob(key, nonce, full) ?: return null
+        val bid = Wire.hex(Wire.sha(sealed))
+        Thread {
+            val ok = runCatching { Wire.putBlob(bid, sealed, assumeAbsent = true) }.getOrDefault(false)
+            Log.i("Montana", "group_face_up " + (if (ok) "ok" else "FAIL") + " bytes=" + full.size)
+        }.start()
+        return bid + "." + Wire.hex(key)
+    }
+
+    /**
+     * A MEMBER WEARS THE GROUP'S FULL FACE (iOS wearFullFace, 06c8eaf1): asked of the node at once and twice more across half a minute
+     * (the owner's put may still be on its way up); the small face stays until it comes, and a face given since leaves it unworn.
+     */
+    private fun wearFullFace(w: JSONObject) {
+        val ff = w.optString("ff").ifEmpty { return }
+        val tag = w.optString("fc").ifEmpty { return }.let(::tagOfFace)
+        val id = w.optString("g")
+        if (groups[id]?.faceFull == ff) return
+        val part = ff.split(".")
+        if (part.size != 2 || part[0].length != 64 || !part[0].all { it in "0123456789abcdefABCDEF" }) return
+        if (part[1].length != 64 || !part[1].all { it in "0123456789abcdefABCDEF" }) return
+        val key = ByteArray(32) { part[1].substring(2 * it, 2 * it + 2).toInt(16).toByte() }
+        Thread {
+            for (pause in longArrayOf(0, 5, 25)) {
+                if (pause != 0L) Thread.sleep(pause * 1000)
+                val sealed = runCatching { Wire.getBlob(part[0]) }.getOrNull() ?: continue
+                val full = MtBindings.nativeOpenBlob(key, sealed)
+                if (full == null || full.size > FULL_FACE_LIMIT || BitmapFactory.decodeByteArray(full, 0, full.size) == null) {
+                    Log.i("Montana", "group_face unreadable"); return@Thread
+                }
+                synchronized(lock) {
+                    val g = groups[id]
+                    if (g == null || g.faceTag != tag) { Log.i("Montana", "group_face a newer face stands"); return@Thread }
+                    g.faceFull = ff
+                    save()
+                    stand(g, full, revive = false)
+                }
+                Log.i("Montana", "group_face full bytes=" + full.size)
+                return@Thread
+            }
+            Log.i("Montana", "group_face absent")
+        }.start()
+    }
+
     // ── the receipts of the copies ──
 
     /** The node holds a copy (Post.flush): my row has left this phone. True when the name was a group's copy. */
@@ -2508,6 +2600,7 @@ object Groups {
         groups[id] = g
         save()
         stand(g, if (newFace) face(fc) else null, revive = fresh)   // the sibling's birth of a group, never its renewal
+        wearFullFace(w)
         if (fresh) lay(g, event("made", OWNER_SEAT, t = title))
         if (renamed) lay(g, event("named", OWNER_SEAT, t = title))
         return true
@@ -2620,6 +2713,7 @@ object Groups {
             if (newFace) had.faceTag = tag
             save()
             stand(had, if (newFace) face(fc) else null, revive = back)   // a renewal leaves a row put away; being added again brings it
+            wearFullFace(w)
             // the reference folder's rows: added again, a new name, a new face -- each the owner's deed
             if (back) lay(had, event("added", OWNER_SEAT, listOf(seat)))
             // a member's renewal is named by the owner (iOS w.s, G.5); else the owner's own deed
@@ -2643,6 +2737,7 @@ object Groups {
         groups[id] = g
         save()
         stand(g, face(fc), revive = true)   // the group is born here
+        wearFullFace(w)
         lay(g, event("added", OWNER_SEAT, listOf(seat)))   // «X added you»
         giveCards()   // this phone's own card, where the owner names seats (iOS 07d5fc70, OZ 1 p.8)
         Log.i("Montana", "group_rx invitation kind=$kind people=$count from=${pipe.take(10)}")

@@ -315,4 +315,7 @@
     <string name="ch_silent_broadcast">Публикация без звука...</string>
     <string name="ch_loud_said">Подписчики получат уведомление о публикации</string>
     <string name="ch_silent_said">Подписчики не получат уведомление о публикации</string>
+    <!-- iOS 5ed85a6b: the people a group owner counts but names to no one -->
+    <plurals name="gp_more_members"><item quantity="one">ещё %d участник</item><item quantity="few">ещё %d участника</item><item quantity="many">ещё %d участников</item><item quantity="other">ещё %d участника</item></plurals>
+    <string name="gp_unnamed_why">Они появятся в списке, когда владелец группы обновит Montana.</string>
 </resources>

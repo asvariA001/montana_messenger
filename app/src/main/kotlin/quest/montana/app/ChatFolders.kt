@@ -90,15 +90,21 @@ object ChatFolders {
     fun contacts(): Set<String>? =
         if (folders().any { (CONTACTS in it.kinds) != (NON_CONTACTS in it.kinds) }) contactPeople().map { it.ref }.toSet() else null
     /** What a conversation is to the folders (iOS kind(of:)). */
-    fun kindOf(ref: String, contacts: Set<String>?): String = when {
+    fun kindOf(ref: String, contacts: Set<String>?): String = room(ref) ?: if (contacts?.contains(ref) == true) CONTACTS else NON_CONTACTS
+    /**
+     * THE LIST A CONVERSATION STANDS IN ON THE TIME PANEL, ONE ANSWER (iOS MTChatFolders.room, d096082e, OZ 1 p.5, the author's word
+     * 21393: «every notification in its place, over its own icon»): the Montana room and every channel -- CHANNELS, a group -- GROUPS,
+     * null -- a person's chat (Chats). The folders, the drawer's counts and the panel's badges read it here.
+     */
+    fun room(ref: String): String? = when {
         Groups.isKey(ref) -> if (Groups.isChannel(ref)) CHANNELS else GROUPS
-        // THE MONTANA ROOM IS A CHANNEL (iOS MTChatFolders.kind, 11c34ed7 at 2389, OZ 1 p.1.5, the author's words 21257 and 21282:
-        // «the official Montana channel with the updates must not stand in the list of chats -- it is a channel»): no group key,
-        // it stood among the person's chats
+        // THE MONTANA ROOM IS A CHANNEL (iOS 11c34ed7 at 2389, OZ 1 p.1.5, the author's words 21257 and 21282: «the official Montana
+        // channel with the updates must not stand in the list of chats -- it is a channel»)
         Book.isMontana(ref) -> CHANNELS
-        contacts?.contains(ref) == true -> CONTACTS
-        else -> NON_CONTACTS
+        else -> null
     }
+    /** The conversations with something unread in one list of the panel (iOS MTApplication.badge for .chats, .groups, .channels). */
+    fun unread(room: String?): Int = Book.listed().count { room(it.ref) == room && ChatMarks.hasUnread(it) }
     /** A folder's rows in the chats' one order: the rows of the list, and the archived ones where the folder keeps them. */
     fun rows(f: ChatFolder, live: List<Chat>, archived: List<Chat>, contacts: Set<String>? = contacts()): List<Chat> {
         if (f.isAll) return live
