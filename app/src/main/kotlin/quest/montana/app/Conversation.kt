@@ -95,7 +95,7 @@ private val AUDIO_NAMES = setOf("mp3", "m4a", "aac", "wav", "flac", "ogg", "opus
 fun rowKind(m: Msg): String? {
     Calls.info(m.text)?.let { return if (it.video) "vcall" else "acall" }
     if (!m.text.startsWith(Marks.MEDIA)) return if (LinkPreview.webURLs(m.text).isNotEmpty()) "link" else null
-    MediaPlace.file(m.file) ?: return null
+    val f = MediaPlace.file(m.file) ?: return null
     val man = m.meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(m.text)
     return when (man?.optString("k")) {
         "aud" -> "aud"
