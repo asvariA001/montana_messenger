@@ -59,6 +59,10 @@ object ChatWall {
      *  gold completely», only the page's ground): no choice, no default, no picture. A choice stored under its name wears the default;
      *  a correspondent's «n:gold» names no known ground any more. */
     val retired = setOf("gold")
+    /** The two Montana grounds lead the chooser (iOS MTWallpaper.montanaOffered); Indigo stays «aurora» in saved and shared data. */
+    val montanaOffered = listOf(INDIGO, "burgundy")
+    /** The rest of the catalogue, offered below as system grounds (iOS MTWallpaper.systemOffered). */
+    val systemOffered = names.filter { it.first !in montanaOffered }
 
     private val listeners = mutableListOf<() -> Unit>()
     fun listen(l: () -> Unit) { synchronized(listeners) { listeners.add(l) } }
@@ -275,34 +279,54 @@ fun wallpaperPicker(act: MainActivity, ref: String, onClose: () -> Unit): View {
         body.removeAllViews()
         body.addView(tabs, lp().apply { setMargins(c.dp(20), c.dp(8), c.dp(20), c.dp(10)) })
         val now = ChatWall.choice(ref)
-        body.addView(c.hstack {
-            setPadding(dp(20), dp(10), dp(20), 0)
-            // my page's own chooser offers «No background» (the crest); a chat's offers «Same as my page» (iOS task.isPage)
-            val page = ref == ChatWall.PAGE
-            addView(tile(now == ChatWall.Choice.General, c.getString(if (page) R.string.pg_none else R.string.wall_same_as_page), true,
-                if (page) CrestGround(c) else c.pageGround()) {
-                preview(ChatWall.Choice.General)
-            }, lp(dp(78), dp(78)))
-            if (now is ChatWall.Choice.Photo) ChatWall.image(now.file)?.let { b ->
-                addView(View(c), lp(dp(18), 1))
-                addView(tile(true, c.getString(R.string.wall_choose_photo), true,
-                    ImageView(c).apply { setImageBitmap(b); scaleType = ImageView.ScaleType.CENTER_CROP }) { pickPhoto() }, lp(dp(78), dp(78)))
-            }
-        }, lp())
-        // the drawn grounds, three to a row, each 168 tall (iOS adaptive 104…150, spacing 14)
-        val grid = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(20), dp(18), dp(20), dp(24)) }
-        ChatWall.names.chunked(3).forEachIndexed { r, row ->
-            grid.addView(c.hstack {
-                row.forEachIndexed { i, (key, res) ->
-                    if (i > 0) addView(View(c), lp(dp(14), 1))
-                    addView(tile(now == ChatWall.Choice.Named(key), c.getString(res), false, View(c).apply { background = GroundPaint(c, key) }) {
-                        preview(ChatWall.Choice.Named(key))
-                    }, LinearLayout.LayoutParams(0, dp(168), 1f))
-                }
-                repeat(3 - row.size) { addView(View(c), lp(dp(14), 1)); addView(View(c), LinearLayout.LayoutParams(0, dp(168), 1f)) }
-            }, lp().apply { if (r > 0) topMargin = c.dp(14) })
+        // my page's own chooser knows «No background» (the crest); a chat's offers «Same as my page» (iOS task.isPage)
+        val page = ref == ChatWall.PAGE
+        fun label(ch: ChatWall.Choice): String = when (ch) {
+            ChatWall.Choice.General -> c.getString(if (page) R.string.pg_none else R.string.wall_same_as_page)
+            is ChatWall.Choice.Named -> ChatWall.names.firstOrNull { it.first == ch.name }?.let { c.getString(it.second) } ?: c.getString(R.string.wall_default)
+            is ChatWall.Choice.Photo -> c.getString(R.string.wall_choose_photo)
         }
-        body.addView(grid, lp())
+        fun paint(ch: ChatWall.Choice): View = when (ch) {
+            ChatWall.Choice.General -> if (page) CrestGround(c) else c.pageGround()
+            is ChatWall.Choice.Named -> View(c).apply { background = GroundPaint(c, ch.name) }
+            is ChatWall.Choice.Photo -> ImageView(c).apply { setImageBitmap(ChatWall.image(ch.file)); scaleType = ImageView.ScaleType.CENTER_CROP }
+        }
+        // the worn photo leads to the photos; every other ground to the preview (iOS tile)
+        fun cell(ch: ChatWall.Choice): View = tile(ch == now, label(ch), false, paint(ch)) {
+            if (ch is ChatWall.Choice.Photo) pickPhoto() else preview(ch)
+        }
+        // the Montana grounds wear their names under the tile (iOS namedTile)
+        fun namedCell(ch: ChatWall.Choice): View = c.vstack(Gravity.CENTER_HORIZONTAL) {
+            addView(cell(ch), lp(MATCH, 0, 1f))
+            addView(c.text(label(ch), 15f, Color.WHITE, bold = true, center = true).apply { setPadding(0, dp(7), 0, 0) }, lp())
+        }
+        /** Tiles three to a row, each 168 tall (iOS adaptive 104…150, spacing 14); a named one stands taller by its name. */
+        fun grid(items: List<ChatWall.Choice>, named: Boolean): View = c.vstack(Gravity.NO_GRAVITY) {
+            items.chunked(3).forEachIndexed { r, row ->
+                addView(c.hstack {
+                    row.forEachIndexed { i, ch ->
+                        if (i > 0) addView(View(c), lp(dp(14), 1))
+                        addView(if (named) namedCell(ch) else cell(ch), LinearLayout.LayoutParams(0, dp(if (named) 196 else 168), 1f))
+                    }
+                    repeat(3 - row.size) { addView(View(c), lp(dp(14), 1)); addView(View(c), LinearLayout.LayoutParams(0, dp(168), 1f)) }
+                }, lp().apply { if (r > 0) topMargin = c.dp(14) })
+            }
+        }
+        fun heading(res: Int, top: Int) = c.text(c.getString(res), 17f, Color.WHITE, bold = true).apply { setPadding(0, dp(top), 0, dp(18)) }
+        // THE TWO MONTANA GROUNDS LEAD, THE CATALOGUE STAYS BELOW AS SYSTEM GROUNDS (iOS MTWallpaperPicker.ready); a chat's
+        // «Same as my page» opens the system grounds; a ground worn but not offered (a photo, my page's «No background») stands
+        // in a row of its own, chosen
+        val montana = ChatWall.montanaOffered.map { ChatWall.Choice.Named(it) }
+        val system: List<ChatWall.Choice> = (if (page) emptyList<ChatWall.Choice>() else listOf(ChatWall.Choice.General)) +
+            ChatWall.systemOffered.map { ChatWall.Choice.Named(it.first) }
+        val wrap = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(20), dp(10), dp(20), dp(24)) }
+        wrap.addView(heading(R.string.wall_montana_grounds, 0), lp())
+        wrap.addView(grid(montana, true), lp())
+        wrap.addView(heading(R.string.wall_system_grounds, 22), lp())
+        wrap.addView(grid(system, false), lp())
+        if (now !in montana + system && !(now is ChatWall.Choice.Photo && ChatWall.image(now.file) == null))
+            wrap.addView(grid(listOf(now), false), lp().apply { topMargin = c.dp(14) })
+        body.addView(wrap, lp())
     }
     draw()
 

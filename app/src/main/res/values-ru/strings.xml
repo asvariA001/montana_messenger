@@ -319,6 +319,8 @@
     <string name="wall_dusk">Сумерки</string>
     <string name="wall_water">Вода</string>
     <string name="wall_aurora">Индиго</string>
+    <string name="wall_montana_grounds">Фоны Montana</string>
+    <string name="wall_system_grounds">Системные фоны</string>
     <string name="wall_rose">Роза</string>
     <string name="wall_forest">Лес</string>
     <!-- the presence line (iOS presenceWord, MontanaSeen) -->

@@ -320,6 +320,8 @@
     <string name="wall_dusk">Dusk</string>
     <string name="wall_water">Water</string>
     <string name="wall_aurora">Indigo</string>
+    <string name="wall_montana_grounds">Montana backgrounds</string>
+    <string name="wall_system_grounds">System backgrounds</string>
     <string name="wall_rose">Rose</string>
     <string name="wall_forest">Forest</string>
     <!-- the presence line (iOS presenceWord, MontanaSeen) -->
