@@ -369,6 +369,15 @@ object Notify {
             if (!sound) { setSound(null, null); enableVibration(false) }
         })
         val chat = Book.chat(ref)
+        // THE BANNER IS THE SHADOW OF A STANDING ROW (iOS MontanaNotify.present, 11c34ed7, OZ 1 p.1.7, decision 913 = a: T1 rang a
+        // letter deleted for everyone 31 hours before): a letter's banner rings only while its row stands in the chat
+        if (mid != null) {
+            val key = mid.removePrefix("mid:")
+            if (!runCatching { chat?.msgs?.any { it.mid.removePrefix("mid:") == key } == true }.getOrDefault(true)) {   // a list read mid-change rings, as before
+                android.util.Log.i("Montana", "notify_skip mid=$key why=no-row")
+                return
+            }
+        }
         // SHOW SENDER OFF NAMES NOBODY (iOS MontanaNotify.showsSender, 245f03f5): the title reads Montana and a group's letter says
         // no speaker -- the switch reached personal letters only, and «who: words» still named who wrote in a group
         val sender = Prefs.bool("notifSender", true)
