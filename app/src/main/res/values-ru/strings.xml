@@ -632,6 +632,11 @@
     <string name="share_preparing">Подготовка</string>
     <string name="share_sending">Отправка…</string>
     <string name="share_still_on_way">Часть вложений ещё в пути — Montana отправит их сама.</string>
+    <string name="bar_place">Панель времени</string>
+    <string name="bar_top">Сверху</string>
+    <string name="bar_bottom">Снизу</string>
+    <string name="net_connected">Подключено</string>
+    <string name="net_disconnected">Отключено</string>
     <string name="vo_style">Стиль голосовых сообщений</string>
     <string name="vo_theirs">Голос собеседника</string>
     <string name="vo_mine">Ваш голос</string>

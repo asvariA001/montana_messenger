@@ -173,6 +173,14 @@ class AppearancePage(private val act: MainActivity, private val onClose: () -> U
             // VOICE STYLE STANDS HIGH, the page's first row since the app's icon left it (iOS cfc6ec68, link 14680 (6) at 2351; 68bbc2d1).
             // THE VOICE ORB'S OWN PAGE (iOS «Voice message style», MontanaSettings.swift:1097-1105 at 2155): the peer's orb, still,
             // and the words; the row leads to the colours of both sides and the motion of the ball.
+            // THE TIME PANEL'S PLACE (iOS AppearanceView «Time panel», b9b212d4, OZ 1 p.1.8.1, the author's word 21179): at the top
+            // or at the bottom of the screen, two segments; the main screen moves the panel at once.
+            addView(header(c, R.string.bar_place))
+            addView(c.plate {
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                addView(segmented(c, listOf(R.string.bar_top to "top", R.string.bar_bottom to "bottom"),
+                    if (BarPlace.bottom) "bottom" else "top") { BarPlace.choose(it == "bottom") }, lp())
+            }, lp())
             addView(header(c, R.string.vo_style))
             addView(c.plate {
                 addView(c.hstack {

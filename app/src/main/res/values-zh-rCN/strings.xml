@@ -632,6 +632,11 @@
     <string name="share_preparing">准备中</string>
     <string name="share_sending">发送中…</string>
     <string name="share_still_on_way">部分内容仍在发送中——Montana 会自动完成。</string>
+    <string name="bar_place">时间面板</string>
+    <string name="bar_top">顶部</string>
+    <string name="bar_bottom">底部</string>
+    <string name="net_connected">已连接</string>
+    <string name="net_disconnected">已断开</string>
     <string name="vo_style">语音消息样式</string>
     <string name="vo_theirs">对方的语音</string>
     <string name="vo_mine">您的语音</string>

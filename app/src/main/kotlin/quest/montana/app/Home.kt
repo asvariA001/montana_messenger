@@ -153,20 +153,20 @@ private fun underlapPage(page: View, room: Int) { if (!underlap(page, room)) roo
 /** The glyph inside a bar button (iOS MontanaOctagon.barGlyph: Color(white: 0.8)). */
 private val barGlyph = Color.rgb(204, 204, 204)
 
-/** The pages under the bar (iOS UIState.Pane): the mesh wall from the drawer, the P2P wall the globe's page. */
+/** The pages under the bar (iOS UIState.Pane): the music, the gallery, the mesh and the P2P walls are the drawer's. */
 enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, MESH, P2P }
+
 /**
- * THE DYNAMIC SLOT'S PAGES (iOS UIState.mediaPanes, 199a5c48, the author's word 20720 p.2): the music, the gallery, and the groups
- * and the channels chosen in the drawer -- the slot wears the glyph of the one chosen, so it is clear where one stands.
+ * WHERE THE TIME PANEL STANDS (iOS MontanaOctagon.barBottomKey, b9b212d4, OZ 1 p.1.8.1, the author's words 21179 and 21207): at the
+ * top, as it always stood, or at the bottom of the screen -- the person's choice in Appearance under one key. iOS is born at the
+ * bottom in Messenger and at the top in the Protocol; Android is one edition and keeps the top it always had until the author's word.
  */
-private val MEDIA_PANES = listOf(Pane.MUSIC, Pane.GALLERY, Pane.GROUPS, Pane.CHANNELS)
-/** The page the slot stands for (iOS UIState.mediaPane): the one showing when it is the slot's, else the last opened of them. */
-private fun mediaPane(now: Pane): Pane = if (now in MEDIA_PANES) now
-    else Prefs.str("lastMediaPane", "music").let { last -> MEDIA_PANES.firstOrNull { it.name.lowercase() == last } } ?: Pane.MUSIC
-/** The slot's glyph for its page (iOS UIState.Glyph.of): the groups and the channels wear the drawer's own glyphs. */
-private fun mediaGlyph(p: Pane) = when (p) {
-    Pane.GALLERY -> R.drawable.ic_app_gallery; Pane.GROUPS -> R.drawable.ic_app_groups; Pane.CHANNELS -> R.drawable.ic_app_channels
-    else -> R.drawable.ic_bar_play
+object BarPlace {
+    const val KEY = "timePanelBottom"   // NOT-UI: a stored setting's name, the same as iOS
+    val bottom: Boolean get() = Prefs.bool(KEY, false)
+    /** The main screen moves the panel at once when the choice changes (iOS @AppStorage redraws). */
+    var moved: ((Boolean) -> Unit)? = null
+    fun choose(bottom: Boolean) { Prefs.setBool(KEY, bottom); moved?.invoke(bottom) }
 }
 /** The pages whose word at the head narrows their own rows (iOS searchesItself, MontanaChatsList.swift:515 at a91328e3). */
 private fun searchesItself(p: Pane) = p == Pane.MUSIC || p == Pane.FEED || p == Pane.MESH || p == Pane.P2P || p == Pane.GALLERY
@@ -232,7 +232,6 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         chats.showKind(when (p) { Pane.GROUPS -> ChatFolders.GROUPS; Pane.CHANNELS -> ChatFolders.CHANNELS; else -> null })
         if (p == Pane.CALLS) CallsSeen.clear()   // the calls page is looked at: the missed calls are seen (iOS 3010-3012)
         bar.badges()
-        if (p in MEDIA_PANES) Prefs.setStr("lastMediaPane", p.name.lowercase())   // the slot's memory (iOS UIState.ask)
         bar.showPane(p)
         if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
         showPlayer()
@@ -254,16 +253,17 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     // THE PAGES FOLLOW THE FINGER (iOS turnOrder, turnStroke): the pane moves by the finger and the page beside it slides in
     // from its side — the next on a stroke to the left, the one before on a stroke to the right; at the release a moving finger
     // says the way, a still one the distance. The order is the bar's: contacts, calls, the feed, the chats, the dynamic glyph's
-    // page — the music, or the gallery when it was the last opened — and the globe's P2P wall.
+    // and the channels (iOS b9b212d4).
     shell.turner = object : DrawerShell.Turner {
         var next: Pane? = null
         var side = 0
         var base = 0f   // where the pane stood when the stroke began: 0, or the place a cut settle left it
         var settling: Pair<Pane, Pane>? = null   // the two pages a settle is sliding, until it rests
         fun order(): List<Pane> {
-            // the dynamic slot's page (iOS turnOrder with mediaPane); the groups and the channels are the chats' own page on
-            // another folder, so a page that is this very one is passed over -- it cannot slide in beside itself
-            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, mediaPane(pane), Pane.P2P)
+            // ONE ROW FOR BOTH EDITIONS (iOS turnOrder, b9b212d4, decision 911 = a): the groups and the channels right of the chats,
+            // no globe and no dynamic glyph; the music, the gallery and the network are the drawer's. The groups and the channels are
+            // the chats' own page on another folder, so a page that is this very one is passed over -- it cannot slide in beside itself
+            return listOf(Pane.CONTACTS, Pane.CALLS, Pane.FEED, Pane.CHATS, Pane.GROUPS, Pane.CHANNELS)
                 .filter { it == pane || views.getValue(it) !== views.getValue(pane) }
         }
         /** A STROKE THAT LANDS MID-SETTLE (iOS beginStroke, 47531d53282f): the settle is cut where it stands and the stroke goes
@@ -377,16 +377,37 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     // page's list keeps their height as its own room above and scrolls on beneath them; a page with nothing that scrolls keeps the
     // room itself, so nothing of it stands under the bar.
     val head = c.vstack(Gravity.NO_GRAVITY) {
-        addView(bar, lp(MATCH, dp(60)).apply { setMargins(dp(12), dp(4), dp(12), dp(2)) })
         addView(search, lp(MATCH, dp(56)))
         addView(hair, lp(MATCH, dp(21)))
     }
-    searchFolds()
-    shell.page.addView(FrameLayout(c).apply {
+    // THE TIME PANEL AT THE TOP OR AT THE BOTTOM (iOS b9b212d4, OZ 1 p.1.8.1): at the top it heads the column over the search; at the
+    // bottom the same plate closes the column, its pads turned over (iOS barTopPad/barBottomPad swapped), and the pages stand above
+    // it -- the search stays at the top either way.
+    val foot = c.vstack(Gravity.NO_GRAVITY) { }
+    val stage = FrameLayout(c).apply {
         addView(panes, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(results, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+    fun placeBar(bottom: Boolean) {
+        (bar.parent as? android.view.ViewGroup)?.removeView(bar)
+        val l = lp(MATCH, c.dp(60)).apply { if (bottom) setMargins(c.dp(12), c.dp(2), c.dp(12), c.dp(4)) else setMargins(c.dp(12), c.dp(4), c.dp(12), c.dp(2)) }
+        if (bottom) foot.addView(bar, l) else head.addView(bar, 0, l)
+        bar.post { bar.relaid() }
+        android.util.Log.d("Montana", "panel place=" + (if (bottom) "bottom" else "top"))
+    }
+    placeBar(BarPlace.bottom)
+    BarPlace.moved = { b -> act.onMain { placeBar(b) } }
+    searchFolds()
+    shell.page.addView(FrameLayout(c).apply {
+        addView(stage, FrameLayout.LayoutParams(MATCH, MATCH))
         addView(head, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP))
+        addView(foot, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM))
     }, 1, FrameLayout.LayoutParams(MATCH, MATCH))
+    foot.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
+        val h = bottom - top
+        val l = stage.layoutParams as FrameLayout.LayoutParams
+        if (l.bottomMargin != h) stage.post { l.bottomMargin = h; stage.layoutParams = l }
+    }
     head.addOnLayoutChangeListener { _, _, top, _, bottom, _, _, _, _ ->
         views.values.forEach { underlapPage(it, bottom - top) }
         underlapPage(results, bottom - top)
@@ -632,9 +653,9 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
 
 /**
  * THE TIME PANEL (iOS chatsTopBarPlate): ONE glass capsule at the bar's height, and on it seven glyphs with equal shares of
- * the width, left to right — the drawer, the contacts, the calls, THE LOGO AT THE CENTRE, the chats, the player and the
- * globe. One puck stands under the chosen glyph and flows to the one tapped next; the globe is the network's lamp and opens
- * the P2P wall.
+ * the width, left to right — the drawer, the contacts, the calls, THE LOGO AT THE CENTRE, the chats, the groups and the
+ * channels (iOS b9b212d4: one panel for both editions, no globe and no dynamic glyph). One puck stands under the chosen glyph and
+ * flows to the one tapped next; the logo's green ring is the network's lamp.
  */
 class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (Pane) -> Unit) : FrameLayout(act) {
     private val puck = View(act).apply {
@@ -726,8 +747,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         super.onWindowFocusChanged(hasWindowFocus)
         if (hasWindowFocus) readNotify("return")
     }
-    private lateinit var media: ImageView
-    private lateinit var globe: ImageView
+    private lateinit var ring: View
 
     init {
         background = act.glassPlate()
@@ -747,6 +767,13 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
                 background = act.glassPlate(oval = true)
                 addView(ImageView(act).apply { setImageResource(R.drawable.logo); setPadding(dp(9), dp(9), dp(9), dp(9)) },
                     LayoutParams(MATCH, MATCH))
+                // THE LOGO SAYS THE NETWORK (iOS MTBarLogo, b9b212d4, the author's words 21097 and 21190): a green ring while this
+                // phone holds a node, none while it does not -- the globe left the panel
+                ring = View(act).apply {
+                    background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(dp(2), MT.green) }
+                    visibility = View.INVISIBLE
+                }
+                addView(ring, LayoutParams(MATCH, MATCH))
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
             addView(logoBadge, LayoutParams(WRAP, dp(20), Gravity.CENTER))
             logoBadge.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
@@ -758,12 +785,9 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         }
         row.addView(logoBox, lp(0, MATCH, 1f))
         glyph(R.drawable.ic_bar_chats, 24, badge = chatsBadge) { onPane(Pane.CHATS) }
-        // THE DYNAMIC GLYPH: the last opened of the player, the gallery, the groups and the channels (iOS mediaPane); a tap opens
-        // that one again (iOS askMedia)
-        media = glyph(mediaGlyph(mediaPane(Pane.CHATS)), 26) { onPane(mediaPane(Pane.CHATS)) }
-        // THE GLOBE (iOS MTBarGlobe, MontanaTransportIcon): the network's lamp — green while a machine is held, red while none is,
-        // grey before the first knock (unknown is not «no»); a tap chooses the P2P wall (the author's word 25.09)
-        globe = glyph(R.drawable.ic_language, 26, tint = Color.rgb(115, 115, 115)) { onPane(Pane.P2P) }
+        // THE GROUPS AND THE CHANNELS RIGHT OF THE CHATS (iOS groupsSlot/channelsSlot, b9b212d4, the author's words 21097, 21176)
+        glyph(R.drawable.ic_app_groups, 26) { onPane(Pane.GROUPS) }
+        glyph(R.drawable.ic_app_channels, 26) { onPane(Pane.CHANNELS) }
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             place(false)
             if (!foldLaid && width > 0) { foldLaid = true; if (!open) post { applyFold(0f) } }   // a panel left folded is born folded
@@ -771,7 +795,8 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         val lamp = object : Runnable {
             override fun run() {
                 val up = Channels.nodesHeld() > 0
-                globe.imageTintList = android.content.res.ColorStateList.valueOf(if (up) MT.green else if (Channels.knocked) MT.red else Color.rgb(115, 115, 115))
+                ring.visibility = if (up) View.VISIBLE else View.INVISIBLE
+                logoBox.contentDescription = act.getString(if (up) R.string.net_connected else R.string.net_disconnected)
                 postDelayed(this, 2000)
             }
         }
@@ -800,12 +825,13 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         return icon
     }
 
-    /** The puck goes under the pane's slot; the dynamic glyph wears the face of its page (iOS slot(of:), Glyph.of). */
+    /** The puck goes under the pane's slot (iOS slot(of:)); a page of the drawer has none. */
     fun showPane(p: Pane, animated: Boolean = true) {
         slot = slotOf(p)
-        if (p in MEDIA_PANES) media.setImageResource(mediaGlyph(p))
         place(animated)
     }
+    /** The panel moved between the top and the bottom: its fold and its puck are laid again in the new place. */
+    fun relaid() { applyFold(fold); place(false) }
 
     private fun slotView(i: Int): View? = when { i < 0 -> null; i < 3 -> slots.getOrNull(i); i == 3 -> logoBox; else -> slots.getOrNull(i - 1) }
     private fun place(animated: Boolean) {
@@ -824,7 +850,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         if (animated) puck.animate().translationX(x).setDuration(200).setInterpolator(AccelerateDecelerateInterpolator()).start()
         else puck.translationX = x
     }
-    private fun slotOf(p: Pane) = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.MUSIC, Pane.GALLERY, Pane.GROUPS, Pane.CHANNELS -> 5; Pane.P2P -> 6; else -> -1 }
+    private fun slotOf(p: Pane) = when (p) { Pane.CONTACTS -> 1; Pane.CALLS -> 2; Pane.FEED -> 3; Pane.CHATS -> 4; Pane.GROUPS -> 5; Pane.CHANNELS -> 6; else -> -1 }
     private fun puckX(i: Int): Float? {
         val v = slotView(i)?.takeIf { it.width > 0 } ?: return null
         return v.left.toFloat() + dp(3)

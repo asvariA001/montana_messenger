@@ -641,8 +641,8 @@ object Card {
         // the field (MontanaBubble.swift 2361-2362, MontanaConversation.swift 661), the panes (ContentView.swift 226-227, 4296;
         // MontanaChatsList.swift 454), the mesh switch (MontanaNetworkView.swift 123), the daily copies to one's own node
         // (MontanaHomeNode.swift 23, 39-40)
-        "composeOpen" to Form.SWITCH, "composeMediaMode" to Form.WORD, "lastMediaPane" to Form.WORD, "cardKind" to Form.WORD,
-        "timePanelOpen" to Form.SWITCH, Mesh.KEY to Form.SWITCH, "mt.home.node.on" to Form.SWITCH,
+        "composeOpen" to Form.SWITCH, "composeMediaMode" to Form.WORD, "cardKind" to Form.WORD,
+        "timePanelOpen" to Form.SWITCH, BarPlace.KEY to Form.SWITCH, Mesh.KEY to Form.SWITCH, "mt.home.node.on" to Form.SWITCH,
         // the person's term and ceiling of the cache their node backs (MontanaChatStore.swift settingKeys 6913, 18.10.2026)
         HomeKeep.KEEP_DAYS to Form.WHOLE_WORD, HomeKeep.LIMIT to Form.WHOLE_WORD,
         // the wall's rules (MontanaBoard.swift 44-49, 64-77): the rule a word, the people a list

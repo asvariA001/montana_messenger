@@ -637,6 +637,11 @@
     <string name="share_preparing">Preparing</string>
     <string name="share_sending">Sending…</string>
     <string name="share_still_on_way">Some items are still on their way — Montana will send them.</string>
+    <string name="bar_place">Time panel</string>
+    <string name="bar_top">Top</string>
+    <string name="bar_bottom">Bottom</string>
+    <string name="net_connected">Connected</string>
+    <string name="net_disconnected">Disconnected</string>
     <string name="vo_style">Voice message style</string>
     <string name="vo_theirs">Their voice</string>
     <string name="vo_mine">Your voice</string>
