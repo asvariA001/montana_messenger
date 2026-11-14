@@ -581,6 +581,22 @@ object PlayPlaces {
         }
         Prefs.setStr(KEY, o.toString())
     }
+    /** Every kept place, for the copy (iOS SeedScope.dataKeys "playPlaces"): a file to its moment and the moment it was kept. */
+    fun carried(): Map<String, Pair<Double, Double>> {
+        val o = all(); val out = HashMap<String, Pair<Double, Double>>()
+        for (k in o.keys()) o.optJSONArray(k)?.let { a -> out[k] = a.optDouble(0, 0.0) to a.optDouble(1, 0.0) }
+        return out
+    }
+    /** The copy's places laid under this phone's own: the newer moment of a file wins, the newest two hundred stay. */
+    fun lay(m: Map<String, Pair<Double, Double>>) {
+        val o = all()
+        for ((k, v) in m) if (o.optJSONArray(k)?.optDouble(1, 0.0)?.let { it >= v.second } != true) o.put(k, org.json.JSONArray().put(v.first).put(v.second))
+        if (o.length() > MOST) {
+            val oldest = o.keys().asSequence().sortedBy { o.getJSONArray(it).optDouble(1, 0.0) }.take(o.length() - MOST).toList()
+            for (k in oldest) o.remove(k)
+        }
+        Prefs.setStr(KEY, o.toString())
+    }
     fun at(file: String, of: Double, voice: Boolean): Double? {
         if (!long(of, voice)) return null
         val t = all().optJSONArray(file)?.optDouble(0, -1.0) ?: return null

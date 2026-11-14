@@ -857,6 +857,9 @@ object Card {
         }?.let { out.put("d:" + Groups.STORE, b64(it)) }
         // The answers counted (iOS MTReactions, MontanaMessageMenu.swift 94-100: a map of answer to count, a property list on the card)
         QuickReactions.counts().takeIf { it.isNotEmpty() }?.let { out.put("p:reactionUse", b64(plist(it))) } ?: out.remove("p:reactionUse")
+        // WHERE A LONG LISTEN STOPPED (iOS SeedScope.dataKeys "playPlaces", MTPlayPlaces: one dictionary of a file to its moment and
+        // the moment it was kept), the XML property list an iPhone reads too; a file is named by this phone's own path
+        PlayPlaces.carried().takeIf { it.isNotEmpty() }?.let { out.put("p:playPlaces", b64(placesPlist(it))) } ?: out.remove("p:playPlaces")
         // The moment the calls page was last seen (iOS ChatStore.loadCallsSeenAt 593-603: a sealed word of seconds)
         CallsSeen.kept()?.let { out.put("d:callsSeenAt", b64(secs(it))) } ?: out.remove("d:callsSeenAt")
         val before = Prefs.str(MIRRORED, "").split('\n').filter { it.isNotEmpty() }
@@ -907,6 +910,7 @@ object Card {
         var pins: Map<String, List<String>>? = null
         var stickers: List<String>? = null
         var reactions: Map<String, Int>? = null
+        var places: Map<String, Pair<Double, Double>>? = null
         var callsSeen: Long? = null
         var groups: ByteArray? = null
         var laid = 0
@@ -958,6 +962,7 @@ object Card {
                 }
                 tag == "a:" && k == "montana.stickers.mine" -> stickers = words(v)
                 tag == "p:" && k == "reactionUse" -> reactions = unb64(v)?.let { counts(it) }
+                tag == "p:" && k == "playPlaces" -> places = unb64(v)?.let { placesOf(it) }
                 tag == "d:" && k == "callsSeenAt" -> callsSeen = unb64(v)?.let { ms(String(it, Charsets.UTF_8)) }
                 tag == "d:" && k == Groups.STORE -> groups = unb64(v)
             }
@@ -990,6 +995,7 @@ object Card {
             { pins?.let { MsgPins.lay(it) } },
             { stickers?.let { Stickers.lay(c, it, MontanaPaths.store(c)) } },
             { reactions?.let { QuickReactions.lay(it) } },
+            { places?.let { PlayPlaces.lay(it) } },
             { callsSeen?.let { CallsSeen.lay(it) } },
             { groups?.let { Groups.lay(it, avatars) } }
         ).forEach { runCatching(it) }
@@ -1132,6 +1138,21 @@ object Card {
         for ((k, v) in m) append("<key>").append(xml(k)).append("</key><integer>").append(v).append("</integer>")
         append("</dict></plist>")
     }
+    /** The long listens' places as the XML property list (iOS MTPlayPlaces' dictionary of a file to [moment, kept at]). */
+    private fun placesPlist(m: Map<String, Pair<Double, Double>>): String = buildString {
+        append("""<?xml version="1.0" encoding="UTF-8"?>""").append('\n')
+        append("""<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">""").append('\n')
+        append("""<plist version="1.0"><dict>""")
+        for ((k, v) in m) append("<key>").append(xml(k)).append("</key><array><real>").append(v.first).append("</real><real>").append(v.second).append("</real></array>")
+        append("</dict></plist>")
+    }
+    /** The places read back from the XML form this phone writes; an iPhone's binary list names its own files' paths, none of ours. */
+    private fun placesOf(b: ByteArray): Map<String, Pair<Double, Double>>? = runCatching {
+        if (b.size >= 8 && String(b, 0, 8, Charsets.US_ASCII) == "bplist00") return@runCatching null
+        Regex("""<key>(.*?)</key>\s*<array>\s*<real>([^<]+)</real>\s*<real>([^<]+)</real>\s*</array>""").findAll(String(b, Charsets.UTF_8))
+            .mapNotNull { r -> val t = r.groupValues[2].toDoubleOrNull(); val at = r.groupValues[3].toDoubleOrNull()
+                if (t == null || at == null) null else unxml(r.groupValues[1]) to (t to at) }.toMap()
+    }.getOrNull()
     private fun xml(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
     private fun unxml(s: String) = s.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
 
