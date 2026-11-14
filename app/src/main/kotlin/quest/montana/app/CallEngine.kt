@@ -31,6 +31,8 @@ object CallEngine {
                 runCatching {
                     PeerConnectionFactory.initialize(
                         PeerConnectionFactory.InitializationOptions.builder(app).setFieldTrials(TRIALS).createInitializationOptions())
+                    // the engine's own warnings and errors in the diary (why a TLS relay is refused, 14.11 LTE calls)
+                    org.webrtc.Logging.enableLogToDebugOutput(org.webrtc.Logging.Severity.LS_WARNING)
                     // iOS RTCDefaultVideoEncoderFactory / RTCDefaultVideoDecoderFactory: the phone's own codecs first
                     val e = EglBase.create()
                     factory = PeerConnectionFactory.builder()

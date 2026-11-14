@@ -1968,7 +1968,7 @@ object RelayTrust : org.webrtc.SSLCertificateVerifier {
                 s as javax.net.ssl.SSLSocket
                 s.startHandshake()
                 if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(host, s.session)) { log("REFUSED name host=$host"); return@use }
-                s.session.peerCertificates.firstOrNull()?.encoded?.let { trusted[sha(it)] = door }
+                s.session.peerCertificates.firstOrNull()?.encoded?.let { trusted[sha(it)] = door; log("learned host=$host") }
             }
         }.onFailure { log("ask_fail host=$host " + it.javaClass.simpleName) }
     }
