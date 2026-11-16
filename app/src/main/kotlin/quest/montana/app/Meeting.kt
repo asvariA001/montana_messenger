@@ -131,7 +131,7 @@ object Meeting {
     }
 
     /** ONE CARD, ONE NODE, TWO SITES (iOS MontanaCard.linkHosts / readPrefixes, 07.10.2026): the Business writes its invitations
-     *  on montana.xxx; this app writes montana.quest and reads the /r/, /perp/ and /temp/ forms of both sites. */
+     *  on montana.xxx; this app writes montana.xxx since iOS 2408 (one domain) and reads the /r/, /perp/ and /temp/ forms of both sites. */
     // EVERY SITE (iOS 0f67b017, 10.11): the Messenger writes its cards on montana.one now; this app reads every site's forms
     private val linkHosts = setOf("montana.one", "montana.quest", "montana.xxx", "www.montana.xxx")
     private val shortForms = linkHosts.sorted().flatMap { h -> listOf("r", "perp", "temp").map { "https://" + h + "/" + it + "/" } } + "montana://r/"
