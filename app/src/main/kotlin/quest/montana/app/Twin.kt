@@ -121,6 +121,7 @@ object Twin {
         laneHeld = true
         Signal.hold(PIPE, "twin")
         Log.d("Montana", "twin_lane held")
+        mirrorResume()
     }
 
     fun secret(): ByteArray? = Archive.historyKey()?.let { hk ->
@@ -294,7 +295,8 @@ object Twin {
      * came beside it. A repeat within the hour is not queued twice; a newer read mark of a conversation stands for the older.
      * `at` -- seconds, as iOS writes it.
      */
-    fun note(c: String, m: String, x: String, own: Boolean = false, at: Double? = null, qt: String? = null, qm: String? = null, lp: String? = null) {
+    fun note(c: String, m: String, x: String, own: Boolean = false, at: Double? = null, qt: String? = null, qm: String? = null, lp: String? = null,
+             fl: String? = null) {
         if (MontanaSeed.twin == null) return
         synchronized(lock) {
             val reads = x.startsWith(READ)
@@ -316,6 +318,7 @@ object Twin {
             qt?.takeIf { it.isNotEmpty() }?.let { w.put("qt", it) }
             qm?.takeIf { it.isNotEmpty() }?.let { w.put("qm", it) }
             lp?.takeIf { it.isNotEmpty() }?.let { w.put("lp", it) }
+            fl?.takeIf { it.isNotEmpty() }?.let { w.put("fl", it) }   // a row's file still to lay: the mirror lays it before the word rides
             keep.put(w)
             val out = if (keep.length() <= KEPT) keep else JSONArray().also { t -> for (i in keep.length() - KEPT until keep.length()) t.put(keep.get(i)) }
             DeviceVault.set(MIRROR, out.toString().toByteArray())
@@ -341,9 +344,65 @@ object Twin {
             Unit
         }, wait, TimeUnit.SECONDS)
     }
+    /** The words a run left on disk ride once the keys stand (iOS mirrorResume, 2415): before, they waited for a new word. */
+    private fun mirrorResume() { if (synchronized(lock) { vault(MIRROR).length() } > 0) mirrorSoon(1) }
+
+    private var mirrorFiling = false   // a row's file is on its way to the nodes (layFile); under lock
+    /** A ROW'S FILE IS LAID BESIDE THE ROUND, NEVER IN FRONT OF IT (iOS fileSoon, 2415, OZ 1 p.9): one file at a time, while the words ready ride. */
+    private fun fileSoon(w: JSONObject) {
+        synchronized(lock) { if (mirrorFiling) return; mirrorFiling = true }
+        Thread({
+            val laid = try { layFile(w) } catch (e: Exception) { Log.w("Montana", "twin_file " + e.javaClass.simpleName); false }
+            synchronized(lock) { mirrorFiling = false }
+            mirrorSoon(if (laid) 1 else 30)
+        }, "twin-file").apply { isDaemon = true }.start()
+    }
+    /**
+     * The file of a row given to the twin, laid on the cargo road and its road written into the word on disk (iOS layFile, 2415): a
+     * run that ends on the way lays it again at the next launch, and a road laid is never laid twice. A file no longer here, or
+     * refused eight times, lets the word ride as words with its file's name, said.
+     */
+    private fun layFile(w: JSONObject): Boolean {
+        val path = w.optString("fl").ifEmpty { return true }
+        val q = w.optLong("q", -1L)
+        val f = File(path)
+        val here = f.isFile
+        val t0 = System.currentTimeMillis()
+        val x = (if (here) Keeping.lay(f) else null)?.let { road -> rowWithRoad(w.optString("x"), road) }
+        val ms = System.currentTimeMillis() - t0
+        val tries = synchronized(lock) {
+            val a = vault(MIRROR)
+            var n = 0
+            for (i in 0 until a.length()) a.getJSONObject(i).takeIf { it.optLong("q", -2L) == q }?.let { e ->
+                n = e.optInt("ft", 0) + 1
+                if (x != null) { e.put("x", x); e.remove("fl"); e.remove("ft") }
+                else if (!here || n >= 8) e.remove("fl")
+                else e.put("ft", n)   // a file the nodes refused is laid again at the next round
+            }
+            DeviceVault.set(MIRROR, a.toString().toByteArray())
+            n
+        }
+        Log.d("Montana", "twin_file m=" + w.optString("m").take(8) + " " + when {
+            x != null -> "laid ms=$ms"
+            !here -> "no file here -- the row rides without it"
+            else -> "a file did not reach the nodes try=$tries"
+        })
+        return x != null || !here
+    }
+    /** A row's words with the road of its file: the one place a road is written into a row given to the twin. */
+    private fun rowWithRoad(x: String, road: JSONObject): String? {
+        if (!x.startsWith(ROW)) return null
+        val o = runCatching { JSONObject(x.removePrefix(ROW)) }.getOrNull() ?: return null
+        return ROW + o.put("road", road).toString()
+    }
+
     /** One lay of the queue; the wait of the next one, or null when none is owed. */
     private fun layMirror(): Long? {
-        val batch = synchronized(lock) { vault(MIRROR).let { a -> JSONArray().also { b -> for (i in 0 until minOf(ROUND, a.length())) b.put(a.get(i)) } } }
+        val batch0 = synchronized(lock) { vault(MIRROR).let { a -> JSONArray().also { b -> for (i in 0 until minOf(ROUND, a.length())) b.put(a.get(i)) } } }
+        if (batch0.length() == 0) return null
+        // a word whose file is still on its way stays in the queue; its file goes beside the round (iOS 2415)
+        val batch = JSONArray()
+        for (i in 0 until batch0.length()) batch0.getJSONObject(i).let { if (it.has("fl")) fileSoon(it) else batch.put(it) }
         if (batch.length() == 0) return null
         val secret = secret() ?: return null
         val me = deviceRef() ?: return null
@@ -354,12 +413,12 @@ object Twin {
             road.put("w", "lt").put("n", batch.length()).put("f", Archive.writerHex() ?: "")
             LinkedDevices.stamp(road)   // its kind, and the phone's term for its joined devices (OZ 1 p.4)
             if (!Keeping.knock(secret, road, me)) { Log.d("Montana", "twin_mirror no door boxed the letter n=" + batch.length()); return 30L }
-            var top = -1L
-            for (i in 0 until batch.length()) top = maxOf(top, batch.getJSONObject(i).optLong("q", -1L))
+            val sent = HashSet<Long>()
+            for (i in 0 until batch.length()) sent.add(batch.getJSONObject(i).optLong("q", -1L))
             val left = synchronized(lock) {
                 val a = vault(MIRROR)
                 val keep = JSONArray()
-                for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optLong("q", -1L) > top) keep.put(it) }
+                for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optLong("q", -1L) !in sent) keep.put(it) }
                 DeviceVault.set(MIRROR, keep.toString().toByteArray())
                 keep.length()
             }
@@ -552,24 +611,17 @@ object Twin {
         man.optString("n").takeIf { it.isNotEmpty() }?.let { o.put("n", it) }
         man.optDouble("du", 0.0).takeIf { it > 0 }?.let { o.put("d", it) }
         // NO ROW IS LOST IN SILENCE (iOS 4bff00b3, 2402, the critic of 22541): a row whose file this device does not hold is given as
-        // words with its file's name -- the twin lays it and says the file it has not been given (2401); a file the nodes refused is
-        // laid again, four tries over twelve minutes, each said
+        // words with its file's name -- the twin lays it and says the file it has not been given (2401)
         if (!f.isFile) {
             note(chat, m.mid, ROW + o.toString(), m.mine, at)
             Log.d("Montana", "twin_answer m=" + m.mid.take(8) + " no file here -- the row is given without it")
             return
         }
-        layRow(chat, m.mid, m.mine, at, o, f, 0)
-    }
-    private val LAY_WAITS = longArrayOf(0, 30, 120, 600)
-    private fun layRow(chat: String, mid: String, own: Boolean, at: Double, o: JSONObject, f: File, n: Int) {
-        ex.schedule({
-            val road = Keeping.lay(f)
-            if (road != null) { note(chat, mid, ROW + o.put("road", road).toString(), own, at); return@schedule }
-            Log.d("Montana", "twin_answer m=" + mid.take(8) + " a file did not reach the nodes try=" + (n + 1))
-            if (n + 1 < LAY_WAITS.size) layRow(chat, mid, own, at, o, f, n + 1)
-            Unit
-        }, LAY_WAITS[n], java.util.concurrent.TimeUnit.SECONDS)
+        // THE FILE RIDES WITH ITS WORD, ON DISK (iOS 0be38b73, 2415, OZ 1 p.9, the author's word 23159: «the media of Saved Messages
+        // still do not arrive»): the word used to wait in memory for its file -- a run that ended on the way lost the row for good.
+        // The word is queued at once with its file named (local, never ridden: a word with fl stays home), and the mirror lays the
+        // file before it rides, eight tries, again at the next launch.
+        note(chat, m.mid, ROW + o.toString(), m.mine, at, fl = f.absolutePath)
     }
 
     /**
