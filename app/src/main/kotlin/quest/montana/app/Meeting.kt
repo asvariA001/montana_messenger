@@ -300,13 +300,13 @@ fun openInvitation(act: MainActivity, link: String) {
     val card = Groups.takeJoin(link)
     act.background {
         val o = Meeting.meet(act, card)
+        // a group's link: the join is asked of the owner just met, and the group itself opens -- at once when this phone holds
+        // it, else the moment it is born here (iOS 0be38b73, OZ 2 p.5)
+        val to = (o as? Meeting.Outcome.Opened)?.let { Groups.askJoin(it.ref) ?: it.ref }
         act.onMain {
             when (o) {
                 // a pipe folded into a conversation is never opened as a page of its own (iOS meet → MTSamePair.root)
-                is Meeting.Outcome.Opened -> {
-                    act.push { close -> conversationPage(act, SamePair.root(o.ref), close) }
-                    act.background { Groups.askJoin(o.ref) }   // a group's link: the join is asked of the owner just met
-                }
+                is Meeting.Outcome.Opened -> act.push { close -> conversationPage(act, SamePair.root(to ?: o.ref), close) }
                 else -> sayVerdict(act, Meeting.verdict(o))
             }
         }

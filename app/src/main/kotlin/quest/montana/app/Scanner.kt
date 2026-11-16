@@ -86,12 +86,12 @@ fun scannerPage(act: MainActivity, onClose: () -> Unit, onCode: ((String) -> Boo
         val card = Groups.takeJoin(link)   // a group's invite link: the mark waits for the meeting (iOS handleLink)
         act.background {
             val o = Meeting.meet(act, card)
+            val to = (o as? Meeting.Outcome.Opened)?.let { Groups.askJoin(it.ref) ?: it.ref }   // the group itself when held (iOS 0be38b73)
             act.onMain {
                 if (o is Meeting.Outcome.Opened) {
-                    act.background { Groups.askJoin(o.ref) }
                     release(); onClose()
                     // the page leaves first, the chat comes after it (iOS 1052: 0.35 s)
-                    MainThread.later(350) { act.push { close -> conversationPage(act, SamePair.root(o.ref), close) } }
+                    MainThread.later(350) { act.push { close -> conversationPage(act, SamePair.root(to ?: o.ref), close) } }
                 } else AlertDialog.Builder(act).setMessage(Meeting.verdict(o)).setPositiveButton(R.string.ok, null)
                     .setOnDismissListener { done.set(false) }.show()
             }
