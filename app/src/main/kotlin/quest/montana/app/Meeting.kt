@@ -135,6 +135,8 @@ object Meeting {
     // EVERY SITE (iOS 0f67b017, 10.11): the Messenger writes its cards on montana.one now; this app reads every site's forms
     private val linkHosts = setOf("montana.one", "montana.quest", "montana.xxx", "www.montana.xxx")
     private val shortForms = linkHosts.sorted().flatMap { h -> listOf("r", "perp", "temp").map { "https://" + h + "/" + it + "/" } } + "montana://r/"
+    /** A card's web link of any of our sites (/r/ /perp/ /temp/): inside a chat it opens on the app's own road (iOS ecdc520b, 2411). */
+    fun isCardLink(link: String): Boolean = normalize(link).let { t -> shortForms.any { t.startsWith(it) } }
     /** The 32-byte invitation inside a short link, or null (iOS MontanaCard.invite(inShort:)). */
     fun invite(link: String): ByteArray? {
         val t = normalize(link)
