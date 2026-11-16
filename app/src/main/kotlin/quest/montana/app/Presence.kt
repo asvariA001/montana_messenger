@@ -297,6 +297,11 @@ object Signal {
      * «chat» to the presence, any other to the call it names; «box» hints fetch the box.
      */
     private fun open(ref: String, envs: org.json.JSONArray) {
+        // the seed's own lane carries the node's «box» alone: a twin's letter lies, the pickup goes at once (iOS THE STORE'S HINT)
+        if (ref == Twin.PIPE) {
+            if ((0 until envs.length()).any { envs.optString(it) == "box" }) { Log.d("Montana", "twin_lane box"); Thread { Post.fetchWhole() }.start() }
+            return
+        }
         val secret = Book.secret(ref) ?: return
         for (k in 0 until envs.length()) {
             val e = envs.optString(k)
@@ -416,9 +421,12 @@ object Signal {
     private fun listen(ref: String) {
         Thread {
             var fails = 0
+            // THE SEED'S OWN LANE (iOS f339b7a3 holdTwinLane, twinConvs, laneSecret): the pipe of this seed's devices asks under its own
+            // key and this device's own name in it, so the node's «box» reaches a running device the second a twin's letter is boxed
+            val twinLane = ref == Twin.PIPE
             while (true) {
-                val twin = MontanaSeed.twin
-                val secret = Book.secret(ref)
+                val twin = if (twinLane) Twin.deviceRef() else MontanaSeed.twin
+                val secret = if (twinLane) Twin.secret() else Book.secret(ref)
                 val go = synchronized(holders) {
                     val ok = twin != null && secret != null && !holders[ref].isNullOrEmpty()
                     if (!ok) running[ref] = (running[ref] ?: 1) - 1

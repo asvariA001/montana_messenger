@@ -523,6 +523,9 @@ object Media {
         if (HomeKeep.kept(m.file)) return HomeKeep.bring(c, m, force = true)   // iOS retryOneMedia: a file your node keeps comes back from it
         val ref = Book.rooms().firstOrNull { ch -> ch.msgs.any { it.mid == m.mid } }?.ref ?: return
         if (Archive.holds(m.mid)) return askRestored(ref, m)   // its pieces were never known here: only its sender holds the file
+        // a Saved Messages row the twin gave without its file (iOS 2402): only the seed's other device holds it
+        if (ref == Book.SAVED && m.file?.let { File(it).exists() } != true &&
+            runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)) }.getOrNull()?.let { it.has("mref") || it.has("chunks") } != true) return askRestored(ref, m)
         askKept(ref, m)
         fetch(c, ref, m.mid, m.text, manual = true)
     }

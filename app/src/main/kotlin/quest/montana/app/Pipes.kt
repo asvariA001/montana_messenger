@@ -1834,6 +1834,10 @@ object Book {
             for (m in c.msgs) {
                 if (Archive.isRestored(m.mid)) continue   // a row the archive gave back is the archive's already (iOS applyRestored)
                 val had = before[m.mid]
+                // EVERY ROW'S BIRTH SAYS ITS SIDE AND ITS MOMENT (iOS 4bff00b3 row_born, the author's word 22333): the screen can be
+                // read back from the diary; the road that brought it is the line before this one
+                if (had == null) Log.d("Montana", "row_born m=" + m.mid.take(8) + " chat=" + ref.take(10) + " mine=" + (if (m.mine) 1 else 0) +
+                    " at=" + java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(java.util.Date(m.at)))
                 val media = m.text.startsWith(Marks.MEDIA)
                 if ((had == null && (!media || m.file != null)) || (had == false && media && m.file != null)) born.add(m)
             }
@@ -2796,6 +2800,8 @@ object Post {
 
     fun fetch() {
         MainThread.post { Presence.watchApp(Book.ctx) }
+        Twin.holdLane()   // the seed's own lane, held from the first pickup on (iOS 2403 holdTwinLane)
+        Twin.wantHistory()   // the receiver's cursor of history, named to the seed's devices (iOS 2403 wantHistory)
         // A «YOU HAVE A LETTER» IS NEVER THROWN AWAY, ONLY DEFERRED (iOS build 1910): a hint that lands while a pickup runs asked a
         // box the running pickup may already have passed — it is kept, and the pickup goes round once more when it ends
         synchronized(fetchLock) { if (fetching) { fetchAgain = true; return }; fetching = true }
@@ -3235,16 +3241,37 @@ object Post {
         }
         val gone = Book.isBuried(ref, mid) || Book.diedBefore(ref, mid)
         var landed = false
+        var turned: String? = null
         Book.edit(ref) { c ->
             if (!gone && c.msgs.none { it.mid == mid }) {
                 c.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), state = 1, qt = qt, qm = qm,
                     lp = lp?.takeIf { LinkCard.parse(it) != null }))
                 c.msgs.sortBy { it.at }
                 landed = true
-            }
+            } else if (!gone) turned = takeMySide(c, mid, text)
         }
-        Log.d("Montana", "rx_own m=" + mid.take(8) + " landed=" + (if (landed) 1 else 0) + (if (gone) " buried here" else ""))
+        Log.d("Montana", "rx_own m=" + mid.take(8) + " landed=" + (if (landed) 1 else 0) + (if (gone) " buried here" else "") + (turned?.let { " $it" } ?: ""))
         if (landed && text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text, manual = true, own = true)
+    }
+
+    /**
+     * MY LETTER THAT STOOD ON THEIR SIDE TAKES MINE (iOS 4bff00b3, 2402, ChatStore.takeMySide / Message.onMySide, the author's word
+     * 22333): the box gives a letter its side by its author field, and a letter of mine that rode unsigned landed here as the
+     * correspondent's, on the left; the seed's own word for the same name met «the row already stands». The seed's word is the
+     * truth: the row keeps every field, stands on my side, read and sent, and the count follows. Only the same words turn: a row
+     * of theirs under my letter's name with other words stays theirs, said. Inside Book.edit; the diary's words, or null.
+     */
+    private fun takeMySide(c: Chat, mid: String, text: String): String? {
+        val i = c.msgs.indexOfFirst { it.mid == mid }.takeIf { it >= 0 } ?: return null
+        val old = c.msgs[i]
+        if (old.mine) return "the row already stands"
+        if (old.text != text) return "their row under my letter's name holds other words -- it stays theirs"
+        // the side is a constant of a row: it walks the one road a row is kept and read by -- written, the side changed, read back
+        val mine = runCatching { Msg.of(old.json().put("o", true).put("s", 1)) }.getOrNull() ?: return null
+        val theirsAfter = c.msgs.subList(i, c.msgs.size).count { !it.mine }   // this row and every later one of theirs
+        c.msgs[i] = mine
+        if (theirsAfter <= c.unread) c.unread = maxOf(0, c.unread - 1)       // it stood among the unread: the count follows
+        return "the row stood on their side -- now mine"
     }
 
     /**

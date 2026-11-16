@@ -107,7 +107,21 @@ object Twin {
     private val ex = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "twin").apply { isDaemon = true } }
     private val lock = Any()
 
-    fun forget() = synchronized(lock) { listOf(MIRROR, SEEN, ASKED, TwinSelf.HELD, TwinSelf.BOOK).forEach { DeviceVault.delete(it) }; given.clear() }
+    fun forget() = synchronized(lock) { listOf(MIRROR, SEEN, ASKED, TwinSelf.HELD, TwinSelf.BOOK).forEach { DeviceVault.delete(it) }; given.clear(); laneHeld = false; Archive.forgetHeld() }
+
+    /**
+     * THE SEED'S OWN LANE STANDS WHILE THE APP RUNS (iOS f339b7a3, 2403, holdTwinLane, the author's words 22320, 22581, 22631: heal the
+     * root, not the sores): the node tells a held lane «box» the millisecond a letter is boxed, and the app fetches at once -- but the
+     * pipe of the seed's devices stood in no held lane, so another device learned what this one sent only at its next round. One long
+     * question every twelve seconds, the price of one open chat, from the first pickup on.
+     */
+    @Volatile private var laneHeld = false
+    fun holdLane() {
+        if (laneHeld || MontanaSeed.twin == null || secret() == null) return
+        laneHeld = true
+        Signal.hold(PIPE, "twin")
+        Log.d("Montana", "twin_lane held")
+    }
 
     fun secret(): ByteArray? = Archive.historyKey()?.let { hk ->
         Wire.sha("mt-twin-box".toByteArray(), byteArrayOf(0), APP.toByteArray(), byteArrayOf(0), hk)
@@ -129,8 +143,8 @@ object Twin {
         synchronized(lock) { if (histDue) return; histDue = true }
         ex.schedule({ synchronized(lock) { histDue = false }; runCatching { layHist() }.onFailure { Log.w("Montana", "twin_hist " + it.javaClass.simpleName) } }, 30, TimeUnit.SECONDS)
     }
-    private fun layHist() {
-        val g = Archive.twinBlocks() ?: return
+    private fun layHist(want: Map<String, Long>? = null) {
+        val g = Archive.twinBlocks(want) ?: return
         if (g.n == 0) return
         val secret = secret() ?: return
         val me = deviceRef() ?: return
@@ -141,9 +155,57 @@ object Twin {
             road.put("w", "hist").put("n", g.n).put("f", Archive.writerHex() ?: "")
             if (!Keeping.knock(secret, road, me)) { Log.d("Montana", "twin_hist no door boxed the letter n=" + g.n); return }
             Archive.twinBoxed(g.tops)
-            Log.d("Montana", "twin_hist laid blocks=" + g.n + " bytes=" + g.blob.size + " more=" + (if (g.more) 1 else 0))
+            Log.d("Montana", "twin_hist laid blocks=" + g.n + " bytes=" + g.blob.size + " more=" + (if (g.more) 1 else 0) + " asked=" + (if (want == null) 0 else 1))
+            // a named cursor is walked to its end, round by round (iOS layForTwins(from:))
+            if (g.more && want != null) { f.delete(); return layHist(want + g.tops) }
             if (g.more) histSoon()
         } finally { f.delete() }
+    }
+
+    // ── THE CURSOR OF HISTORY STANDS WITH THE RECEIVER (iOS f339b7a3, 2403, wantHistory / giveHistory, OZ 1 p.2) ──
+    @Volatile private var wantedAt = 0L
+    /** The word that names this device's cursor to the seed's other devices: at a pickup, at most once in ten minutes. A word too long
+     *  for a letter rides the cargo road. */
+    fun wantHistory() {
+        if (MontanaSeed.twin == null) return
+        val now = System.currentTimeMillis()
+        synchronized(lock) { if (now - wantedAt <= 600_000L) return; wantedAt = now }
+        ex.execute {
+            runCatching {
+                val secret = secret() ?: return@runCatching
+                val me = deviceRef() ?: return@runCatching
+                val mine = Archive.writerHex() ?: return@runCatching
+                val held = Archive.held()
+                val body = held.toString()
+                val o = JSONObject().put("w", "hw").put("f", mine)
+                // iOS says 2000 bytes; here the word must fit one envelope with its name and mark (Keeping.knockText), so the word
+                // itself is measured, and a longer one rides the cargo road
+                val inline = JSONObject(o.toString()).put("c", body)
+                if ((Keeping.MARK + inline).toByteArray().size + 48 <= Wire.ENVELOPE) o.put("c", body) else {
+                    val f = scratch()
+                    try {
+                        f.writeText(body)
+                        val road = Keeping.lay(f) ?: return@runCatching Unit.also { Log.d("Montana", "twin_want the cursor did not reach the nodes") }
+                        for (k in road.keys()) o.put(k, road.get(k))
+                    } finally { f.delete() }
+                }
+                val boxed = Keeping.knock(secret, o, me)
+                Log.d("Montana", "twin_want folders=" + held.length() + " bytes=" + body.length + " boxed=" + (if (boxed) 1 else 0))
+            }.onFailure { Log.w("Montana", "twin_want " + it.javaClass.simpleName) }
+        }
+    }
+    /** Another device of the seed named its cursor: this device's own blocks are laid from there, every folder this device holds. */
+    private fun giveHistory(o: JSONObject) {
+        val mine = Archive.writerHex() ?: return
+        if (o.optString("f") == mine) return   // this device's own word, heard back from the box
+        var body = o.optString("c").ifEmpty { null }
+        if (body == null && o.has("mref")) {
+            val f = scratch()
+            try { if (Keeping.fetch(o, f)) body = f.readText() } finally { f.delete() }
+        }
+        val held = body?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return Unit.also { Log.d("Montana", "twin_want the cursor did not come whole") }
+        val want = Archive.folders().associateWith { c -> held.optJSONObject(c)?.optLong(mine, 0L) ?: 0L }
+        layHist(want)
     }
     private fun takeHist(o: JSONObject, mid: String) {
         if (o.optString("f") == Archive.writerHex()) return   // this device's own letter, heard back from the box
@@ -154,12 +216,21 @@ object Twin {
             if (!Keeping.fetch(o, f)) { Log.d("Montana", "twin_hist the blocks did not come whole"); return }
             val b = f.readBytes()
             var i = 0; var filed = 0
+            var whole = true
+            var runs: Map<String, Long>? = null
             while (i + 4 <= b.size) {
                 val len = (b[i].toInt() and 0xff) or ((b[i + 1].toInt() and 0xff) shl 8) or ((b[i + 2].toInt() and 0xff) shl 16) or ((b[i + 3].toInt() and 0xff) shl 24)
                 i += 4
                 if (len <= 0 || b.size < i + len) break
-                if (Archive.absorb(b.copyOfRange(i, i + len))) filed++
+                val sealed = b.copyOfRange(i, i + len)
                 i += len
+                // THE RUNS OF A LETTER (iOS 2403): the first record says where each folder's run starts; the cursor moves over a run
+                // only while every block before filed (a block that did not file breaks every run after it)
+                if (runs == null) { val r = Archive.runsOf(sealed); if (r != null) { runs = r; continue } }
+                val (taken, folder) = Archive.fileBlock(sealed)
+                if (taken) filed++ else whole = false
+                val from = folder?.let { runs?.get(it) }
+                if (whole && folder != null && from != null) Archive.noteHeld(folder, sealed, from)
             }
             seen(mid)
             Log.d("Montana", "twin_hist taken blocks=" + filed)
@@ -182,6 +253,8 @@ object Twin {
         when (o.optString("w")) {
             "hist" -> ex.execute { runCatching { takeHist(o, mid) }.onFailure { Log.w("Montana", "twin_hist " + it.javaClass.simpleName) } }
             "lt" -> ex.execute { runCatching { takeMirror(o, mid) }.onFailure { Log.w("Montana", "twin_mirror " + it.javaClass.simpleName) } }
+            // another device names its cursor of history (iOS 2403 giveHistory; an older build takes it unread)
+            "hw" -> ex.execute { runCatching { giveHistory(o) }.onFailure { Log.w("Montana", "twin_want " + it.javaClass.simpleName) } }
         }
     }
 
@@ -207,7 +280,12 @@ object Twin {
     }
 
     private val given = HashMap<String, Long>()   // a name given within the hour: a later copy of it by another road stays
-    @Volatile private var mirrorDue = false
+    // THE MIRROR HAS A QUEUE OF ITS OWN (iOS 6517242a, 2412, OZ 1 p.6, the author's word 23053 p.1): on a shared queue a word waited
+    // behind the history's lay and the half-minute round -- a photo in Saved Messages reached the Mac 74 s after its birth. One's own
+    // letter is laid within a second; others' words and read marks within half a minute; a lay on its way never runs twice.
+    private val mx = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "twin-mirror").apply { isDaemon = true } }
+    private var mirrorDue = 0L          // the moment the called lay runs, while one is called (0 -- none); under lock
+    private var mirrorLaying = false    // under lock
 
     /**
      * A WORD FOR THE SEED'S OTHER DEVICES (iOS mirrorNote): kept in the vault until it rode, laid within half a minute with whatever
@@ -240,23 +318,39 @@ object Twin {
             val out = if (keep.length() <= KEPT) keep else JSONArray().also { t -> for (i in keep.length() - KEPT until keep.length()) t.put(keep.get(i)) }
             DeviceVault.set(MIRROR, out.toString().toByteArray())
         }
-        mirrorSoon()
+        mirrorSoon(if (own && !x.startsWith(READ)) 1 else 30)
     }
-    private fun mirrorSoon() {
-        synchronized(lock) { if (mirrorDue) return; mirrorDue = true }
-        ex.schedule({ synchronized(lock) { mirrorDue = false }; runCatching { layMirror() }.onFailure { Log.w("Montana", "twin_mirror " + it.javaClass.simpleName) } }, 30, TimeUnit.SECONDS)
+    /** The next lay, in `wait` seconds: a sooner call stands for a later one, and a lay on its way is never run twice at once. */
+    private fun mirrorSoon(wait: Long = 30) {
+        val at = System.currentTimeMillis() + wait * 1000
+        synchronized(lock) { if (mirrorDue in 1..at) return; mirrorDue = at }
+        mx.schedule({
+            val go = synchronized(lock) {
+                if (mirrorDue != at) return@synchronized false   // a sooner call took its place
+                mirrorDue = 0L
+                if (mirrorLaying) null else { mirrorLaying = true; true }
+            }
+            if (go == null) { mirrorSoon(1); return@schedule }
+            if (go == false) return@schedule
+            var again: Long? = null
+            try { again = layMirror() } catch (e: Exception) { Log.w("Montana", "twin_mirror " + e.javaClass.simpleName) }
+            finally { synchronized(lock) { mirrorLaying = false } }
+            again?.let { mirrorSoon(it) }
+            Unit
+        }, wait, TimeUnit.SECONDS)
     }
-    private fun layMirror() {
+    /** One lay of the queue; the wait of the next one, or null when none is owed. */
+    private fun layMirror(): Long? {
         val batch = synchronized(lock) { vault(MIRROR).let { a -> JSONArray().also { b -> for (i in 0 until minOf(ROUND, a.length())) b.put(a.get(i)) } } }
-        if (batch.length() == 0) return
-        val secret = secret() ?: return
-        val me = deviceRef() ?: return
+        if (batch.length() == 0) return null
+        val secret = secret() ?: return null
+        val me = deviceRef() ?: return null
         val f = scratch()
         try {
             f.writeBytes(batch.toString().toByteArray())
-            val road = Keeping.lay(f) ?: return Unit.also { mirrorSoon(); Log.d("Montana", "twin_mirror the words did not reach the nodes n=" + batch.length()) }
+            val road = Keeping.lay(f) ?: return 30L.also { Log.d("Montana", "twin_mirror the words did not reach the nodes n=" + batch.length()) }
             road.put("w", "lt").put("n", batch.length()).put("f", Archive.writerHex() ?: "")
-            if (!Keeping.knock(secret, road, me)) { mirrorSoon(); Log.d("Montana", "twin_mirror no door boxed the letter n=" + batch.length()); return }
+            if (!Keeping.knock(secret, road, me)) { Log.d("Montana", "twin_mirror no door boxed the letter n=" + batch.length()); return 30L }
             var top = -1L
             for (i in 0 until batch.length()) top = maxOf(top, batch.getJSONObject(i).optLong("q", -1L))
             val left = synchronized(lock) {
@@ -266,8 +360,8 @@ object Twin {
                 DeviceVault.set(MIRROR, keep.toString().toByteArray())
                 keep.length()
             }
-            if (left > 0) mirrorSoon()
             Log.d("Montana", "twin_mirror laid words=" + batch.length() + " left=" + left)
+            return if (left > 0) 1L else null
         } finally { f.delete() }
     }
     /** The words of the seed's other device: each lands here by the one landing road, in the order that device heard them. */
@@ -396,9 +490,10 @@ object Twin {
     /**
      * THE NAME OF ONE ASK, ONE OWNER (iOS askedName, 93023210, the author's word 21972): Saved Messages asks under a name of its own
      * since iOS 2397 -- before it an iPhone gave back no named row of Saved Messages, and the rows asked then stood «asked» for ever;
-     * a new name asks them once more of a device that now answers.
+     * a new name asks them once more of a device that now answers. Every conversation asks under 2402's name (iOS 4bff00b3, the
+     * critic of 22541): before it the other device gave back no named row of a pair, and the rows asked stood «asked» for ever.
      */
-    private fun askedName(chat: String, s: Long, h: String) = (if (chat == Book.SAVED) "$chat#2397" else chat) + "/$s/$h"
+    private fun askedName(chat: String, s: Long, h: String) = "$chat#2402/$s/$h"
 
     /**
      * THE OTHER DEVICE ASKS FOR ROWS ITS ARCHIVE HOLDS AND ITS FEED DOES NOT (iOS ChatStore.giveTwinRows): each row held here under the
@@ -413,8 +508,10 @@ object Twin {
             want.add(Archive.rowSig(a.optLong(0), a.optInt(1) == 1, a.optString(2)))
         }
         var n = 0
+        // EVERY ROW ASKED IS GIVEN BACK BY ITS NAME (iOS 4bff00b3, 2402, the critic of 22541): the asker asks only what its feed lacks,
+        // and takeRow lays no second row of a name or archive key
         for (m in rows) {
-            if (Archive.isRestored(m.mid) || m.at <= 0) continue
+            if (m.at <= 0) continue
             val t = Archive.archivedText(m) ?: continue
             if (Archive.rowSig(m.at / 1000, m.mine, Archive.rowHash(t)) !in want) continue
             give(chat, m)
@@ -442,15 +539,31 @@ object Twin {
         }
         // a media row: the words iOS keeps beside the file (a caption), the kind, the file's name, a document's name, a voice's length
         val man = Media.manifestOf(m) ?: return
-        val f = m.file?.let { File(it) }?.takeIf { it.isFile } ?: return
+        val f = m.file?.let { File(it) } ?: return   // a row keeps its file's name even while the file is not here
+        val name = f.name
         man.optString("cap").takeIf { it.isNotEmpty() }?.let { o.put("t", it) }
-        o.put("k", man.optString("k").ifEmpty { "doc" }).put("f", f.name)
+        o.put("k", man.optString("k").ifEmpty { "doc" }).put("f", name)
         man.optString("n").takeIf { it.isNotEmpty() }?.let { o.put("n", it) }
         man.optDouble("du", 0.0).takeIf { it > 0 }?.let { o.put("d", it) }
-        ex.execute {
-            val road = Keeping.lay(f) ?: return@execute Unit.also { Log.d("Montana", "twin_answer a file did not reach the nodes") }
-            note(chat, m.mid, ROW + o.put("road", road).toString(), m.mine, at)
+        // NO ROW IS LOST IN SILENCE (iOS 4bff00b3, 2402, the critic of 22541): a row whose file this device does not hold is given as
+        // words with its file's name -- the twin lays it and says the file it has not been given (2401); a file the nodes refused is
+        // laid again, four tries over twelve minutes, each said
+        if (!f.isFile) {
+            note(chat, m.mid, ROW + o.toString(), m.mine, at)
+            Log.d("Montana", "twin_answer m=" + m.mid.take(8) + " no file here -- the row is given without it")
+            return
         }
+        layRow(chat, m.mid, m.mine, at, o, f, 0)
+    }
+    private val LAY_WAITS = longArrayOf(0, 30, 120, 600)
+    private fun layRow(chat: String, mid: String, own: Boolean, at: Double, o: JSONObject, f: File, n: Int) {
+        ex.schedule({
+            val road = Keeping.lay(f)
+            if (road != null) { note(chat, mid, ROW + o.put("road", road).toString(), own, at); return@schedule }
+            Log.d("Montana", "twin_answer m=" + mid.take(8) + " a file did not reach the nodes try=" + (n + 1))
+            if (n + 1 < LAY_WAITS.size) layRow(chat, mid, own, at, o, f, n + 1)
+            Unit
+        }, LAY_WAITS[n], java.util.concurrent.TimeUnit.SECONDS)
     }
 
     /**
@@ -460,7 +573,9 @@ object Twin {
     private fun takeRow(chat: String, mid: String, own: Boolean, at: Double, body: String) {
         val o = runCatching { JSONObject(body) }.getOrNull() ?: return
         if (at <= 0 || mid.isEmpty()) return
-        val rows = Book.chat(chat)?.msgs ?: return
+        // SAVED MESSAGES IS BORN BY THE TWIN'S ROW (iOS 4bff00b3 savedBirth, the critic of 22541): a device that never wrote to itself
+        // holds no Saved Messages, and the row its twin gave left silently; a person's conversation is born only by its pipe
+        val rows = Book.chat(chat)?.msgs ?: if (chat == Book.SAVED) emptyList() else return
         if (rows.any { it.mid == mid } || Book.isBuried(chat, mid) || Book.diedBefore(chat, mid)) return
         val text = o.optString("t"); val sr = o.optString("sr").ifEmpty { null }
         val kind = o.optString("k").ifEmpty { null }
@@ -493,7 +608,9 @@ object Twin {
             }
         }
         if (dest.isFile) { put(dest.path); return }
-        val road = o.optJSONObject("road") ?: return
+        // A ROW GIVEN WITHOUT ITS FILE STANDS (iOS takeTwinRow, 2401/2402): laid with its file's name and no file -- a tap asks the
+        // twin again and the plaque says where the file is kept (Media.twinSilent)
+        val road = o.optJSONObject("road") ?: run { if (standing == null) lay(chat, row(dest.path)); return }
         ex.execute {
             val tmp = scratch()
             try {
@@ -506,6 +623,7 @@ object Twin {
         }
     }
     private fun lay(chat: String, m: Msg) {
+        if (chat == Book.SAVED) Book.saved(Book.ctx)   // born here at its first row (savedBirth)
         var n = 0
         Book.edit(chat) { c ->
             if (c.msgs.none { it.mid == m.mid } && !Book.isBuried(chat, m.mid)) { c.msgs.add(m); c.msgs.sortBy { it.at } }

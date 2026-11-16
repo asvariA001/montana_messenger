@@ -467,17 +467,20 @@ object Archive {
     private const val TWIN_CAP = 8 shl 20           // one letter's file stays small; what is left rides the next round (iOS twinCap)
     /** What the box road gathers for the seed's other devices (iOS layForTwins): length-framed blocks, each folder's top, more left. */
     class Gathered(val blob: ByteArray, val tops: Map<String, Long>, val n: Int, val more: Boolean)
-    fun twinBlocks(): Gathered? = q.submit<Gathered?> {
+    /** `want`: another device named its cursor (iOS layForTwins(from:), 2403) -- this device's blocks are gathered from there, not
+     *  from the boxed cursor. Every letter opens with the record of where its runs start (runsRecord). */
+    fun twinBlocks(want: Map<String, Long>? = null): Gathered? = q.submit<Gathered?> {
         keys() ?: return@submit null
         val wt = MtBindings.nativeWriterTag(device()) ?: return@submit null
         val base = root()?.path ?: return@submit null
         val cursor = map(BOXED)
         val blob = java.io.ByteArrayOutputStream()
         val tops = HashMap<String, Long>()
+        val starts = HashMap<String, Long>()
         var n = 0; var more = false
         for (chat in File(base, "Chats").listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()) {
             if (TWIN_CAP < blob.size()) { more = true; break }
-            val from = cursor.optLong(chat, 0L)
+            val from = if (want != null) want[chat] ?: 0L else cursor.optLong(chat, 0L)
             val stream = MtBindings.nativeArchiveExport(base, chat, wt, from) ?: continue
             var top = from
             var i = 0
@@ -493,10 +496,61 @@ object Archive {
                 blob.write(stream, i - 4 - len, 4 + len)
                 top = maxOf(top, seq + 1); n++
             }
-            if (top != from) tops[chat] = top
+            if (top != from) { tops[chat] = top; starts[chat] = from }
         }
-        Gathered(blob.toByteArray(), tops, n, more)
+        Gathered(runsRecord(starts) + blob.toByteArray(), tops, n, more)
     }.get()
+    /** The folders this device's archive holds (iOS conversations()). */
+    fun folders(): List<String> = q.submit<List<String>> {
+        val base = root()?.path ?: return@submit emptyList()
+        File(base, "Chats").listFiles()?.filter { it.isDirectory }?.map { it.name }.orEmpty()
+    }.get()
+
+    // ── THE CURSOR OF HISTORY STANDS WITH THE RECEIVER (iOS f339b7a3, 2403, OZ 1 p.2; the author's words 22583 and 22631) ──
+    // The giver's cursor (BOXED) moved when a node boxed the letter, and a box keeps a day and the pipe's last 64 letters: a device
+    // away longer lost those blocks for good, the head of a pipe among them. Now each device keeps, per folder and per writer, the
+    // next block it lacks, and names it to the others in one word (hw) at its pickups; each giver lays its own blocks from there.
+    // The cursor moves only over a whole run (runsRecord), never by the highest number heard. A block is immutable and named by its
+    // writer and number, so a repeat is filed as held and changes nothing.
+    private const val HELD = "mt.history.held"   // NOT-UI: {folder: {writer tag: the next block this device lacks}}
+    private val heldLock = Any()
+    fun forgetHeld() = synchronized(heldLock) { DeviceVault.delete(HELD) }
+    /** This device's cursor, as the «hw» word names it. */
+    fun held(): JSONObject = synchronized(heldLock) { map(HELD) }
+    /** A block's writer tag (hex, the «f» of a history letter) and its number in that writer's log (iOS blockMark). */
+    private fun blockMark(sealed: ByteArray): Pair<String, Long>? {
+        val id = MtBindings.nativeArchiveBlockId(sealed)?.takeIf { it.size == 12 } ?: return null
+        var seq = 0L
+        for (b in 0 until 8) seq = seq or ((id[4 + b].toLong() and 0xff) shl (8 * b))
+        return Wire.hex(id.copyOf(4)) to seq
+    }
+    /** A block filed whole inside a run that starts at or below the cursor moves the cursor past it (iOS noteHeld). */
+    fun noteHeld(folder: String, sealed: ByteArray, runFrom: Long) {
+        val (w, seq) = blockMark(sealed) ?: return
+        synchronized(heldLock) {
+            val m = map(HELD)
+            val f = m.optJSONObject(folder) ?: JSONObject()
+            val at = f.optLong(w, 0L)
+            if (runFrom > at || at > seq) return
+            f.put(w, seq + 1); m.put(folder, f)
+            keep(HELD, m)
+        }
+    }
+    /**
+     * THE RUNS OF A LETTER (iOS runsRecord / runsOf, Agent 1220): a block's number is counted per device across every folder, so within
+     * one folder the numbers skip by nature and a hole cannot be read off them. Each «hist» letter opens with one record naming, per
+     * folder, the number its run starts from; the receiver moves its cursor only over a run that starts at or below it. An older build
+     * opens the record as a block of nobody's history and passes it by.
+     */
+    private val RUNS = "mt-twin-runs".toByteArray() + byteArrayOf(0)
+    private fun framed(d: ByteArray): ByteArray = byteArrayOf(d.size.toByte(), (d.size shr 8).toByte(), (d.size shr 16).toByte(), (d.size shr 24).toByte()) + d
+    private fun runsRecord(starts: Map<String, Long>): ByteArray =
+        if (starts.isEmpty()) ByteArray(0) else framed(RUNS + JSONObject(starts as Map<*, *>).toString().toByteArray())
+    fun runsOf(record: ByteArray): Map<String, Long>? {
+        if (record.size < RUNS.size || !record.copyOf(RUNS.size).contentEquals(RUNS)) return null
+        val o = runCatching { JSONObject(String(record, RUNS.size, record.size - RUNS.size, Charsets.UTF_8)) }.getOrNull() ?: return null
+        return o.keys().asSequence().associateWith { o.optLong(it, 0L) }
+    }
     /** The blocks rode: the cursor moves past them (iOS layForTwins, after the knock). */
     fun twinBoxed(tops: Map<String, Long>) = q.execute {
         val cursor = map(BOXED)
@@ -544,29 +598,31 @@ object Archive {
      * into the feed again. False: the piece belongs to another road and is left untouched.
      */
     @Volatile private var refusedAt = 0L
-    fun absorb(sealed: ByteArray): Boolean {
-        val k = keys() ?: return false
-        val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return false
+    fun absorb(sealed: ByteArray): Boolean = fileBlock(sealed).first
+    /** The filing itself, with the folder a block of this person's history now stands in (null when it was taken unfiled; iOS fileBlock). */
+    fun fileBlock(sealed: ByteArray): Pair<Boolean, String?> {
+        val k = keys() ?: return false to null
+        val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return false to null
         val c = Wire.hex(conv)
         // A BLOCK OF A CONVERSATION ERASED HERE IS TAKEN AND NOT FILED (iOS absorb deletedHere, 44f44060; the critic B-4): my other
         // device's blocks, laid before it heard of the deletion, came back by the twin's road and stood the conversation again
         if (Book.erasedHere(c)) {
             val now = System.currentTimeMillis()
             if (now - refusedAt >= 60_000) { refusedAt = now; Log.d("Montana", "archive_refused a block of a deleted conversation is not filed") }
-            return true
+            return true to null
         }
         // A HEAD WITH THE ESTABLISHED SECRET IS NOT FILED FROM THE FLOOR DAY (iOS absorb, bf55cd1a, decision 191): the twin's copy of an
         // old head would lay the secret under the seed again after this phone's pass took it out (dropSecretHeads)
         if (Book.floorDay() >= Wire.ERASE_DAY && onlySecretHeads(MtBindings.nativeArchiveOpenBlock(k.hk, k.owner, sealed)?.let(::opened) ?: emptyList())) {
             val now = System.currentTimeMillis()
             if (now - refusedAt >= 60_000) { refusedAt = now; Log.d("Montana", "archive_refused a head with the established secret is not filed from the floor day") }
-            return true
+            return true to null
         }
         val folder = map(FOLDERS).optString(c).ifEmpty { c }
-        val base = root()?.path ?: return false
+        val base = root()?.path ?: return false to null
         val rc = synchronized(logLock) { MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed) }
         if (rc == 1) { Log.d("Montana", "history_rx block filed"); restoreSoon(listOf(folder)) }
-        return rc >= 0
+        return (rc >= 0) to (if (rc >= 0) folder else null)
     }
 
     // ── THE SECRET LEAVES THE ARCHIVE ON THE FLOOR DAY (iOS MontanaArchive.dropSecretHeads, bf55cd1a and 67332869, decision 191) ──
