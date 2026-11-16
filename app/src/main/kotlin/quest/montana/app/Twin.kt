@@ -93,7 +93,7 @@ object Twin {
     const val ROW = "​​TW:"               // iOS twinRowMark: one row given back
     /** iOS MTTwinRead.mark (6166b225): a chat read on one device of the seed, said at the reading, alone, in the seed's own pipe. */
     const val TQ = "\u200B\u200BTQ:"
-    private const val TWINS = "mt.twin.devices"     // iOS twinDevicesKey: each other device of the seed heard -- {writer: [last heard s, quiet]}
+    const val TWINS = "mt.twin.devices"     // iOS twinDevicesKey: each other device of the seed heard -- {writer: [last heard s, quiet]}
     private const val TWIN_HEARD_FOR = 30 * 86_400.0  // iOS twinHeardFor: a month
     private const val READ_DRIFT_MS = 10_000L        // iOS MTTwinRead.drift: two devices' clocks, forgiven
     // THE PIPE IS THE APP'S, NOT THE PACKAGE'S (iOS twinSecret mixes Bundle.main.bundleIdentifier, quest.montana.app for Montana): two
@@ -153,6 +153,7 @@ object Twin {
             f.writeBytes(g.blob)
             val road = Keeping.lay(f) ?: return Unit.also { Log.d("Montana", "twin_hist the blocks did not reach the nodes n=" + g.n) }
             road.put("w", "hist").put("n", g.n).put("f", Archive.writerHex() ?: "")
+            LinkedDevices.stamp(road)   // its kind, and the phone's term for its joined devices (iOS MTLinkedDevices.stamp, OZ 1 p.4)
             if (!Keeping.knock(secret, road, me)) { Log.d("Montana", "twin_hist no door boxed the letter n=" + g.n); return }
             Archive.twinBoxed(g.tops)
             Log.d("Montana", "twin_hist laid blocks=" + g.n + " bytes=" + g.blob.size + " more=" + (if (g.more) 1 else 0) + " asked=" + (if (want == null) 0 else 1))
@@ -178,6 +179,7 @@ object Twin {
                 val held = Archive.held()
                 val body = held.toString()
                 val o = JSONObject().put("w", "hw").put("f", mine)
+                LinkedDevices.stamp(o)   // the cursor word is the device's sign of life on every rise: its kind, and the phone's term (OZ 1 p.4)
                 // iOS says 2000 bytes; here the word must fit one envelope with its name and mark (Keeping.knockText), so the word
                 // itself is measured, and a longer one rides the cargo road
                 val inline = JSONObject(o.toString()).put("c", body)
@@ -350,6 +352,7 @@ object Twin {
             f.writeBytes(batch.toString().toByteArray())
             val road = Keeping.lay(f) ?: return 30L.also { Log.d("Montana", "twin_mirror the words did not reach the nodes n=" + batch.length()) }
             road.put("w", "lt").put("n", batch.length()).put("f", Archive.writerHex() ?: "")
+            LinkedDevices.stamp(road)   // its kind, and the phone's term for its joined devices (OZ 1 p.4)
             if (!Keeping.knock(secret, road, me)) { Log.d("Montana", "twin_mirror no door boxed the letter n=" + batch.length()); return 30L }
             var top = -1L
             for (i in 0 until batch.length()) top = maxOf(top, batch.getJSONObject(i).optLong("q", -1L))
@@ -444,11 +447,11 @@ object Twin {
         val c = o.optString("c"); val t = o.optLong("t", 0L)
         return if (c.isEmpty() || t <= 0L) null else c to t
     }
-    private fun twinsHeard(now: Double): JSONObject {
+    private fun twinsHeard(now: Double, kept: Double = TWIN_HEARD_FOR): JSONObject {
         val m = runCatching { JSONObject(Prefs.str(TWINS, "{}")) }.getOrNull() ?: JSONObject()
         for (k in m.keys().asSequence().toList()) {
             val e = m.optJSONArray(k)
-            if (e == null || e.length() != 2 || now - e.optDouble(0, 0.0) >= TWIN_HEARD_FOR) m.remove(k)
+            if (e == null || e.length() != 2 || now - e.optDouble(0, 0.0) >= kept) m.remove(k)
         }
         return m
     }
@@ -461,10 +464,13 @@ object Twin {
     /** A mirror or history letter of another device of the seed: its writer is heard now, with what it said of its extension. */
     private fun heardTwin(o: JSONObject) {
         val f = o.optString("f").ifEmpty { return }
+        // an ended device is told again, never listed (iOS MTLinkedDevices.endedAgain, 2405/2408)
+        if (LinkedDevices.endedAgain(f, if (o.has("j")) o.optDouble("j") else null)) return
         val now = System.currentTimeMillis() / 1000.0
-        val m = twinsHeard(now)
+        val m = twinsHeard(now, maxOf(TWIN_HEARD_FOR, LinkedDevices.days * 86_400.0))   // the book keeps a device the phone's term long (OZ 1 p.4)
         m.put(f, JSONArray().put(now).put(if (o.optInt("rq") == 1) 1 else 0))
         Prefs.setStr(TWINS, m.toString())
+        LinkedDevices.heard(f, o.optString("d").ifEmpty { null })
     }
 
     // ── the twin's past (iOS askTwin / giveTwinRows / takeTwinRow, f376b4ef) ──

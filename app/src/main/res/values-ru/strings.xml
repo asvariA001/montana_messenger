@@ -797,4 +797,20 @@
     <string name="pv_everyone">Все</string>
     <string name="pv_contacts">Мои контакты</string>
     <string name="pv_nobody">Никто</string>
+    <string name="devices">Устройства</string>
+    <string name="dv_none">Других ваших устройств пока не слышно.</string>
+    <string name="dv_device">Устройство</string>
+    <string name="dv_end">Завершить сеанс</string>
+    <string name="dv_end_all">Завершить все сеансы</string>
+    <string name="dv_term">Автоматически завершать неактивные</string>
+    <string name="dv_1w">1 неделю</string>
+    <string name="dv_1m">1 месяц</string>
+    <string name="dv_3m">3 месяца</string>
+    <string name="dv_6m">6 месяцев</string>
+    <string name="dv_term_footer">Подключённое устройство, не слышавшее этот телефон так долго, само завершает сеанс — и без сети.</string>
+    <string name="dv_end_q">Завершить сеанс этого устройства?</string>
+    <string name="dv_end_joined">Устройство сотрёт вашу личность, как только услышит этот телефон; устройство вне сети сотрёт её по истечении срока.</string>
+    <string name="dv_end_words">Устройство уйдёт из списка. Устройство, вошедшее по вашей сид-фразе, сохраняет её и чаты; чтобы убрать их, удалите аккаунт на самом устройстве.</string>
+    <string name="dv_end_all_q">Завершить все другие сеансы?</string>
+    <string name="dv_end_all_msg">Все устройства уйдут из списка. Подключённый Mac сотрёт вашу личность, как только услышит этот телефон; устройство, вошедшее по вашей сид-фразе, сохраняет её и чаты.</string>
 </resources>

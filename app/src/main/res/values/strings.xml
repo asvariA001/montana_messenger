@@ -802,4 +802,20 @@
     <string name="pv_everyone">Everyone</string>
     <string name="pv_contacts">My contacts</string>
     <string name="pv_nobody">Nobody</string>
+    <string name="devices">Devices</string>
+    <string name="dv_none">No other device of yours has been heard yet.</string>
+    <string name="dv_device">Device</string>
+    <string name="dv_end">End session</string>
+    <string name="dv_end_all">End all sessions</string>
+    <string name="dv_term">End inactive sessions automatically</string>
+    <string name="dv_1w">1 week</string>
+    <string name="dv_1m">1 month</string>
+    <string name="dv_3m">3 months</string>
+    <string name="dv_6m">6 months</string>
+    <string name="dv_term_footer">A connected device that has not heard this phone for this long ends its session itself, offline too.</string>
+    <string name="dv_end_q">End this device\'s session?</string>
+    <string name="dv_end_joined">The device erases your identity from itself as soon as it hears this phone; one kept offline erases it at the end of its term.</string>
+    <string name="dv_end_words">The device leaves this list. A device that signed in with your seed phrase keeps it and your chats; to remove them, delete the account on that device.</string>
+    <string name="dv_end_all_q">End all other sessions?</string>
+    <string name="dv_end_all_msg">Every device leaves this list. A connected Mac erases your identity from itself as soon as it hears this phone; a device that signed in with your seed phrase keeps it and your chats.</string>
 </resources>

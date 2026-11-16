@@ -797,4 +797,20 @@
     <string name="pv_everyone">所有人</string>
     <string name="pv_contacts">我的联系人</string>
     <string name="pv_nobody">没有人</string>
+    <string name="devices">设备</string>
+    <string name="dv_none">暂未发现您的其他设备。</string>
+    <string name="dv_device">设备</string>
+    <string name="dv_end">结束会话</string>
+    <string name="dv_end_all">结束所有会话</string>
+    <string name="dv_term">自动结束不活跃的会话</string>
+    <string name="dv_1w">1 周</string>
+    <string name="dv_1m">1 个月</string>
+    <string name="dv_3m">3 个月</string>
+    <string name="dv_6m">6 个月</string>
+    <string name="dv_term_footer">已连接的设备若在此期间未收到本手机的消息，将自行结束会话，离线时也是如此。</string>
+    <string name="dv_end_q">结束此设备的会话？</string>
+    <string name="dv_end_joined">设备一收到本手机的消息就会删除您的身份；离线的设备会在期限届满时删除。</string>
+    <string name="dv_end_words">该设备将从此列表中移除。用您的助记词登录的设备仍保留助记词和聊天；如需移除，请在该设备上删除账户。</string>
+    <string name="dv_end_all_q">结束所有其他会话？</string>
+    <string name="dv_end_all_msg">所有设备都将从此列表中移除。已连接的 Mac 一收到本手机的消息就会删除您的身份；用您的助记词登录的设备仍保留助记词和聊天。</string>
 </resources>
