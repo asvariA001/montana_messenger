@@ -628,16 +628,42 @@ object Media {
         Log.d("Montana", "kept_file m=" + mid.take(8) + " my restored row takes my letter's name -- its correspondent laid my file again")
         return n
     }
+    /**
+     * THE TWIN'S SILENCE (iOS ChatStore.twinSilent, a5576d36, OZ 1 p.1.4.2): the file of a Saved Messages row is kept on the seed's
+     * other device and has not come -- the plaque says where it is, drawn by the Saved Messages conversation alone, one at a time.
+     */
+    @Volatile private var silentShown = false
+    private fun twinSilent() = MainThread.post {
+        val act = CallScreen.front ?: return@post
+        if (Book.openChat != Book.SAVED || silentShown) return@post
+        silentShown = true
+        android.app.AlertDialog.Builder(act).setTitle(R.string.kept_twin_title).setMessage(R.string.kept_twin_body)
+            .setPositiveButton(R.string.ok, null).setOnDismissListener { silentShown = false }.show()
+    }
     /** A restored row's ask (iOS askKeptFile for an «arc:» row): by its file's seal, on the group's own road for a group's row. */
     private fun askRestored(ref: String, m: Msg) {
         if (m.file?.let { File(it).exists() } == true) return
         // A SAVED MESSAGES ROW HAS NO SENDER TO ASK (iOS 598cb6cf, OZ 1 p.1.4.2): its file is the seed's other device's alone -- that
         // device is asked for the row by its archive key (Twin.ask) and gives the file by the cargo road (Twin.giveRows, takeRow).
         if (ref == Book.SAVED) {
-            if (!mayKept("twin:" + m.mid)) { Log.d("Montana", "kept_file m=" + m.mid.take(16) + " a Saved Messages row asked its twin within the span -- nothing sent"); return }
+            if (!mayKept("twin:" + m.mid)) {
+                Log.d("Montana", "kept_file m=" + m.mid.take(16) + " a Saved Messages row asked its twin within the span -- the plaque says where the file is")
+                return twinSilent()
+            }
             val t = Archive.archivedText(m) ?: return
             Twin.ask(ref, listOf(Triple(m.at / 1000, m.mine, Archive.rowHash(t))), again = true)
             Log.d("Montana", "kept_file m=" + m.mid.take(16) + " a Saved Messages row asks the seed's other device for its file")
+            // The twin answers within seconds when it is awake; a file still missing after the wait is the twin's silence, and the
+            // person is told where the file is kept (the plaque), not left with a tap that did nothing (iOS a5576d36)
+            Thread {
+                for (i in 0 until 15) {
+                    Thread.sleep(1000)
+                    val row = Book.chat(Book.SAVED)?.msgs?.firstOrNull { it.mid == m.mid }
+                    if (row?.file?.let { File(it).exists() } == true) return@Thread
+                }
+                Log.d("Montana", "kept_file m=" + m.mid.take(16) + " the seed's other device gave no file within the wait -- the plaque stands")
+                twinSilent()
+            }.start()
             return
         }
         val word = (if (m.mine) ownAsk(ref, m) else restoredFile(m)?.let(::restoredAsk))

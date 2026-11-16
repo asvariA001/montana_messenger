@@ -704,6 +704,8 @@
     <string name="note_quality_footer">“最高”使用摄像头最清晰的画面和最高码率，“最低”生成最小的文件。摄像头跟不上时会自动降低画质。</string>
     <string name="message_style_footer">“蒙大拿”：你的消息为系统蓝色，他人的为灰色。“经典”：你的消息为你的气泡颜色，他人的为深灰色。“自定义”：使用你在下方设置的颜色。</string>
     <string name="cache_kept_on_node">存于您的节点</string>
+    <string name="kept_twin_title">尚未在此手机上</string>
+    <string name="kept_twin_body">此文件保存在使用相同 24 个词的另一台设备上。该设备在线后，文件会传到这里。</string>
     <string name="cache_clear">清除缓存</string>
     <string name="cache_header">缓存</string>
     <string name="cache_footer_node">节点已保存的内容将从本机移除。每张照片、视频和文件在您打开时从节点取回——在本机，或凭您的 24 个词在新手机上。</string>
