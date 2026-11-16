@@ -679,6 +679,17 @@ object KeepCopy {
      * copy is kept. The pieces live a week there and the letter in the box as long, so a phone lost today is opened by the words
      * alone tomorrow. It waits behind a renewal on the same thread: create clears the shelf, two copies never stand on it at once.
      */
+    /**
+     * THE COPY FOR A JOINING (iOS lightForLink, decision 989 = a; the author's words 23015, 23019): the phone that gave its words
+     * names a light copy at once, whatever the day's rhythm -- the joined device waits for a copy named after the gift, never an old
+     * one the doors may have let go.
+     */
+    fun lightForLink() {
+        if (!agrees || !MontanaSeed.hasSeed || lighting) return
+        val (face, name) = profileTags()
+        layLight(face, name, peopleTag())
+        Log.i("Montana", "keep_light for a joining")
+    }
     private fun layLight(face: String, name: String, people: String) {
         if (lighting) return
         lighting = true

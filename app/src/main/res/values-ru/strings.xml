@@ -808,6 +808,17 @@
     <string name="dv_3m">3 месяца</string>
     <string name="dv_6m">6 месяцев</string>
     <string name="dv_term_footer">Подключённое устройство, не слышавшее этот телефон так долго, само завершает сеанс — и без сети.</string>
+    <string name="dv_link">Подключить устройство</string>
+    <string name="dv_link_footer">Подключённое устройство получает всю вашу личность. Выберите на нём «Войти по QR» и отсканируйте его код этим телефоном.</string>
+    <string name="dv_link_seeking">Ищем устройство…</string>
+    <string name="dv_link_check">Проверьте, что на другом экране %1$s</string>
+    <string name="dv_link_warn">Это устройство получит всю вашу личность: слова и чаты. Подключайте только своё устройство.</string>
+    <string name="dv_link_connect">Подключить</string>
+    <string name="dv_link_giving">Соединение…</string>
+    <string name="dv_link_given">Устройство подключено.</string>
+    <string name="dv_link_not_found">Устройство не найдено. Покажите на нём новый код и отсканируйте снова.</string>
+    <string name="dv_link_no_lock">Установите код-пароль на этом телефоне — без него устройство не подключить.</string>
+    <string name="dv_link_failed">Устройство не удалось подключить. Проверьте сеть и попробуйте снова.</string>
     <string name="dv_end_q">Завершить сеанс этого устройства?</string>
     <string name="dv_end_joined">Устройство сотрёт вашу личность, как только услышит этот телефон; устройство вне сети сотрёт её по истечении срока.</string>
     <string name="dv_end_words">Устройство уйдёт из списка. Устройство, вошедшее по вашей сид-фразе, сохраняет её и чаты; чтобы убрать их, удалите аккаунт на самом устройстве.</string>

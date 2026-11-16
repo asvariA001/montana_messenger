@@ -2833,9 +2833,10 @@ object Post {
      * pipe's name and its words. [take]: the rows are marked taken by this device (the calls' answers); the pipe of light leaves
      * its letters in the box, so the next phone of the same words reads them too.
      */
-    fun pickup(pipes: Map<String, ByteArray>, take: Boolean): List<Pair<String, String>> {
+    fun pickup(pipes: Map<String, ByteArray>, take: Boolean, owner: String? = null): List<Pair<String, String>> {
         if (pipes.isEmpty() || !Wire.agreesWithCanon()) return emptyList()
-        val twin = MontanaSeed.twin ?: return emptyList()
+        // [owner]: the name the box is read under (iOS BoxEar owner): the twin by default, a joining's own name for the link box
+        val twin = owner ?: MontanaSeed.twin ?: return emptyList()
         val me = Twin.deviceRef() ?: return emptyList()
         val nameOf = HashMap<String, String>()
         val secretOf = HashMap<String, ByteArray>()
