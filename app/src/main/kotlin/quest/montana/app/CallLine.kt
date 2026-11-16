@@ -826,13 +826,23 @@ object CallLine {
     private fun reachable(urls: List<String>): List<String> {
         val lp = runCatching { Book.ctx.getSystemService(ConnectivityManager::class.java).let { it.getLinkProperties(it.activeNetwork) } }.getOrNull() ?: return urls
         val addrs = lp.linkAddresses.map { it.address }.filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
-        val v4 = addrs.any { it is java.net.Inet4Address }
+        val own4 = addrs.any { it is java.net.Inet4Address }
         val v6 = addrs.any { it is java.net.Inet6Address }
-        return urls.filter { u ->
+        // AN IPv6-ONLY CELLULAR NETWORK STILL CARRIES IPv4 (464XLAT): the platform's CLAT gives the phone an IPv4 on a stacked link the
+        // active network's own addresses do not list, and announces the network's NAT64 prefix -- a literal IPv4 relay is reached through
+        // it. Without this every IPv4 address of our relay was dropped on such a network, and an LTE call had no relay at all.
+        val nat64 = if (Build.VERSION.SDK_INT >= 30) runCatching { lp.nat64Prefix?.toString() }.getOrNull() else null
+        val v4 = own4 || (v6 && nat64 != null)
+        val kept = urls.filter { u ->
             val host = u.substringAfter(':').substringBefore('?')
             if (host.startsWith("[")) v6
             else host.substringBeforeLast(':').split('.').let { it.size == 4 && it.all { p -> p.toIntOrNull() != null } }.let { literal -> if (literal) v4 else true }
         }
+        // THE DIARY NAMES THE NETWORK'S FAMILIES (the author's word 16.11: A1 holds no SIM, so the first LTE call of any Android phone
+        // must show the cause): the interface, which families its own addresses hold, the NAT64 prefix, and how many roads were dropped
+        log("net_families iface=" + (lp.interfaceName ?: "-") + " v4=" + (if (own4) 1 else 0) + " v6=" + (if (v6) 1 else 0) +
+            " nat64=" + (nat64 ?: "-") + " clat=" + (if (!own4 && v4) 1 else 0) + " dropped=" + (urls.size - kept.size) + "/" + urls.size)
+        return kept
     }
 
     private fun strings(a: JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a?.optString(it)?.ifEmpty { null } }
