@@ -350,7 +350,7 @@ object Notify {
     }
     private const val LETTER = 1   // a letter's banner: one a chat, under the chat's alias as its tag
     private const val QUIET = "letters_quiet"
-    fun letter(ref: String, text: String, who: String? = null, mid: String? = null, mentioned: Boolean = false) {
+    fun letter(ref: String, text: String, who: String? = null, mid: String? = null, mentioned: Boolean = false, action: Notification.Action? = null) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
@@ -394,6 +394,7 @@ object Notify {
             .apply { if (sender) faceOf(ref)?.let { setLargeIcon(it) } }   // USER-DATA: the correspondent's or the group's face
             .setAutoCancel(true)
             .setContentIntent(open)
+            .apply { if (action != null) addAction(action) }   // a new build's banner carries «Update» (Update.tell)
             // THE NAME STANDS ON THE LOCKED SCREEN (iOS 1715, hiddenPreviewsShowTitle, MontanaP2PNode 1268-1290): with the system
             // hiding a locked phone's contents, the person's name stays and the words read «New message»; the switch can take it
             .setPublicVersion(Notification.Builder(c, channel)
@@ -407,6 +408,8 @@ object Notify {
         if (mid != null) Prefs.setStr(NOTICE + ref, mid) else Prefs.remove(NOTICE + ref)
     }
     private const val NOTICE = "noticeMid."
+    /** The Montana room's banner of a new build leaves once the build runs here (Update.clear). */
+    fun roomGone() { runCatching { Book.ctx.getSystemService(NotificationManager::class.java)?.cancel(NoticeAlias.of(Book.MONTANA), LETTER) } }
     /**
      * A BANNER WEARS ITS CHAT'S OWN FACE (iOS 8cd39e19 at 2229, the author's words 17.10: «the notifications' thumbnails for groups
      * and channels»): a group's letter shows the group's face, never the face of the one who carried its word; a person's letter the
