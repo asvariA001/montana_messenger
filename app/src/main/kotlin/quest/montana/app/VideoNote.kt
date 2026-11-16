@@ -103,6 +103,14 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     private var session2: CameraCaptureSession? = null
     private val mtx2 = FloatArray(16)
     @Volatile private var badgeReady = false
+    // THE WATCH OVER THE FRAMES (iOS frameAt / frameWait / smallAt, 2409/2410): all written and read on the drawing's thread
+    private var frameAt = 0L     // the big circle's last frame (System.nanoTime)
+    private var frameWait = 0L   // the camera woke at this moment and its first frame is awaited (0 -- none awaited)
+    private var smallAt = 0L     // the badge camera's last frame in dual mode
+    private var riseAt = 0L      // the last time the camera was started again (a failing camera is not stormed)
+    /** The camera stood and was started again from this moment: until its first frame no picture and no sound are written,
+     *  and the file's clock skips the stretch as it skips a pause (iOS startAgain's pauseAt / resumeFix). 0 -- no gap. */
+    @Volatile private var gapAt = 0L
     /** Both cameras: the back fills the circle, the front sits in the badge; a flip swaps them (iOS toggleDual, 18.09). */
     @Volatile var dual = false; private set
     @Volatile private var swapped = false
@@ -181,10 +189,14 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
     private var pauseAt = 0L
     @Volatile private var pausedNs = 0L
     /** The file's clock: the time since the start less every pause so far. */
-    private fun clock(): Long = System.nanoTime() - startNs - pausedNs - (if (paused) System.nanoTime() - pauseAt else 0L)
+    private fun clock(): Long { val g = gapAt; val now = System.nanoTime()
+        return now - startNs - pausedNs - (if (paused) now - pauseAt else 0L) - (if (g > 0L) now - g else 0L) }
     fun togglePause() {
         if (!running) return
-        if (paused) { pausedNs += System.nanoTime() - pauseAt; paused = false } else { pauseAt = System.nanoTime(); paused = true }
+        if (paused) { pausedNs += System.nanoTime() - pauseAt; paused = false } else {
+            val g = gapAt; if (g > 0L) { pausedNs += System.nanoTime() - g; gapAt = 0L }   // the pause takes over the camera's gap
+            pauseAt = System.nanoTime(); paused = true
+        }
     }
 
     /** The tape starts: the camera, the encoders and the drawing; false when a piece refused. */
@@ -197,7 +209,14 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         var ok = false
         h.post { ok = runCatching { setupGl(); openCamera(); true }.getOrDefault(false); ready.countDown() }
         ready.await()
-        if (ok) { running = true; startNs = System.nanoTime(); startAudio() }
+        if (ok) {
+            running = true; startNs = System.nanoTime(); startAudio()
+            h.post {
+                val now = System.nanoTime(); frameAt = now; frameWait = now; smallAt = now   // the watch counts from the camera's waking
+                Log.d("Montana", "vnote_camera running=1 front=" + (if (front) 1 else 0))
+                h.postDelayed(watch, 100)
+            }
+        }
         ok
     } catch (_: Exception) { release(); false }
 
@@ -252,7 +271,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         camTexture2 = SurfaceTexture(tex2).apply {
             setDefaultBufferSize(1280, 720)
             // the badge camera only leaves its latest frame (iOS lastSmall); the big one composes on its own frames
-            setOnFrameAvailableListener({ st -> if (!closing && runCatching { st.updateTexImage() }.isSuccess) { st.getTransformMatrix(mtx2); badgeReady = true } }, h)
+            setOnFrameAvailableListener({ st -> if (!closing && runCatching { st.updateTexImage() }.isSuccess) { st.getTransformMatrix(mtx2); badgeReady = true; smallAt = System.nanoTime() } }, h)
         }
         program = link(VS, FS)
         camTexture = SurfaceTexture(tex).apply {
@@ -272,6 +291,10 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         val st = camTexture ?: return
         if (runCatching { st.updateTexImage() }.isFailure) return
         st.getTransformMatrix(mtx)
+        val now = System.nanoTime()
+        frameAt = now
+        if (frameWait > 0L) { Log.d("Montana", "vnote_frames first frame after " + (now - frameWait) / 1_000_000 + " ms"); frameWait = 0L }
+        val g = gapAt; if (g > 0L) { pausedNs += now - g; gapAt = 0L }   // the camera is back: the gap stays out of the file
         easeBadge()
         fun pass(t: Int, m: FloatArray, badge: Boolean) {
             val pos = GLES20.glGetAttribLocation(program, "aPos")
@@ -387,12 +410,62 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
                         issue()
                         if (back) relight = { issue() } else if (!dual) relight = null   // a front camera alone carries no torch
                     }
-                    override fun onConfigureFailed(s: CameraCaptureSession) {}
+                    override fun onConfigureFailed(s: CameraCaptureSession) { Log.d("Montana", "vnote_session configure failed cam=${d.id}") }
                 }, h)
             }
-            override fun onDisconnected(d: CameraDevice) { d.close() }
-            override fun onError(d: CameraDevice, e: Int) { d.close() }
+            override fun onDisconnected(d: CameraDevice) { heard(d, "disconnected", rise = false); d.close() }
+            override fun onError(d: CameraDevice, e: Int) { d.close(); heard(d, "error=$e", rise = true) }
         }, h)
+    }
+
+    // THE CAMERA SAYS WHY IT STOPS, AND A STOPPED CAMERA RISES AGAIN (iOS 6530bd18 / 98d9c587, 2409/2410, the author's word
+    // 22943 and 22984: a note 49 s long whose picture stood still after its first frame, nothing heard the camera stop).
+    // The camera's own words go to the diary (vnote_session); an error under a living tape starts the camera again (a
+    // disconnection -- another app took the camera, as iOS's interruption -- does not: the watch tries again past
+    // STALL); frames that stop with no word at all are a stopped camera too -- past STALL without a frame it starts anew
+    // (vnote_stall). In dual mode each camera is watched on its own: the circle by frameAt, the badge by smallAt.
+    // ANDROID: the voice is its own recorder and goes on while the picture stands, so the stretch already heard stays with
+    // its last frame; from the restart until the first new frame neither picture nor sound is written (gapAt).
+    private val STALL = 1_500_000_000L
+    private val watch: Runnable = object : Runnable {
+        override fun run() {
+            if (!running || closing) return
+            val now = System.nanoTime()
+            val circle = now - frameAt
+            val badge = if (dual) now - smallAt else 0L
+            if (STALL < maxOf(circle, badge)) {
+                Log.d("Montana", "vnote_stall " + (if (circle < badge) "badge" else "circle") +
+                    " quiet=" + String.format(java.util.Locale.ROOT, "%.1f", maxOf(circle, badge) / 1e9) + "s -- started again")
+                startAgain()
+            }
+            h.postDelayed(this, 100)
+        }
+    }
+    private fun heard(d: CameraDevice, why: String, rise: Boolean) {
+        val ours = d === cam || d === cam2
+        val wanted = running && !closing && ours
+        val go = rise && wanted && STALL < System.nanoTime() - riseAt
+        Log.d("Montana", "vnote_session $why cam=${d.id} wanted=${if (wanted) 1 else 0}" + if (go) " -- started again" else "")
+        if (go) startAgain()
+    }
+    /** The camera anew under a living tape (the drawing's thread): the same camera, or both of the pair, into the same
+     *  textures; the file's clock skips the stretch until the first new frame. */
+    private fun startAgain() {
+        if (!running || closing) return
+        val now = System.nanoTime()
+        if (!paused && gapAt == 0L) gapAt = now
+        riseAt = now; frameAt = now; frameWait = now; smallAt = now
+        runCatching { session?.close() }; runCatching { cam?.close() }; session = null; cam = null
+        if (dual) {
+            runCatching { session2?.close() }; runCatching { cam2?.close() }; session2 = null; cam2 = null
+            val pair = dualPair(c)
+            if (pair == null) { dual = false; swapped = false; badgeReady = false; front = true; openCamera(); told() }
+            else {
+                openInto(pair.first, camTexture!!, { cam = it }, { session = it }, { mainSurface = it })
+                openInto(pair.second, camTexture2!!, { cam2 = it }, { session2 = it }, { badgeSurface = it })
+            }
+        } else openCamera()
+        Log.d("Montana", "vnote_camera again dual=" + (if (dual) 1 else 0))
     }
 
     /** The other camera; the tape runs on through the turn (iOS flip). With both on, the flip swaps the circle and the badge. */
@@ -400,6 +473,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         if (dual) { swapped = !swapped; return@post }
         runCatching { session?.close() }; runCatching { cam?.close() }
         front = !front
+        frameAt = System.nanoTime()   // the turn's own waking is no stall
         openCamera()
         told()
     }
@@ -412,13 +486,14 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
         if (dual) {
             dual = false; badgeReady = false
             runCatching { session2?.close() }; runCatching { cam2?.close() }; session2 = null; cam2 = null
-            if (swapped) { swapped = false; front = true; runCatching { session?.close() }; runCatching { cam?.close() }; openCamera() }
+            if (swapped) { swapped = false; front = true; frameAt = System.nanoTime(); runCatching { session?.close() }; runCatching { cam?.close() }; openCamera() }
             told()
             return@post
         }
         val (back, frontId) = dualPair(c) ?: return@post
         runCatching { session?.close() }; runCatching { cam?.close() }
         front = false; swapped = false
+        badgeReady = false; val now = System.nanoTime(); frameAt = now; smallAt = now   // the circle goes alone until the badge's first frame
         camTexture?.setDefaultBufferSize(1280, 720)   // the pair at its fixed size, never a step the single camera took
         openInto(back, camTexture!!, { cam = it }, { session = it }, { mainSurface = it })
         openInto(frontId, camTexture2!!, { cam2 = it }, { session2 = it }, { badgeSurface = it })
@@ -491,7 +566,7 @@ class NoteRecorder(private val c: Context, private val preview: TextureView) {
             while (true) {
                 val n = r.read(buf, 0, buf.size)
                 val stop = !running
-                if (paused && !stop) { drain(ac, false, isVideo = false); continue }   // the paused sound is heard and let go
+                if ((paused || gapAt > 0L) && !stop) { drain(ac, false, isVideo = false); continue }   // the paused sound (or the camera's gap) is heard and let go
                 val i = ac.dequeueInputBuffer(10_000)
                 if (i >= 0) {
                     val ib = ac.getInputBuffer(i)!!
