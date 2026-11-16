@@ -1478,12 +1478,27 @@ object Groups {
         Log.i("Montana", "group_link a join waits for its meeting")
         return bare
     }
-    /** THE MEETING OPENED ITS CONVERSATION (iOS askJoin): the waiting join is asked of the owner over it, the mark and this phone's name. */
-    fun askJoin(pipe: String) {
+    /**
+     * THE LINK OPENS THE GROUP ITSELF (iOS openingJoin, 0be38b73 2415, OZ 2 p.5, the author's word 23167): a group's link tapped
+     * in a chat once left the person in the owner's chat after the owner's phone added them. The group a link asked for opens the
+     * moment it is born here or given back; ten minutes at most.
+     */
+    private var openingJoin: Pair<String, Long>? = null
+    /**
+     * THE MEETING OPENED ITS CONVERSATION (iOS askJoin): the conversation the link opens -- the group itself when this phone
+     * already holds it, nothing asked then; else null (the owner's chat stands), the waiting join is asked of the owner over it,
+     * the mark and this phone's name, and the group opens the moment it is born here (openIfAsked).
+     */
+    fun askJoin(pipe: String): String? {
         val w = synchronized(lock) {
-            val j = waitingJoin ?: return
+            val j = waitingJoin ?: return null
             waitingJoin = null
-            if (System.currentTimeMillis() - j.third > 600_000 || !ready()) return
+            if (System.currentTimeMillis() - j.third > 600_000 || !ready()) return null
+            groups[j.first]?.takeIf { !it.left }?.let {
+                Log.i("Montana", "group_link the group is held here -- it opens")
+                return key(it.id)
+            }
+            openingJoin = j.first to System.currentTimeMillis()
             val me = clean(Prefs.userName, NAME_LIMIT)
             JSONObject().put("t", "jn").put("g", j.first).put("id", Marks.mintMid()).put("tx", j.second).apply { if (me.isNotEmpty()) put("n", me) }
         }
@@ -1493,6 +1508,20 @@ object Groups {
             val sent = synchronized(lock) { carry(w, pipe, "", own = false) } != null
             Log.i("Montana", "group_link join asked sent=" + (if (sent) 1 else 0))
         }.start()
+        return null
+    }
+    /** The group a link asked for is born here, or given back: it opens by the one road into a conversation (iOS openIfAsked). */
+    private fun openIfAsked(id: String) {
+        val o = openingJoin ?: return
+        if (o.first != id || System.currentTimeMillis() - o.second > 600_000) return
+        openingJoin = null
+        Log.i("Montana", "group_link the group asked by its link opens")
+        val ref = key(id)
+        MainThread.post {
+            val act = CallScreen.front ?: return@post
+            if (Book.openChat == ref || Book.chat(ref) == null) return@post
+            act.push { close -> conversationPage(act, ref, close) }
+        }
     }
     /**
      * ONE WHO OPENED THE GROUP'S LINK ASKS AT THE OWNER'S PHONE (iOS joined): the mark must be the group's standing one; one the
@@ -2734,6 +2763,7 @@ object Groups {
             wearFullFace(w)
             // the reference folder's rows: added again, a new name, a new face -- each the owner's deed
             if (back) lay(had, event("added", OWNER_SEAT, listOf(seat)))
+            if (back) openIfAsked(id)   // a group asked by its link and given back opens (iOS 0be38b73)
             // a member's renewal is named by the owner (iOS w.s, G.5); else the owner's own deed
             val actor = w.optString("s").takeIf { isSeat(it) } ?: OWNER_SEAT
             if (renamed) lay(had, event("named", actor, t = title))
@@ -2759,6 +2789,7 @@ object Groups {
         lay(g, event("added", OWNER_SEAT, listOf(seat)))   // «X added you»
         giveCards()   // this phone's own card, where the owner names seats (iOS 07d5fc70, OZ 1 p.8)
         Log.i("Montana", "group_rx invitation kind=$kind people=$count from=${pipe.take(10)}")
+        openIfAsked(id)   // the group a link asked for opens the moment it is born (iOS 0be38b73)
         return Verdict.HELD
     }
 

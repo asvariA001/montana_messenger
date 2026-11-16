@@ -229,6 +229,16 @@ fun linkedWords(text: String, openMontana: (Uri) -> Unit): android.text.Spannabl
     // A YOUTUBE LINK PLAYS HERE, in YouTube's own player, before every other road (iOS MTTextLinks, MTMessageText.swift 356-364 at ca615034)
     for (span in s.getSpans(0, s.length, android.text.style.URLSpan::class.java)) {
         val url = span.url
+        // A MONTANA WEB LINK OPENS INSIDE (iOS ecdc520b MTMessageText, 2411): a card or a wall link of our sites tapped in a letter
+        // takes the app's own road -- no trip to the site, no question which app opens it; a link from outside still goes the site's way
+        if (Meeting.isCardLink(url) || Board.isWallLink(url)) {
+            val from = s.getSpanStart(span); val to = s.getSpanEnd(span)
+            s.removeSpan(span)
+            s.setSpan(object : android.text.style.ClickableSpan() {
+                override fun onClick(widget: View) { openMontana(Uri.parse(url)) }
+            }, from, to, android.text.Spannable.SPAN_EXCLUSIVE_EXCLUSIVE)
+            continue
+        }
         if (LinkPreview.youtube(url) == null) continue
         val from = s.getSpanStart(span); val to = s.getSpanEnd(span)
         s.removeSpan(span)

@@ -19,8 +19,8 @@ import java.security.MessageDigest
  * exactly 24 hours after its birth; the day before stays able to receive, and yesterday's link answers «spent».
  */
 object MontanaCard {
-    const val PERM_PREFIX = "https://montana.quest/perp/"
-    const val TEMP_PREFIX = "https://montana.quest/temp/"
+    const val PERM_PREFIX = "https://montana.xxx/perp/"   // iOS 8a4ed08f (2408): the Protocol's one domain writes every card
+    const val TEMP_PREFIX = "https://montana.xxx/temp/"
     private const val NAME_LIMIT = 64
     private const val LIFETIME = 24 * 3600L
     private const val PERM_MAGIC = "mt-rdv-perm"

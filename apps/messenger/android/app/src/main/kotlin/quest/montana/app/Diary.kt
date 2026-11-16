@@ -297,7 +297,11 @@ object Diary {
             .put("lang", java.util.Locale.getDefault().language.take(2)).put("skew_ms", NodeClock.skewMs)
         val body = JSONObject().put("dg", dg).put("file", "tele").put("dev", dev).put("lines", JSONArray(lines))
         val bytes = body.toString().length
-        val doors = Signal.writeOrder("diag", everyDoor = true)
+        // THE DIARY HAS MORE THAN ONE ROAD TO ITS MACHINE (iOS 2409 6530bd18 / 2410 98d9c587, the author's word 22949: «no holes in
+        // the telemetry»): the doors that keep diaries first, then the doors proven to carry them on in one hop (the cap «diaghop»,
+        // never «any door that answered») -- a phone that cannot reach the diaries machine no longer walks one door alone
+        val own = Signal.writeOrder("diag", everyDoor = true)
+        val doors = own + Doors.ordered("diaghop").filter { it !in own }
         var lastCode = -1
         if (doors.isEmpty()) android.util.Log.d("Montana", "diag_ship no door lines=" + lines.size)
         for (door in doors) {   // the elected door first (iOS MontanaDiagShip.put over bases(for: "diag"), every door when none lists diag)
@@ -324,7 +328,8 @@ object Diary {
                 refused = 0; return true
             }
             lastCode = code
-            Signal.doorFailed(door, code)
+            // a forwarding door's 503 says the diaries machine is out of ITS reach, not that the door is dead for the signals it carries
+            if (door in own) Signal.doorFailed(door, code)
         }
         // EVERY DOOR REFUSED IS SAID (iOS MontanaDiagShip.put 4972: markFolded «refused=code N lines=M -- every door», window 300)
         if (doors.isNotEmpty()) folded("diag_ship", "refused=" + (if (lastCode <= 0) "no-answer" else "code " + lastCode) + " lines=" + lines.size + " doors=" + doors.size + " -- every door", 300_000)

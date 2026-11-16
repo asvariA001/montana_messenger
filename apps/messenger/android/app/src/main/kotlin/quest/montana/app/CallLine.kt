@@ -340,7 +340,9 @@ object CallLine {
             iceTransportsType = PeerConnection.IceTransportsType.ALL   // iOS 15.13: both roads at once, the relay offered first
         }
         var made: Line? = null
-        val pc = f.createPeerConnection(cfg, object : PeerConnection.Observer {
+        // THE RELAY'S TLS IS JUDGED BY THE SYSTEM'S OWN TRUST (iOS MTRelayTrust, peerConnection(certificateVerifier:)): the engine's
+        // compiled roots lack the root our relays chain to, and every TLS relay gathering ended «701»
+        val pc = f.createPeerConnection(cfg, org.webrtc.PeerConnectionDependencies.builder(object : PeerConnection.Observer {
             override fun onIceCandidate(c: IceCandidate) { made?.let { gathered(it, c) } }
             override fun onIceConnectionChange(s: PeerConnection.IceConnectionState) { made?.let { state(it, s) } }
             override fun onSignalingChange(s: PeerConnection.SignalingState) {}
@@ -356,7 +358,7 @@ object CallLine {
             override fun onIceCandidateError(e: org.webrtc.IceCandidateErrorEvent) {
                 log("ice_gather_fail scheme=" + e.url.substringBefore(':') + " code=" + e.errorCode)
             }
-        }) ?: return null.also { log("no connection"); Calls.hangUp("connection-unbuilt") }
+        }).setSSLCertificateVerifier(RelayTrust).createPeerConnectionDependencies()) ?: return null.also { log("no connection"); Calls.hangUp("connection-unbuilt") }
         // iOS buildPC: one voice track «mt_audio» in the stream «mt_stream», the person's mute applied to it at birth
         val source = f.createAudioSource(MediaConstraints())
         val track = f.createAudioTrack("mt_audio", source)
@@ -814,6 +816,7 @@ object CallLine {
         val uris = reachableUris.sortedBy { u ->
             if (u.startsWith("turns:")) (if (u.contains(":443")) 0 else 1) else if (u.contains("transport=tcp")) 2 else 3
         }
+        RelayTrust.learn(uris)   // the names the relay's certificate is checked against, by the system's own trust (iOS 1783)
         if (uris.isNotEmpty()) list.add(PeerConnection.IceServer.builder(uris).setUsername(p.optString("u")).setPassword(p.optString("c")).createIceServer())
         log("servers stun=" + stun.size + " relay=" + uris.size)
         return list
@@ -823,13 +826,23 @@ object CallLine {
     private fun reachable(urls: List<String>): List<String> {
         val lp = runCatching { Book.ctx.getSystemService(ConnectivityManager::class.java).let { it.getLinkProperties(it.activeNetwork) } }.getOrNull() ?: return urls
         val addrs = lp.linkAddresses.map { it.address }.filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
-        val v4 = addrs.any { it is java.net.Inet4Address }
+        val own4 = addrs.any { it is java.net.Inet4Address }
         val v6 = addrs.any { it is java.net.Inet6Address }
-        return urls.filter { u ->
+        // AN IPv6-ONLY CELLULAR NETWORK STILL CARRIES IPv4 (464XLAT): the platform's CLAT gives the phone an IPv4 on a stacked link the
+        // active network's own addresses do not list, and announces the network's NAT64 prefix -- a literal IPv4 relay is reached through
+        // it. Without this every IPv4 address of our relay was dropped on such a network, and an LTE call had no relay at all.
+        val nat64 = if (Build.VERSION.SDK_INT >= 30) runCatching { lp.nat64Prefix?.toString() }.getOrNull() else null
+        val v4 = own4 || (v6 && nat64 != null)
+        val kept = urls.filter { u ->
             val host = u.substringAfter(':').substringBefore('?')
             if (host.startsWith("[")) v6
             else host.substringBeforeLast(':').split('.').let { it.size == 4 && it.all { p -> p.toIntOrNull() != null } }.let { literal -> if (literal) v4 else true }
         }
+        // THE DIARY NAMES THE NETWORK'S FAMILIES (the author's word 16.11: A1 holds no SIM, so the first LTE call of any Android phone
+        // must show the cause): the interface, which families its own addresses hold, the NAT64 prefix, and how many roads were dropped
+        log("net_families iface=" + (lp.interfaceName ?: "-") + " v4=" + (if (own4) 1 else 0) + " v6=" + (if (v6) 1 else 0) +
+            " nat64=" + (nat64 ?: "-") + " clat=" + (if (!own4 && v4) 1 else 0) + " dropped=" + (urls.size - kept.size) + "/" + urls.size)
+        return kept
     }
 
     private fun strings(a: JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a?.optString(it)?.ifEmpty { null } }
@@ -1919,6 +1932,61 @@ object CallLine {
  * the switch goes off only at «far» (the platform's own RELEASE_FLAG_WAIT_FOR_NO_PROXIMITY). Every change of the sensor and of
  * the switch is a diary line (proximity): a dark screen says who held the sensor and what the sensor said last.
  */
+/** THE RELAY'S TLS IS JUDGED BY THE SYSTEM'S OWN TRUST (iOS MTRelayTrust, 10.10.2026 measured). The engine checks a relay's
+ * certificate against the roots compiled into it, and the root our relays chain to is not among them: every TLS relay gathering
+ * ended «ice_gather_fail scheme=turns code=701», so a cellular network that lets only TLS through left a call without a relay.
+ * Nothing is waived: the chain and the name are checked, and the names are the TLS relays of the passes this phone was handed.
+ * The engine hands over the relay's own certificate alone; Android's trust does not fetch a missing middle certificate, so the
+ * system shakes hands with that relay itself (its own roots, the name checked) and the engine's certificate is trusted when it is
+ * the very certificate the system trusted under that name. */
+object RelayTrust : org.webrtc.SSLCertificateVerifier {
+    private val doors = java.util.concurrent.ConcurrentHashMap<String, Long>()   // BOUND-OK: «host:port» of the TLS relays → last asked
+    private val trusted = java.util.concurrent.ConcurrentHashMap<String, String>()   // BOUND-OK: sha256 of a certificate the system trusted → its name
+    private val asking = Any()
+
+    /** The TLS relays of a pass: «turns:host:port?transport=tcp» names «host»; a relay named by an IPv6 address has no name to check. */
+    fun learn(uris: List<String>) {
+        val fresh = uris.mapNotNull { u ->
+            if (!u.startsWith("turns:")) null
+            else u.removePrefix("turns:").substringBefore('?').lowercase().takeIf { it.isNotEmpty() && !it.startsWith("[") }
+                ?.let { if (it.contains(':')) it else "$it:443" }
+        }.filter { doors.putIfAbsent(it, 0L) == null }
+        if (fresh.isNotEmpty()) Thread { fresh.forEach { ask(it) } }.start()   // ready before the engine first asks
+    }
+
+    override fun verify(der: ByteArray): Boolean {
+        val tag = sha(der)
+        trusted[tag]?.let { log("trusted host=" + it.substringBeforeLast(':')); return true }
+        for (door in doors.keys.sorted()) {
+            ask(door)
+            trusted[tag]?.let { log("trusted host=" + it.substringBeforeLast(':')); return true }
+        }
+        log("REFUSED names=" + doors.size)
+        return false
+    }
+
+    /** The system's own handshake with one relay, at most once a minute per relay (a renewed certificate is learned the next minute). */
+    private fun ask(door: String) = synchronized(asking) {
+        val now = System.currentTimeMillis()
+        if (now - (doors[door] ?: 0L) < 60_000) return@synchronized
+        doors[door] = now
+        val host = door.substringBeforeLast(':')
+        val port = door.substringAfterLast(':').toIntOrNull() ?: 443
+        runCatching {
+            val raw = java.net.Socket().apply { connect(java.net.InetSocketAddress(host, port), 4000); soTimeout = 4000 }
+            (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory).createSocket(raw, host, port, true).use { s ->
+                s as javax.net.ssl.SSLSocket
+                s.startHandshake()
+                if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(host, s.session)) { log("REFUSED name host=$host"); return@use }
+                s.session.peerCertificates.firstOrNull()?.encoded?.let { trusted[sha(it)] = door; log("learned host=$host") }
+            }
+        }.onFailure { log("ask_fail host=$host " + it.javaClass.simpleName) }
+    }
+
+    private fun sha(b: ByteArray) = java.security.MessageDigest.getInstance("SHA-256").digest(b).joinToString("") { "%02x".format(it) }
+    private fun log(s: String) { Log.d("Montana", "call line: relay_tls " + s) }
+}
+
 object Proximity {
     private val holders = sortedSetOf<String>()
     private var lock: PowerManager.WakeLock? = null

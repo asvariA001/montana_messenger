@@ -990,27 +990,77 @@ object Wire {
         val place = cargo ?: if (quiet) BulkPuts.SERVICE else ""
         if (bulk) BulkPuts.enter(place, quiet)
         // a resting door stands last in the list, not outside it (iOS restingLast, 996b13f7): the living first, in their order
-        val taken = (try { Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } }
-            .firstOrNull { door -> putBlobAt(door, bid, data, cargo, last) } }
+        val taken = (try { hedgedPut(Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } },
+            bid, data, cargo, last) }
             finally { if (bulk) BulkPuts.leave(place, quiet) }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
         // Only the sender, who has just reached a machine, can lay the piece on the others; a failed copy costs the redundancy alone.
-        if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
+        // THE KEEPING'S COPIES RIDE ITS OWN QUIET LANE (iOS 2414 e72752ea; T1 16.11.2026 13:24 UTC: a copy of 1419 media laid 1.3 GB
+        // of pieces, two copies of each at once beside the person's puts and a call, and one stall of the link dropped 7183 of them).
+        // A quiet piece's copies go one machine at a time, each after the person, by the same pulsed put; a letter's keep their threads.
+        if (bulk && quiet) {
+            for ((id, door) in copies(bid, taken)) {
+                if (!BulkPuts.yieldToPerson("copy")) break
+                val code = putBlobAt(door, bid, data, cargo, last)
+                if (code != 200) Log.d("Montana", "blob_copy FAIL id=" + bid.take(8) + " to=" + id + " code=" + code)
+            }
+        } else if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
         return true
     }
     /**
-     * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
-     * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
-     * (/doors "nodes"). It rides its own thread: the sender waits for nothing, and a copy's answer teaches the door book nothing.
+     * THE NEXT DOOR IS CALLED IN WHILE A QUIET ONE IS STILL TRIED (iOS 2413 c0d7fe31, 2414 e72752ea; T1 16.11.2026 09:57 UTC: three
+     * pieces of a photo stood five seconds on two doors that never took a byte, and the third door, called only then, took each in
+     * 0.3 s). The hedge and the verdict are two clocks: a door that took no byte by FIRST_BYTE_MS only calls the next one in and stays
+     * in flight; it is judged dead only past the post deadline (putPulsed) -- a link whose first byte needs longer (a weak cellular)
+     * gives up no piece. The first door that holds the piece wins and the others are let go; a failed door calls the next at once,
+     * a busy one (429) is waited, not jumped; a quiet or resting door calls one more in once a second at most: never a storm.
      */
-    private fun mirror(bid: String, data: ByteArray, cargo: String?, last: Boolean, taken: String) {
+    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean): String? {
+        if (doors.isEmpty()) return null
+        val answers = java.util.concurrent.LinkedBlockingQueue<Pair<String, Int>>()
+        val stop = java.util.concurrent.atomic.AtomicBoolean(false)
+        val flying = HashMap<String, Pair<Long, java.util.concurrent.atomic.AtomicBoolean>>()
+        var next = 0
+        var called = 0L
+        fun launch() {
+            if (next >= doors.size) return
+            val door = doors[next++]
+            val spoke = java.util.concurrent.atomic.AtomicBoolean(false)
+            called = System.currentTimeMillis(); flying[door] = called to spoke
+            if (next > 1) Log.d("Montana", "blob_up id=" + bid.take(8) + " next door=" + (android.net.Uri.parse(door).host ?: door))
+            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop) } catch (_: Throwable) { -1 })) }
+                .apply { isDaemon = true }.start()
+        }
+        launch()
+        try {
+            while (flying.isNotEmpty()) {
+                val a = answers.poll(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+                if (a != null) {
+                    flying.remove(a.first)
+                    if (a.second == 200) return a.first
+                    if (a.second != 429) launch()
+                    continue
+                }
+                val now = System.currentTimeMillis()
+                if (now - called >= 1000 && flying.any { (d, f) -> (!f.second.get() && now - f.first > FIRST_BYTE_MS) || !Signal.doorAlive(d) }) launch()
+            }
+        } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+        finally { stop.set(true) }   // the race is over: the doors still in flight are let go, and a lost race says nothing of them
+        return null
+    }
+    /**
+     * The machines a piece's copy is owed to, one owner (iOS copies(of:besides:), 2414): every machine but the one that took the
+     * piece, each by its first living door -- a letter's copies ride their threads (mirror), the keeping's quiet ones its lane.
+     */
+    private fun copies(bid: String, taken: String): List<Pair<String, String>> {
         val takenHost = android.net.Uri.parse(taken).host
         // A RESTING DOOR IS ASKED LAST, NEVER LEFT OUT (iOS restingLast and copyDoor(of:), 996b13f7, T1 10.11 20:32Z): a voice put
         // 56 s after a change of network found the second machine's door resting, the copy passed it over without a word and the
         // piece lay on one machine for 52 minutes. A machine with no door at all says so in the diary.
         val all = Doors.ordered("blob")
         val doors = all.filter { Signal.doorAlive(it) } + all.filter { !Signal.doorAlive(it) }
+        val out = ArrayList<Pair<String, String>>()
         for ((id, hosts) in Doors.machineHosts()) {
             if (takenHost != null && takenHost in hosts) continue
             // the list holds no door of the machine (its doors unverified since the launch): any known door of it not proven
@@ -1018,6 +1068,17 @@ object Wire {
             val door = doors.firstOrNull { android.net.Uri.parse(it).host in hosts }
                 ?: Doors.notProvenWithout("blob").firstOrNull { android.net.Uri.parse(it).host in hosts }
                 ?: run { Log.d("Montana", "blob_bgup no door copy=" + bid.take(8) + " to=" + id); null } ?: continue
+            out.add(id to door)
+        }
+        return out
+    }
+    /**
+     * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
+     * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
+     * (/doors "nodes"). It rides its own thread: the sender waits for nothing, and a copy's answer teaches the door book nothing.
+     */
+    private fun mirror(bid: String, data: ByteArray, cargo: String?, last: Boolean, taken: String) {
+        for ((id, door) in copies(bid, taken)) {
             Thread {
                 val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
                 if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
@@ -1081,12 +1142,16 @@ object Wire {
      * kilobytes — 64 KB waits 9 s, 512 KB waits 37 s; one rule for every road. A fixed minute held a dead door's piece a minute.
      */
     fun cargoTimeoutMs(bytes: Int): Int = 5_000 + (maxOf(0, bytes).toLong() * 1000 / 16_384).toInt()
-    private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean): Boolean {
+    // a door that took no byte by this calls the next one in (iOS MTPutPulse.firstByteS, 2413/2414); its verdict stays the post deadline
+    private const val FIRST_BYTE_MS = 1_500L
+    /** The answer's code; -2 when the put was let go because another door won the race (it teaches the door book nothing). */
+    private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean,
+                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid)
-        if (code == 200) Signal.doorAnswered(door) else Signal.doorFailed(door, code)
-        return code == 200
+        val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid, spoke, stop)
+        if (code == 200) Signal.doorAnswered(door) else if (code != -2) Signal.doorFailed(door, code)
+        return code
     }
 
     /**
@@ -1096,7 +1161,8 @@ object Wire {
      * is handed over, the answer has half the piece's own deadline (at least the post deadline) -- the tail may still be leaving
      * the system's buffer. A silent door is cut and the next door asked.
      */
-    private fun putPulsed(door: String, body: JSONObject, pieceMs: Int, bid: String): Int {
+    private fun putPulsed(door: String, body: JSONObject, pieceMs: Int, bid: String, spoke: java.util.concurrent.atomic.AtomicBoolean? = null,
+                          stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
         val raw = body.toString().toByteArray(Charsets.UTF_8)
         val at = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val whole = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1106,6 +1172,7 @@ object Wire {
         val watch = Thread {
             while (!over.get()) {
                 try { Thread.sleep(500) } catch (_: InterruptedException) { return@Thread }
+                if (stop?.get() == true) { conn?.disconnect(); return@Thread }   // another door won the race
                 val patience = if (whole.get()) maxOf(POST_DEADLINE_MS, pieceMs / 2) else POST_DEADLINE_MS
                 if (!over.get() && System.currentTimeMillis() - at.get() > patience) { cut.set(true); conn?.disconnect(); return@Thread }
             }
@@ -1123,16 +1190,19 @@ object Wire {
                 while (off < raw.size) {
                     val n = minOf(16_384, raw.size - off)
                     o.write(raw, off, n); off += n
-                    at.set(System.currentTimeMillis())
+                    at.set(System.currentTimeMillis()); spoke?.set(true)
                 }
             }
             whole.set(true); at.set(System.currentTimeMillis())
             val code = c.responseCode
             c.disconnect()
             code
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (stop?.get() == true) return -2   // a lost race says nothing of the door
             if (cut.get()) Log.d("Montana", "blob_up silent door=" + (android.net.Uri.parse(door).host ?: door) + " id=" + bid.take(8) +
                 (if (whole.get()) " — no answer" else " — took no byte") + ", the next door is asked")
+            // the cause is named (iOS 2414: T1 13:30:38 UTC wrote 7183 copies' FAIL with no cause at all)
+            else Log.d("Montana", "blob_up FAIL door=" + (android.net.Uri.parse(door).host ?: door) + " id=" + bid.take(8) + " err=" + e.javaClass.simpleName)
             -1
         } finally { over.set(true); watch.interrupt() }
     }
@@ -1764,6 +1834,10 @@ object Book {
             for (m in c.msgs) {
                 if (Archive.isRestored(m.mid)) continue   // a row the archive gave back is the archive's already (iOS applyRestored)
                 val had = before[m.mid]
+                // EVERY ROW'S BIRTH SAYS ITS SIDE AND ITS MOMENT (iOS 4bff00b3 row_born, the author's word 22333): the screen can be
+                // read back from the diary; the road that brought it is the line before this one
+                if (had == null) Log.d("Montana", "row_born m=" + m.mid.take(8) + " chat=" + ref.take(10) + " mine=" + (if (m.mine) 1 else 0) +
+                    " at=" + java.text.SimpleDateFormat("HH:mm", java.util.Locale.ROOT).format(java.util.Date(m.at)))
                 val media = m.text.startsWith(Marks.MEDIA)
                 if ((had == null && (!media || m.file != null)) || (had == false && media && m.file != null)) born.add(m)
             }
@@ -2726,6 +2800,8 @@ object Post {
 
     fun fetch() {
         MainThread.post { Presence.watchApp(Book.ctx) }
+        Twin.holdLane()   // the seed's own lane, held from the first pickup on (iOS 2403 holdTwinLane)
+        Twin.wantHistory()   // the receiver's cursor of history, named to the seed's devices (iOS 2403 wantHistory)
         // A «YOU HAVE A LETTER» IS NEVER THROWN AWAY, ONLY DEFERRED (iOS build 1910): a hint that lands while a pickup runs asked a
         // box the running pickup may already have passed — it is kept, and the pickup goes round once more when it ends
         synchronized(fetchLock) { if (fetching) { fetchAgain = true; return }; fetching = true }
@@ -2757,9 +2833,10 @@ object Post {
      * pipe's name and its words. [take]: the rows are marked taken by this device (the calls' answers); the pipe of light leaves
      * its letters in the box, so the next phone of the same words reads them too.
      */
-    fun pickup(pipes: Map<String, ByteArray>, take: Boolean): List<Pair<String, String>> {
+    fun pickup(pipes: Map<String, ByteArray>, take: Boolean, owner: String? = null): List<Pair<String, String>> {
         if (pipes.isEmpty() || !Wire.agreesWithCanon()) return emptyList()
-        val twin = MontanaSeed.twin ?: return emptyList()
+        // [owner]: the name the box is read under (iOS BoxEar owner): the twin by default, a joining's own name for the link box
+        val twin = owner ?: MontanaSeed.twin ?: return emptyList()
         val me = Twin.deviceRef() ?: return emptyList()
         val nameOf = HashMap<String, String>()
         val secretOf = HashMap<String, ByteArray>()
@@ -3165,16 +3242,37 @@ object Post {
         }
         val gone = Book.isBuried(ref, mid) || Book.diedBefore(ref, mid)
         var landed = false
+        var turned: String? = null
         Book.edit(ref) { c ->
             if (!gone && c.msgs.none { it.mid == mid }) {
                 c.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis(), state = 1, qt = qt, qm = qm,
                     lp = lp?.takeIf { LinkCard.parse(it) != null }))
                 c.msgs.sortBy { it.at }
                 landed = true
-            }
+            } else if (!gone) turned = takeMySide(c, mid, text)
         }
-        Log.d("Montana", "rx_own m=" + mid.take(8) + " landed=" + (if (landed) 1 else 0) + (if (gone) " buried here" else ""))
+        Log.d("Montana", "rx_own m=" + mid.take(8) + " landed=" + (if (landed) 1 else 0) + (if (gone) " buried here" else "") + (turned?.let { " $it" } ?: ""))
         if (landed && text.startsWith(Marks.MEDIA)) Media.fetch(Book.ctx, ref, mid, text, manual = true, own = true)
+    }
+
+    /**
+     * MY LETTER THAT STOOD ON THEIR SIDE TAKES MINE (iOS 4bff00b3, 2402, ChatStore.takeMySide / Message.onMySide, the author's word
+     * 22333): the box gives a letter its side by its author field, and a letter of mine that rode unsigned landed here as the
+     * correspondent's, on the left; the seed's own word for the same name met «the row already stands». The seed's word is the
+     * truth: the row keeps every field, stands on my side, read and sent, and the count follows. Only the same words turn: a row
+     * of theirs under my letter's name with other words stays theirs, said. Inside Book.edit; the diary's words, or null.
+     */
+    private fun takeMySide(c: Chat, mid: String, text: String): String? {
+        val i = c.msgs.indexOfFirst { it.mid == mid }.takeIf { it >= 0 } ?: return null
+        val old = c.msgs[i]
+        if (old.mine) return "the row already stands"
+        if (old.text != text) return "their row under my letter's name holds other words -- it stays theirs"
+        // the side is a constant of a row: it walks the one road a row is kept and read by -- written, the side changed, read back
+        val mine = runCatching { Msg.of(old.json().put("o", true).put("s", 1)) }.getOrNull() ?: return null
+        val theirsAfter = c.msgs.subList(i, c.msgs.size).count { !it.mine }   // this row and every later one of theirs
+        c.msgs[i] = mine
+        if (theirsAfter <= c.unread) c.unread = maxOf(0, c.unread - 1)       // it stood among the unread: the count follows
+        return "the row stood on their side -- now mine"
     }
 
     /**

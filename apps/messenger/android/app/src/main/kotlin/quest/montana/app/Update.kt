@@ -36,7 +36,9 @@ object Update {
     private const val SITE = "https://montana.quest/download/android/"
     private const val CHANNEL = "updates"
     private const val NOTICE = 7304
-    private const val EVERY = 60 * 60 * 1000L
+    // THE SITE IS ASKED AT EACH OPENING, TEN MINUTES APART (iOS MontanaApp refresh asks at every opening; the author's word 14.11:
+    // «on iOS a notice of the new build comes at the opening, we need the same»): an hour let a build stand unsaid all that time
+    private const val EVERY = 10 * 60 * 1000L
     const val ACTION = "quest.montana.app.UPDATE"
 
     class Site(val number: Long, val version: String, val file: String, val sha256: String, val size: Long,
@@ -143,19 +145,18 @@ object Update {
         return nm
     }
 
+    /**
+     * A NEW BUILD RINGS FROM THE MONTANA ROOM (iOS MontanaNotify.presentRelease, MontanaNotify 130-151): the room's face and name,
+     * «New version V (N)», a banner as any letter's (the person's switches and the room's mute hold), the tap opens the room where
+     * the build's row stands; «Update» takes the build at once. Before, it stood in a channel of its own that never rose as a banner
+     * and its tap began the update with no word of what changed.
+     */
     private fun tell(c: Context, s: Site) {
-        val nm = channel(c) ?: return
-        val open = PendingIntent.getActivity(c, NOTICE, Intent(c, MainActivity::class.java).setAction(ACTION),
+        val update = PendingIntent.getActivity(c, NOTICE, Intent(c, MainActivity::class.java).setAction(ACTION),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val n = Notification.Builder(c, CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher_monochrome)
-            .setContentTitle(c.getString(R.string.update_title))
-            .setContentText(c.getString(R.string.update_text, s.version, s.number))
-            .setAutoCancel(true)
-            .setContentIntent(open)
-            .addAction(Notification.Action.Builder(null, c.getString(R.string.update_now), open).build())
-            .build()
-        runCatching { nm.notify(NOTICE, n) }
+        Notify.letter(Book.MONTANA, c.getString(R.string.update_text, s.version, s.number),
+            action = Notification.Action.Builder(null, c.getString(R.string.update_now), update).build())
+        Log.d("Montana", "release_banner build=" + s.number)
     }
 
     private fun progress(c: Context, s: Site, pct: Int) {
@@ -170,7 +171,7 @@ object Update {
         runCatching { nm.notify(NOTICE, n) }
     }
 
-    fun clear(c: Context) { c.getSystemService(NotificationManager::class.java)?.cancel(NOTICE) }
+    fun clear(c: Context) { c.getSystemService(NotificationManager::class.java)?.cancel(NOTICE); Notify.roomGone() }
 
     /** The notice's tap (MainActivity): the newest is brought, held to its digest, and handed to the system's installer. */
     fun take(act: Activity) {

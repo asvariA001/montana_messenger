@@ -530,6 +530,30 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
     }
 
     /**
+     * THE TAPE HOLDS THE TURN (iOS 6cd34af0 MTCallUpright.holdTape, 2407; the author's word 22837, 16.11.2026: «while a voice
+     * message is recorded and the screen turns, the buttons vanish -- turn the rotation off while a voice or a video message is
+     * recorded»). From the tape's start to idle the screen keeps the orientation it stands in (LOCKED); at idle the orientation
+     * asked before the tape comes back, so a call's upright hold is never undone by a tape. Diary line tape_turn.
+     */
+    private object TapeTurn {
+        private var before: Int? = null
+        private var held: java.lang.ref.WeakReference<MainActivity>? = null   // the very activity that was held: freed even off screen
+        fun hold(on: Boolean) {
+            if (on) {
+                if (before != null) return   // SILENT-OK: already held
+                val act = CallScreen.front ?: return
+                before = act.requestedOrientation; held = java.lang.ref.WeakReference(act)
+                act.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LOCKED
+            } else {
+                val b = before ?: return   // SILENT-OK: nothing was held
+                before = null
+                held?.get()?.requestedOrientation = b; held = null
+            }
+            android.util.Log.d("Montana", "tape_turn " + if (on) "held" else "free")
+        }
+    }
+
+    /**
      * ONE STATE OF A RECORDING, ONE OWNER (iOS MontanaRecording, atom 858fd5f25ef6): idle → recording(kind) → locked(kind) → idle.
      * The key, the ear and the page only ask it (begin / lock / end) and draw from it; nobody keeps a copy. Every move is one diary
      * line, rec_state, and every tape has a number: a lock named for an older tape (the system's late lock) is refused by it.
@@ -548,6 +572,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         fun name(p: Int = phase) = when (p) { RECORDING -> "recording-"; LOCKED -> "locked-"; else -> "idle" } + if (p == IDLE) "" else if (note) "note" else "voice"
         private fun move(to: Int, why: String) {
             android.util.Log.d("Montana", "rec_state " + name() + "→" + name(to) + " why=" + why + " tape=" + tape)
+            if (phase == IDLE && to != IDLE) TapeTurn.hold(true) else if (phase != IDLE && to == IDLE) TapeTurn.hold(false)
             phase = to
         }
         companion object {
