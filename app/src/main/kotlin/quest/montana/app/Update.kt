@@ -121,7 +121,9 @@ object Update {
         val now = System.currentTimeMillis()
         // a build that never told the Montana room of itself asks at once (the room's row for the build now running)
         val roomTold = (Prefs.str("mt.release.row", "0").toLongOrNull() ?: 0L) >= own(c)
-        if (!force && roomTold && now - (Prefs.str("mt.update.lookedAt", "0").toLongOrNull() ?: 0L) < EVERY) return
+        // A BUILD THE SITE DOES NOT NAME YET ASKS AGAIN A MINUTE LATER (the author 16.11, 996 on A1 one minute before the site: «why is
+        // nothing written in the build's description»): its row stood bare for the ten minutes of EVERY
+        if (!force && now - (Prefs.str("mt.update.lookedAt", "0").toLongOrNull() ?: 0L) < (if (roomTold) EVERY else 60_000L)) return
         Prefs.setStr("mt.update.lookedAt", now.toString())
         val s = newest() ?: return
         lastFile = s.file
@@ -130,9 +132,9 @@ object Update {
         onLeast?.let { android.os.Handler(android.os.Looper.getMainLooper()).post(it) }
         // THE ROOM HEARS EVERY BUILD OF THE SITE, once (the author's word 04.11.2026: «in the chat with Montana put the updates back as they
         // were»): iOS MTReleaseState.deliver holds to release.build >= ownBuild, and a phone on a trial number above the site stood silent
-        // from 631 to 679. The mark stands at the build running as well, or such a phone would ask the site on every look.
+        // from 631 to 679. A phone above the site asks once a minute until the site names its build (one build, one number since 04.11).
         if (Book.appendRelease(s.number, s.version, s.notes, s.l10n, SITE)) Log.d("Montana", "release told build=" + s.number)
-        Prefs.setStr("mt.release.row", maxOf(s.number, own(c)).toString())
+        Prefs.setStr("mt.release.row", s.number.toString())   // the site's own build only: the row of a build it does not name yet stays unsaid
         if (s.number <= own(c)) { if (!busy) clear(c); return }
         if (Prefs.str("mt.update.told", "") == s.number.toString()) return
         Prefs.setStr("mt.update.told", s.number.toString())
