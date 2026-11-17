@@ -148,7 +148,7 @@ object LiveDraft {
 /**
  * THE MONEY FLOW OF A CHAT (iOS MTMoneyFlow, MTWalletCore.swift:653-669; the author's word 04.10.2026: «if my chat is turned with one
  * correspondent, it concerns only the chat with them»): each pair's conversation keeps its own turn, and live chat lives inside it
- * alone (iOS 03.10). OPEN WITHOUT COINS (the author's word 17.11.2026 «Поток без монет»): the turn mints nothing -- only the chain
+ * alone (iOS 03.10). OPEN WITHOUT COINS (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing -- only the chain
  * mints (iOS, the author's word 29.10.2026) -- and the wallet stays closed.
  */
 object MoneyFlow {

@@ -2230,7 +2230,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val chessRing = View(c).apply { background = ringInk; visibility = View.GONE }   // iOS MTMiniFace.playingRing, 1.5 inside the plate
     // THE MONEY FLOW'S COIN (iOS flipMark, MontanaConversation.swift:2164-2210): our coin on the marks' round, standing on its face while
     // the flow is off; on, it spins inside the platform's ring -- the sign that holds when motion is reduced too. Open without coins
-    // (the author's word 17.11.2026 «Поток без монет»): the turn mints nothing, and the hold's auto-reactions (coins) are not here.
+    // (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing, and the hold's auto-reactions (coins) are not here.
     val flowCoin = MintCoin(c, 22)
     val flowRing = View(c).apply { background = ringInk; visibility = View.GONE }
     fun drawFlow() {
