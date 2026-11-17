@@ -1,10 +1,13 @@
 package quest.montana.app
 
+import android.util.Base64
 import android.util.Log
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
 
 /**
  * THE COINS ARE THE CHAIN'S (iOS MTCoinChainRules, MTCoinTx, MTCoinSplit, MTPresenceWait -- MTWalletCore.swift 2457-2830, 2838-3400;
@@ -14,8 +17,9 @@ import java.net.URL
  * front of them -- it counts their seconds, which rise in the Time Balance and never in the available: only the core makes coins of
  * them. The book (CoinBook) speaks only before the chain ever spoke for the seated key.
  *
- * THIS PART READS AND WRITES NOTHING ON THE CHAIN: the chain's records (GENESIS, SEND, RECV, REFUND, iOS layOnHead) come with the
- * transfers, in their own part. Unopened chains (no v3) are told to nobody (iOS heard: guard opened).
+ * ON THE CHAIN THIS PHONE LAYS ONE RECORD SO FAR: the GENESIS that opens a key's chain (iOS reconcile, !v3 -- of 0 coins since the v2
+ * cut), through the same door as iOS (build3, layOnHead, headIsMine). SEND, RECV and REFUND come with the transfers, in their own part.
+ * Unopened chains (no v3) are told to nobody (iOS heard: guard opened).
  */
 object CoinChainRules {
     const val V2_CUT = 1_792_443_600L      // NOT-UI: 19.10.2026 21:00 UTC, the node's TX_V2_CUT (COIN-TX-V3 section 8)
@@ -136,15 +140,139 @@ object CoinTx {
     /** The app left the screen: the stay ends at once (iOS PresenceWait.watch); the beat thread ends at its next wake. */
     fun left() { onScreen = false; PresenceWait.close(); synchronized(sleeper) { sleeper.notifyAll() } }
 
+    // -- version 3 (iOS MTCoinTx build3/read3/layOnHead, COIN-TX-V3): every move of a key's balance is a signed record of its chain
+    const val ZERO = "0000000000000000000000000000000000000000000000000000000000000000"   // NOT-UI: the empty head
+    private val MAGIC = "MTTX".toByteArray()
+    private val SIGNED1 = "mt-coin-tx-v1".toByteArray()
+    private val SIGNED2 = "mt-coin-tx-v2".toByteArray()
+    private val SIGNED3 = "mt-coin-tx-v3".toByteArray()
+    private const val SIZE1 = 5330   // version 1, read only
+    private const val SIZE2 = 5362   // version 2
+    const val SIZE3 = 5443
+    private const val SIG = 3309
+    enum class Kind3(val raw: Int) { SEND(1), RECV(2), MINT(3), REFUND(4), GENESIS(5), BURN(6) }
+    private val random = SecureRandom()
+    fun fresh(): ByteArray = ByteArray(16).also { random.nextBytes(it) }
+    /** A record's name: SHA-256 of all its bytes, the signature's among them (iOS name). */
+    fun name(rec: ByteArray): String = Wire.hex(Wire.sha(rec))
+    private fun le(v: Long): ByteArray = ByteArray(8) { (v ushr (8 * it)).toByte() }
+    private fun u64(b: ByteArray, at: Int): Long = (0 until 8).fold(0L) { v, i -> v or ((b[at + i].toLong() and 0xff) shl (8 * i)) }
+    private fun unhex(s: String): ByteArray? =
+        if (s.length % 2 != 0) null else runCatching { ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() } }.getOrNull()
+
+    /** Section 1: a field its kind does not use is zero, as the node's reader holds them (iOS MTCoinChainRules.fieldsHold). */
+    private fun fieldsHold(kind: Int, amount: Long, pair: ByteArray, to: ByteArray, ref: ByteArray, a: Long, b: Long): Boolean {
+        fun none(x: ByteArray) = x.all { it == 0.toByte() }
+        val ua = java.lang.Long.compareUnsigned(a, amount) <= 0
+        return when (kind) {
+            1 -> none(ref) && b == 0L && !none(to) && ua
+            2 -> none(pair) && b == 0L && !none(ref) && ua
+            3 -> none(pair) && none(to) && none(ref)
+            4 -> none(pair) && none(to) && !none(ref) && a == 0L && b == 0L
+            5 -> none(pair) && none(to) && none(ref) && a == 0L && b == 0L
+            6 -> none(pair) && none(to) && none(ref) && b == 0L && ua
+            else -> false
+        }
+    }
+
+    /** The record of version 3, signed by the core (null: no words, a field of the wrong size, or the core refused) (iOS build3). */
+    fun build3(kind: Kind3, amount: Long, prev: String, nonce: ByteArray, pair: ByteArray = ByteArray(32), to: ByteArray = ByteArray(32),
+               ref: String = ZERO, a: Long = 0, b: Long = 0, hands: Hands? = null): ByteArray? {
+        val k = hands ?: keys() ?: return null
+        val p = unhex(prev)?.takeIf { it.size == 32 } ?: return null
+        val r = unhex(ref)?.takeIf { it.size == 32 } ?: return null
+        if (amount < 0 || nonce.size != 16 || pair.size != 32 || to.size != 32) return null
+        val body = ByteArrayOutputStream().apply {
+            write(MAGIC); write(3); write(kind.raw); write(le(amount)); write(le(maxOf(0L, System.currentTimeMillis())))
+            write(nonce); write(p); write(pair); write(to); write(r); write(le(a)); write(le(b)); write(k.pk)
+        }.toByteArray()
+        if (body.size != 2134) return null
+        val sig = MtBindings.nativeSign(k.sk, SIGNED3 + body)?.takeIf { it.size == SIG } ?: return null
+        return body + sig
+    }
+
+    /** A record read back, believed only when its shape holds and the core verifies its signature (iOS Record, read/read3). */
+    class Record(val id: String, val version: Int, val coins: Long, val birthMs: Long, val pair: ByteArray, val prev: String, val from: String,
+                 val kind: Int = 1, val to: ByteArray = ByteArray(0), val ref: String = "", val a: Long = 0, val b: Long = 0, val nonce: ByteArray = ByteArray(0))
+    fun read(rec: ByteArray): Record? {
+        if (rec.size < 5 || !rec.copyOfRange(0, 4).contentEquals(MAGIC)) return null
+        val v = rec[4].toInt()
+        if (v == 3) return read3(rec)
+        if (v != 1 && v != 2) return null
+        val end = if (v == 1) 2021 else 2053; val keyAt = if (v == 1) 69 else 101
+        val total = if (v == 1) SIZE1 else SIZE2; val prefix = if (v == 1) SIGNED1 else SIGNED2
+        if (rec.size != total) return null
+        val coins = u64(rec, 5)
+        if (coins <= 0) return null
+        val body = rec.copyOfRange(0, end); val pk = rec.copyOfRange(keyAt, end); val sig = rec.copyOfRange(end, total)
+        if (!MtBindings.nativeVerify(pk, prefix + body, sig)) return null
+        return Record(name(rec), v, coins, u64(rec, 13), rec.copyOfRange(37, 69), if (v == 2) Wire.hex(rec.copyOfRange(69, 101)) else "", keyTag(pk))
+    }
+    fun read3(rec: ByteArray): Record? {
+        if (rec.size != SIZE3 || !rec.copyOfRange(0, 4).contentEquals(MAGIC) || rec[4].toInt() != 3) return null
+        val kind = rec[5].toInt() and 0xff
+        if (kind !in 1..6) return null
+        val amount = u64(rec, 6)
+        if (amount < 0 || (amount == 0L && kind != Kind3.GENESIS.raw)) return null
+        val pair = rec.copyOfRange(70, 102); val to = rec.copyOfRange(102, 134); val ref = rec.copyOfRange(134, 166)
+        val a = u64(rec, 166); val b = u64(rec, 174)
+        if (!fieldsHold(kind, amount, pair, to, ref, a, b)) return null
+        val body = rec.copyOfRange(0, 2134); val pk = rec.copyOfRange(182, 2134); val sig = rec.copyOfRange(2134, SIZE3)
+        if (!MtBindings.nativeVerify(pk, SIGNED3 + body, sig)) return null
+        return Record(name(rec), 3, amount, u64(rec, 14), pair, Wire.hex(rec.copyOfRange(38, 70)), keyTag(pk),
+            kind, to, Wire.hex(ref), a, b, rec.copyOfRange(22, 38))
+    }
+
+    /** My chain's head read back and verified as my key's own record of version 2 or 3 (iOS headIsMine). */
+    private fun headIsMine(head: String, me: String, door: String): Boolean {
+        if (head == ZERO) return true
+        val g = ask("$door/tx-get", JSONObject().put("id", head))
+        val b = g.obj?.optString("rec")?.takeIf { g.code == 200 && it.isNotEmpty() }
+            ?.let { runCatching { Base64.decode(it, Base64.DEFAULT) }.getOrNull() } ?: return false
+        val r = read(b) ?: return false
+        return r.id == head && r.from == me && (r.version == 2 || r.version == 3)
+    }
+
+    /** One answer of the node to a record laid: its code, its word, the record (iOS layOnHead's tuple). */
+    class Laid(val code: Int, val word: String, val rec: ByteArray?)
     /**
-     * THE CHAIN READ (iOS reconcile, read half): what the key's node folds is told to the split. After the mint stop the node takes no
-     * MINT, so nothing is laid here; a chain not opened yet (no v3) waits for its GENESIS, which the transfers' part lays.
+     * One record of my key laid on my chain's head, the head read back and verified as mine first; a head that moved is asked again
+     * once (iOS layOnHead). A put whose answer was lost is found by its name (tx-get) before it is called failed.
+     */
+    fun layOnHead(hands: Hands? = null, make: (Chain3) -> ByteArray?): Laid {
+        val me = hands?.from ?: myKeyTag ?: return Laid(-1, "no key", null)
+        val door = chainDoor(me) ?: return Laid(-1, "no key", null)
+        repeat(2) {
+            val st = chain3(me, door) ?: return Laid(-1, "no head", null)
+            if (!headIsMine(st.head, me, door)) return Laid(-1, "head unverified", null)
+            val rec = make(st) ?: return Laid(-1, "no record", null)
+            val a = ask("$door/tx-put", JSONObject().put("rec", Base64.encodeToString(rec, Base64.NO_WRAP)))
+            val word = a.obj?.optString("error").orEmpty()
+            if (a.code == 200) return Laid(200, "", rec)
+            if (a.code == 409 && word == "not on the head") return@repeat
+            if (a.code == -1 && !a.unreached && ask("$door/tx-get", JSONObject().put("id", name(rec))).code == 200) return Laid(200, "", rec)
+            return Laid(a.code, word, rec)
+        }
+        return Laid(409, "not on the head", null)
+    }
+
+    /**
+     * THE CHAIN HOLDS WHAT THE BOOK HOLDS (iOS reconcile): what the key's node folds is told to the split. A key's first v3 record is its
+     * GENESIS, laid here when the chain is not opened yet: since the v2 cut (19.10.2026) the node takes a GENESIS of 0 alone
+     * (iOS genesisRoom), and no node second is before that cut any more. After the mint stop the node takes no MINT, so none is laid.
      */
     fun reconcile(): Chain3? {
         val me = myKeyTag ?: return null
         val door = chainDoor(me) ?: return null
-        val st = chain3(me, door) ?: return null
+        var st = chain3(me, door) ?: return null
         if (me != myKeyTag) { Log.i(TAG, "coin_v3 the seat moved -- nothing told"); return null }
+        if (!st.v3) {
+            val amount = 0L   // iOS min(book, genesisRoom(...)): genesisRoom is 0 from the v2 cut
+            val r = layOnHead { s -> if (me == myKeyTag) build3(Kind3.GENESIS, amount, s.head, fresh()) else null }
+            Log.i(TAG, "coin_v3 genesis code=" + r.code + " word=" + r.word + " amount=" + amount)
+            if (r.code != 200) return null
+            st = chain3(me, door) ?: return null
+        }
         if (here && hereFrom == null && CoinChainRules.ONLINE_CUT <= st.now) hereFrom = st.now
         CoinSplit.heard(st.proven, st.declared, st.v3, false, st.height, st.now, st.mintEnd)
         return st
