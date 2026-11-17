@@ -748,6 +748,7 @@ object KeepCopy {
         if (secret == null || road == null) return Unit.also { Log.i("Montana", "keep_light the light copy did not reach the nodes") }
         road.put("w", "light").put("g", g).put("d", digest).put("v", Archive.writerHex() ?: "")   // the device that laid it
             .put("a", Book.ctx.packageName)   // and the app on it: two apps of one phone are two writers of the same words
+            .put("at", now().toLong())   // the moment it was named: words opened elsewhere wait for a picture named after their asking (iOS 2430)
         lc?.takeIf { it.length() > 0 }?.let { road.put("lc", it) }   // the mirror's cursors the copy stands on: the joined device goes on from them (OZ 1 p.6)
         // The sender of the pipe of light is named «light», never this person's own reference: a phone opening the same words reads
         // the box under that reference, and a letter of its own name the node would keep from it.
@@ -896,7 +897,18 @@ object KeepCopy {
      * erases nothing, so one laid after another adds only what it alone holds. The person stands in their correspondences from the
      * first laid. The box keeps the letters: the next phone of the same words reads them too.
      */
-    private fun takeLight(secret: ByteArray, dir: File): Boolean {
+    /**
+     * THE WORDS OPENED ON A NEW DEVICE TAKE ONE PICTURE, AS A JOINING BY QR DOES (iOS 2599c6db takeLight(since:), 2430, the author's
+     * words 23891 and 23893: «in Bob's chat the texts doubled and the group's old face stayed»; «it must sync as the sign-in by QR
+     * does»). A device laid another device's copy and then its own copy of an earlier life over it: rows of that life came back.
+     * Now `since` is the asking (Twin.askLight): only another device's copy named after it is taken, and it alone is the history.
+     * When none comes, the newest copy by its moment is the history, alone. No older picture is laid over the owner's -- it would
+     * bring back what the person deleted since. The owner's cursors are this device's own (Twin.cursorsFromCopy).
+     */
+    private val lightSeen = HashSet<String>()
+    private fun takeLight(secret: ByteArray, dir: File, since: Double? = null): Boolean {
+        val mine = Archive.writerHex() ?: ""
+        fun fresh(o: JSONObject): Boolean = since == null || (o.optString("v") != mine && since - 120 <= o.optLong("at", 0L))
         val newest = HashMap<String, JSONObject>()
         for ((_, text) in Post.pickup(mapOf(LIGHT_NAME to secret), take = false)) {
             val o = Keeping.word(text)?.takeIf { it.optString("w") == "light" } ?: continue
@@ -905,15 +917,19 @@ object KeepCopy {
             val v = o.optString("v") + "/" + o.optString("a")
             if (o.optLong("g", 0L) >= (newest[v]?.optLong("g", -1L) ?: -1L)) newest[v] = o
         }
-        val roads = newest.values.sortedByDescending { it.optLong("z", 0L) }
-        if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road") }
+        val roads = newest.values.filter { o -> o.optString("d") !in lightSeen && fresh(o) }   // words opened here wait for the picture of now
+            .sortedByDescending { if (since == null) it.optLong("at", 0L) else it.optLong("z", 0L) }   // the newest picture first
+        if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road" + (if (since != null) " named after the asking" else "")) }
         var laid = 0
         for (road in roads) {
             val d = road.optString("d").ifEmpty { null } ?: continue
             val f = File(dir, UUID.randomUUID().toString() + "." + MontanaBackup.EXT)
             try {
                 taking = Taking.Fetching(0.0)
-                if (!Keeping.fetch(road, f) || shaHex(f) != d) { Log.i("Montana", "keep_light a light copy did not come whole"); continue }
+                if (!Keeping.fetch(road, f) || shaHex(f) != d) {
+                    if (since == null) lightSeen.add(d)   // the fresh copy awaited is fetched again
+                    Log.i("Montana", "keep_light a light copy did not come whole"); continue
+                }
                 taking = Taking.Laying(0.0)
                 val r = MontanaBackup.restore(Book.ctx, f, ofMany = true) { taking = Taking.Laying(it) }
                 reread()
@@ -923,11 +939,24 @@ object KeepCopy {
                 laid++
                 if (laid == 1) {
                     val letIn = onLight; onLight = null; letIn?.invoke()
-                    if (!own) road.optJSONObject("lc")?.let { Twin.cursorsFromCopy(it) }   // the same book from here (iOS 84b18c6e, OZ 1 p.6)
+                    road.optJSONObject("lc")?.let { Twin.cursorsFromCopy(it) }   // the same book from here, joined or opened (iOS 84b18c6e, 2599c6db)
+                    break   // words opened here: the owner's picture alone is the history (iOS 2430)
                 }
             } finally { f.delete() }
         }
         return laid > 0
+    }
+
+    /** The words opened here (iOS takeOpened, 2430, the author's words 23891, 23893): the seed's other devices are asked for a picture
+     *  of now, and it is awaited ninety seconds -- a device whose app sleeps hears the asking only when it wakes; then the newest copy
+     *  there stands for it. */
+    private fun takeOpened(ls: ByteArray, dir: File, began: Double): Boolean {
+        Twin.askLight()
+        while (!Thread.currentThread().isInterrupted && now() - began < 90) {
+            try { Thread.sleep(15_000) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
+            if (takeLight(ls, dir, since = began)) return true
+        }
+        return takeLight(ls, dir)
     }
 
     /**
@@ -969,7 +998,7 @@ object KeepCopy {
         taking = Taking.Fetching(0.0)
         // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
         // the pipes it named are asked to give back
-        KeepDerive.lightSecret(master)?.let { ls -> if (takeLight(ls, dir)) askBack() }
+        KeepDerive.lightSecret(master)?.let { ls -> if (takeOpened(ls, dir, began)) askBack() }
         taking = Taking.Calling(0, 0)
         try {
             while (!Thread.currentThread().isInterrupted) {

@@ -1541,6 +1541,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val before = if (caption) Media.captionOf(e) else e.text
             if (words != before && CoinLetter.parse(words) == null && !(caption && words.isEmpty())) {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { if (caption) Post.reword(it, words) else { it.text = words; it.edited = true } } }
+                Twin.changed(ref, e.mid)   // the seed's other devices show the edit of a row of Saved Messages (iOS 2424, OZ 1 p.9)
                 android.util.Log.d("Montana", "edit_tx caption=" + (if (caption) 1 else 0) + " len=" + words.length)
                 val edit = Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words)
                 // a group's edit rides the group's carrier to every phone of it (iOS editMessage → MTGroup.signal)
@@ -3268,6 +3269,7 @@ internal fun answerLetter(ref: String, m: Msg, e: String, group: Boolean) {
         val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
         if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
     }
+    Twin.changed(ref, m.mid)   // the seed's other devices show the answer on a row of Saved Messages (iOS 2424, OZ 1 p.9)
     if (prev != null) tell(prev, false)
     if (added) { tell(e, true); QuickReactions.note(e) }
 }

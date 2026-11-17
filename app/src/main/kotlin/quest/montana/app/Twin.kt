@@ -103,6 +103,18 @@ object Keeping {
      * from: the node never gives a letter back to the name that laid it.
      */
     fun knock(secret: ByteArray, o: JSONObject, sender: String, silent: Boolean = true): Boolean = knockText(secret, MARK + o.toString(), sender, silent)
+    /**
+     * THE SAME WORD ON THE LIVE WIRE (iOS 71e0605a MTKeeping.wire, 2424, OZ 1 p.1.8, the author's words 23559 and 23560: «the nodes are
+     * an additional channel, the main one must be direct»): the word a knock boxes at a node's door rides at the same instant as a
+     * letter's envelope under the pipe's tag of this minute on every standing channel. Its form and size are a letter's own -- no
+     * padding to one measure. False: no carrier stands, or the word is past one letter's measure -- the knock carries it alone then.
+     */
+    fun wire(secret: ByteArray, o: JSONObject): Boolean {
+        val mid = UUID.randomUUID().toString().uppercase()
+        val body = mid.toByteArray() + byteArrayOf(0) + (MARK + o.toString()).toByteArray() + byteArrayOf(0, 0, 0)
+        if (body.size > Wire.ENVELOPE) return false
+        return Channels.lay(secret, mid, body, MontanaSeed.twin ?: "")
+    }
     /** One word of this person's own in a pipe, its text as given (a keeping word above; the seed's read word, Twin.TQ): the one
      *  place here that seals such a letter's head (iOS MTKeeping.knockText, 6166b225). */
     fun knockText(secret: ByteArray, text: String, sender: String, silent: Boolean = true): Boolean {
@@ -174,6 +186,34 @@ object Twin {
     fun secret(): ByteArray? = Archive.historyKey()?.let { hk ->
         Wire.sha("mt-twin-box".toByteArray(), byteArrayOf(0), APP.toByteArray(), byteArrayOf(0), hk)
     }
+    // ── THE SEED'S WORD BY THE LIVE WIRE (iOS 71e0605a twinTagged / twinWired, 2424, OZ 1 p.1.8) ──
+    // The pipe of the seed's devices stands in no book of pipes and must not, so the wire never knew its tag and carried such a frame
+    // on as a stranger's. The wire asks the tag here, held for the minute.
+    private var tagsAt = -1L
+    private var tagsHeld = emptySet<String>()
+    /** Whether a tag of the wire (hex) is the seed's pipe's in an accepted window. */
+    fun tagged(tagHex: String): Boolean {
+        val w = Wire.minute()
+        synchronized(tagLock) {
+            if (tagsAt != w) {
+                val s = secret() ?: return false
+                tagsHeld = longArrayOf(w - 1, w, w + 1).flatMap { k -> Wire.windowTags(s, k).map { Wire.hex(it) } }.toSet()
+                tagsAt = w
+            }
+            return tagHex in tagsHeld
+        }
+    }
+    private val tagLock = Any()
+    /** A word of the seed's pipe heard on the wire: opened by the seed's key, landed by the one door the box lands at. */
+    fun wired(sealed: ByteArray) {
+        val s = secret() ?: return
+        val plain = Wire.openWalked(sealed, s, Wire.minute())?.plain ?: return Unit.also { Log.d("Montana", "twin_wire refused -- the seed's seal did not match") }
+        val f = Wire.fields(plain)
+        val mid = f.getOrNull(0).orEmpty(); val text = f.getOrNull(1).orEmpty()
+        if (mid.isEmpty() || text.isEmpty()) return
+        Log.d("Montana", "twin_wire heard m=" + mid.take(8) + " bytes=" + sealed.size)
+        takes(text, mid)
+    }
     /** This device's name in the pipe (iOS twinDeviceRef): the node rings every device of the pipe but the one that spoke. */
     fun deviceRef(): String? = MontanaSeed.twin?.let { it + "#" + Archive.deviceTag() }
     /** The one place a label of the seed's own pipe is asked: under this device's name, never the person's (iOS twinSid). */
@@ -222,9 +262,14 @@ object Twin {
         synchronized(lock) { if (now - wantedAt <= floor) return; wantedAt = now }
         ex.execute {
             runCatching {
-                val secret = secret() ?: return@runCatching
-                val me = deviceRef() ?: return@runCatching
-                val mine = Archive.writerHex() ?: return@runCatching
+                val secret = secret()
+                val me = deviceRef()
+                val mine = Archive.writerHex()
+                if (secret == null || me == null || mine == null) {
+                    // keys not derived yet (the first pickup comes before them): the window stays unspent, the next pickup names the cursor (iOS 2422)
+                    synchronized(lock) { if (wantedAt == now) wantedAt = 0L }
+                    return@runCatching
+                }
                 val held = Archive.held()
                 val body = held.toString()
                 val o = JSONObject().put("w", "hw").put("f", mine)
@@ -310,6 +355,10 @@ object Twin {
             "ck" -> ex.execute { runCatching { takeKeys(o) }.onFailure { Log.w("Montana", "twin_print " + it.javaClass.simpleName) } }
             "jn" -> ex.execute { runCatching { heardJoining(o) }.onFailure { Log.w("Montana", "twin_join " + it.javaClass.simpleName) } }
             "sv" -> ex.execute { runCatching { takeSaved(o) }.onFailure { Log.w("Montana", "twin_saved " + it.javaClass.simpleName) } }
+            // words opened on a new device ask a picture of now (iOS 2599c6db, 2430; an older build takes it unread)
+            "lw" -> heardWordsOpened(o)
+            // a row of Saved Messages or its file stands on the seed's other device (iOS 712652da, 2423, OZ 1 p.1.5; an older build takes it unread)
+            "sl" -> heardLanded(o)
         }
     }
 
@@ -353,7 +402,9 @@ object Twin {
         val born = synchronized(lock) {
             val reads = x.startsWith(READ)
             val now = System.currentTimeMillis()
-            val name = c + "/" + m + "/" + x.take(24)
+            // THE NAME OF A WORD IS ALL OF IT (iOS e451e027, 2424, OZ 1 p.9): an edit of a row rides under the row's own name, and its
+            // first words alone named it a repeat of the row for an hour
+            val name = c + "/" + m + "/" + Archive.rowHash(x)
             if (!reads && now - (given[name] ?: 0L) <= 3_600_000L) return@synchronized null
             given[name] = now
             if (2000 < given.size) given.entries.removeAll { now - it.value >= 3_600_000L }
@@ -515,10 +566,16 @@ object Twin {
         val o = JSONObject().put("w", "sv").put("f", Archive.writerHex() ?: "").put("c", w.optString("c")).put("m", w.optString("m"))
             .put("x", x).put("at", w.optDouble("at", 0.0))
         if (w.optInt("o") == 1) o.put("o", 1)
+        // THE STANDING CHANNELS FIRST, THE KNOCK BESIDE THEM (iOS 71e0605a, 2424, OZ 1 p.1.8 and p.1.2): the wire carries the word in
+        // milliseconds to a device that is awake; the knock boxes the same word for one that sleeps. The row is laid by its name once.
+        val name = w.optString("m").take(12)
+        val wired = runCatching { Keeping.wire(secret, o) }.getOrDefault(false)
+        if (wired) Log.d("Montana", "twin_wire sent w=sv m=$name")
         val boxed = Keeping.knock(secret, o, me)
         val road = if (x == w.optString("x")) 0 else 1
-        Log.d("Montana", "twin_saved m=" + w.optString("m").take(8) + " " +
-            if (boxed) "told ms=" + (System.currentTimeMillis() - t0) + " road=$road" else "not boxed road=$road -- the mirror carries it")
+        val wd = if (wired) 1 else 0
+        Log.d("Montana", "twin_saved " +
+            if (boxed) "told ms=" + (System.currentTimeMillis() - t0) + " road=$road wire=$wd m=$name" else "not boxed road=$road wire=$wd m=$name -- the mirror carries it")
     }
     /** A row of Saved Messages the seed's other device told at its birth: laid here by its name, by the mirror's one landing road. */
     private fun takeSaved(o: JSONObject) {
@@ -529,7 +586,8 @@ object Twin {
         val w = JSONObject().put("c", Book.SAVED).put("m", m).put("x", x).put("at", o.optDouble("at", 0.0))
         if (o.optInt("o") == 1) w.put("o", 1)
         land(w)
-        Log.d("Montana", "twin_saved m=" + m.take(8) + " taken")
+        // the letter was heard; where its row lands is said there -- twin_row, twin_row dropped, media_fill (iOS 2423, OZ 1 p.1.4)
+        Log.d("Montana", "twin_saved heard road=" + (if (x.contains("\"road\":")) 1 else 0) + " m=" + m.take(12))
     }
 
     /** The words of the seed's other device: each lands here by the one landing road, in the order that device heard them. A numbered
@@ -701,6 +759,28 @@ object Twin {
     }
     /** On a device joined by QR the phone's copy lies: its cursors are this device's own. A cursor started at a letter heard before the
      *  copy lay goes back to the copy's -- the letters between are asked, the ones taken stay taken -- and the cursor is named at once. */
+    /** WORDS OPENED ON A NEW DEVICE ASK THE PICTURE OF NOW (iOS 2599c6db askTwinsLight, 2430, the author's words 23891, 23893): that
+     *  device takes its history as a device joined by QR does -- from a copy named after its asking, with the cursors it stands on. */
+    fun askLight() {
+        val mine = Archive.writerHex() ?: ""
+        ex.execute {
+            runCatching {
+                val secret = secret() ?: return@runCatching
+                val me = deviceRef() ?: return@runCatching
+                val told = Keeping.knock(secret, JSONObject().put("w", "lw").put("f", mine).put("at", System.currentTimeMillis() / 1000), me)
+                Log.i("Montana", "keep_light words opened: the seed's devices asked boxed=" + (if (told) 1 else 0))
+            }.onFailure { Log.w("Montana", "keep_light " + it.javaClass.simpleName) }
+        }
+    }
+    /** Another device opened these words: this one names its picture of now, as for a joining. A device that holds no history, or is
+     *  taking one itself, names nothing -- an empty copy named now would stand as the owner. An asking ten minutes old is past. */
+    private fun heardWordsOpened(o: JSONObject) {
+        if (o.optString("f") == Archive.writerHex() || System.currentTimeMillis() / 1000 - o.optLong("at", 0L) >= 600) return
+        if (KeepCopy.isTaking || Book.refs().none { Book.chat(it)?.msgs?.isNotEmpty() == true }) {
+            Log.i("Montana", "keep_light asked by words opened elsewhere -- no history here to name"); return
+        }
+        KeepCopy.lightForLink()
+    }
     fun cursorsFromCopy(lc: JSONObject) {
         val mine = Archive.writerHex().orEmpty() + "/"
         var back = 0
@@ -1050,6 +1130,7 @@ object Twin {
         val now = born && chat == Book.SAVED   // a row of Saved Messages at its birth rides by a letter of its own too (iOS 2419)
         val o = JSONObject()
         m.from?.let { o.put("sr", it) }
+        parts(m).takeIf { it.length() > 0 }?.let { o.put("r", it) }   // the whole row: its quote, card, answer, edit (iOS 2424, OZ 1 p.9)
         val at = m.at / 1000.0
         if (!m.text.startsWith(Marks.MEDIA)) {
             if (m.text.isEmpty()) return
@@ -1083,32 +1164,54 @@ object Twin {
      * the same archive key standing here, never over its tombstone; a file comes by the cargo road under the name it bears there.
      */
     private fun takeRow(chat: String, mid: String, own: Boolean, at: Double, body: String) {
-        val o = runCatching { JSONObject(body) }.getOrNull() ?: return
-        if (at <= 0 || mid.isEmpty()) return
+        val o = runCatching { JSONObject(body) }.getOrNull()
+        if (o == null || at <= 0 || mid.isEmpty()) return rowDropped(chat, mid, "a letter that names no row")
         // SAVED MESSAGES IS BORN BY THE TWIN'S ROW (iOS 4bff00b3 savedBirth, the critic of 22541): a device that never wrote to itself
         // holds no Saved Messages, and the row its twin gave left silently; a person's conversation is born only by its pipe
-        val rows = Book.chat(chat)?.msgs ?: if (chat == Book.SAVED) emptyList() else return
-        if (Book.isBuried(chat, mid) || Book.diedBefore(chat, mid)) return
+        val rows = Book.chat(chat)?.msgs ?: if (chat == Book.SAVED) emptyList() else return rowDropped(chat, mid, "no chat here")
+        if (Book.isBuried(chat, mid) || Book.diedBefore(chat, mid)) return rowDropped(chat, mid, "a grave over its name")
+        // A ROW DELETED ON THE SEED'S OTHER DEVICE (iOS e451e027, 2424, OZ 1 p.9): buried here by its name, its row gone by the one road
+        // of a deletion, told nobody again
+        if (o.optInt("x") == 1) {
+            if (rows.any { it.mid == mid }) Book.drop(chat, listOf(mid), tell = false) else Book.bury(chat, listOf(mid))
+            Log.d("Montana", "twin_row m=" + mid.take(12) + " gone -- deleted on the seed's other device")
+            return
+        }
+        val r = o.optJSONObject("r")
         // A ROW OF THIS NAME STANDING WITHOUT ITS FILE TAKES THE FILE (iOS 5474fbcf, OZ 1 p.1): Saved Messages lays a row at its first
         // letter, the file's road comes in the second letter of the same name; a row of the name standing whole is a repeat
         val named = rows.firstOrNull { it.mid == mid }
         val text = o.optString("t"); val sr = o.optString("sr").ifEmpty { null }
         val kind = o.optString("k").ifEmpty { null }
         val ms = (at * 1000).toLong()
+        // A NEWER STATE OF A ROW STANDING HERE IS WORN BY IT (iOS e451e027, 2424, OZ 1 p.9, the author's word 23611): an edit or an
+        // answer on the seed's other device stamped the row's moment; the later stands, an older copy the gap's healing gives back is a
+        // repeat. The row's file stays as it stands here.
+        val ch = r?.optDouble("ch", 0.0)?.takeIf { !it.isNaN() } ?: 0.0
+        if (named != null && named.ch < ch) {
+            Book.edit(chat) { c -> c.msgs.find { it.mid == mid }?.let { t ->
+                wear(t, r)
+                if (kind == null) { if (text.isNotEmpty()) t.text = text }
+                else if (text != Media.captionOf(t)) Post.reword(t, text)
+                t.edited = r?.optBoolean("edited") == true
+            } }
+            Log.d("Montana", "twin_row m=" + mid.take(12) + " changed at=" + ch.toLong())
+        }
         if (kind == null) {
-            if (named != null || text.isEmpty()) return
+            if (named != null) return
+            if (text.isEmpty()) return rowDropped(chat, mid, "a row of no words and no file")
             if (rows.any { it.at / 1000 == ms / 1000 && it.mine == own && it.text == text }) return
-            lay(chat, Msg(mid, text, own, ms, state = if (own) 2 else 3, from = sr))
+            lay(chat, Msg(mid, text, own, ms, state = if (own) 2 else 3, from = sr).also { wear(it, r) })
             return
         }
         val name = o.optString("f")
-        if (kind !in setOf("img", "vid", "aud", "doc") || name.isEmpty() || name.contains('/') || name.startsWith(".")) return
+        if (kind !in setOf("img", "vid", "aud", "doc") || name.isEmpty() || name.contains('/') || name.startsWith(".")) return rowDropped(chat, mid, "a file of no known kind or name")
         val man = JSONObject().put("k", kind).put("e", name.substringAfterLast('.', ""))
         o.optString("n").takeIf { it.isNotEmpty() }?.let { man.put("n", it) }
-        if (text.isNotEmpty() && (kind == "img" || kind == "vid")) man.put("cap", text)
+        if (text.isNotEmpty() && (kind == "img" || kind == "vid" || kind == "doc")) man.put("cap", text)   // a document keeps its caption (iOS 2424)
         o.optDouble("d", 0.0).takeIf { it > 0 }?.let { man.put("du", it) }
         val dest = File(Media.dir(Book.ctx), name)
-        val row = { file: String? -> Msg(mid, Marks.MEDIA + man.toString(), own, ms, state = if (own) 2 else 3, file = file, meta = man.toString(), from = sr) }
+        val row = { file: String? -> Msg(mid, Marks.MEDIA + man.toString(), own, ms, state = if (own) 2 else 3, file = file, meta = man.toString(), from = sr).also { wear(it, r) } }
         val h = Archive.rowHash(Archive.archivedText(row(dest.path)) ?: "")
         // A ROW STANDING WITHOUT ITS FILE TAKES THE FILE ALONE (iOS 598cb6cf, OZ 1 p.1.4.2): a restored row stands from the archive by
         // the same key (second, side, words and file name) and holds no file; the twin's copy fills it and lays no second row.
@@ -1123,6 +1226,10 @@ object Twin {
                 Book.edit(chat) { c -> c.msgs.find { it.mid == cur }?.let { it.text = Marks.MEDIA + man.toString(); it.meta = man.toString(); it.file = file } }
                 Log.d("Montana", "twin_row chat=" + chat.take(10) + " a standing row only wears its file now")
             }
+            // THE FILE STANDS THROUGH THE ONE «FILE IS READY» POINT (iOS 712652da fillMedia, 2423, OZ 1 p.1.3): the diary names the
+            // file, and the device that wrote the row hears its twin's own word that the file stands
+            Log.d("Montana", "media_fill chat=" + chat.take(10) + " file=" + name.take(20))
+            if (chat == Book.SAVED && System.currentTimeMillis() / 1000.0 - at < 3600) tellLanded(cur, true)
         }
         if (dest.isFile) { put(dest.path); return }
         // A ROW GIVEN WITHOUT ITS FILE STANDS (iOS takeTwinRow, 2401/2402): laid with its file's name and no file -- a tap asks the
@@ -1143,8 +1250,84 @@ object Twin {
             put(dest.path)
         }
     }
+    /**
+     * THE PARTS OF A ROW ITS TWIN SHOWS (iOS e451e027 ChatStore.twinParts, 2424, OZ 1 p.9, the author's word 23611: «any data in Saved
+     * Messages shown on every device»): its quote, card, answer, edit and moment, under the keys an iPhone keeps a row by; the words,
+     * side, birth, sender and file ride by keys of their own, and the rung, read mark and road stay on this device.
+     */
+    private fun parts(m: Msg): JSONObject = JSONObject().apply {
+        if (m.reactions.isNotEmpty()) put("reactions", JSONArray(m.reactions))
+        m.myReact?.let { put("myReact", it) }
+        m.peerReact?.let { put("peerReact", it) }
+        m.qt?.let { put("replyText", it) }
+        m.qm?.let { put("replyToId", it) }
+        m.lp?.let { put("linkPreview", it) }
+        if (m.edited) put("edited", true)
+        if (0 < m.ch) put("ch", m.ch)
+    }
+    /** The same row wearing the parts its twin gave. A key the given row no longer holds goes here too: an answer taken back is written
+     *  as no key at all, and the twin kept naming the old answer as its own (iOS wearingTwinParts, the critic of Agent 1258). */
+    private fun wear(m: Msg, r: JSONObject?) {
+        if (r == null) return
+        m.reactions.clear()
+        r.optJSONArray("reactions")?.let { a -> for (i in 0 until a.length()) a.optString(i).takeIf { it.isNotEmpty() }?.let { m.reactions.add(it) } }
+        m.myReact = r.optString("myReact").ifEmpty { null }
+        m.peerReact = r.optString("peerReact").ifEmpty { null }
+        m.qt = r.optString("replyText").ifEmpty { null }
+        m.qm = r.optString("replyToId").ifEmpty { null }
+        m.lp = r.optString("linkPreview").ifEmpty { null }
+        if (r.optBoolean("edited")) m.edited = true
+        m.ch = r.optDouble("ch", 0.0).takeIf { !it.isNaN() } ?: 0.0
+    }
+    /** A ROW OF SAVED MESSAGES CHANGED HERE (iOS e451e027 savedChanged, 2424, OZ 1 p.9): an edit, an answer or a late link card stamps
+     *  the row's moment and rides to the seed's other devices at once by the row's name; the later state stands there. */
+    fun changed(chat: String, mid: String) {
+        if (chat != Book.SAVED || MontanaSeed.twin == null) return
+        var row: Msg? = null
+        Book.edit(chat) { c -> c.msgs.find { it.mid == mid }?.let { it.ch = System.currentTimeMillis() / 1000.0; row = it } }
+        val m = row ?: return
+        ex.execute { runCatching { give(chat, m) }.onFailure { Log.w("Montana", "twin_give " + it.javaClass.simpleName) } }
+    }
+    /** A ROW DELETED HERE, SAID TO THE SEED'S OTHER DEVICES BY ITS NAME (iOS e451e027 giveTwinGone, 2424, OZ 1 p.9): there it is buried
+     *  and its row goes; a row of Saved Messages rides at once. */
+    fun gone(chat: String, mid: String, own: Boolean, at: Double) {
+        if (MontanaSeed.twin == null) return
+        note(chat, mid, ROW + JSONObject().put("x", 1).toString(), own, if (0 < at) at else System.currentTimeMillis() / 1000.0, saved = chat == Book.SAVED)
+    }
+    /** A ROW OF THE TWIN'S THAT IS NOT LAID SAYS SO (iOS 712652da twinRowDropped, 2423, OZ 1 p.1.4): the diary said «taken» for a
+     *  letter whose row left here in silence. Folded: one word in half a minute for a chat. */
+    private val droppedAt = HashMap<String, Long>()
+    private fun rowDropped(chat: String, mid: String, why: String) {
+        val now = System.currentTimeMillis()
+        synchronized(droppedAt) { if (now - (droppedAt[chat] ?: 0L) < 30_000L) return; droppedAt[chat] = now }
+        Log.d("Montana", "twin_row dropped chat=" + chat.take(10) + " m=" + mid.take(12) + ": " + why)
+    }
+    /** The word sl: a row of Saved Messages, or its file, stands on this device -- said to the seed's other devices, so the one that
+     *  wrote it holds its twin's own word that the row landed, not the node's word that a letter was boxed (iOS 712652da, OZ 1 p.1.5). */
+    private fun tellLanded(mid: String, file: Boolean) {
+        ex.execute {
+            runCatching {
+                val secret = secret() ?: return@runCatching
+                val me = deviceRef() ?: return@runCatching
+                val what = if (file) "file" else "row"
+                val o = JSONObject().put("w", "sl").put("f", Archive.writerHex() ?: "").put("m", mid).put("k", what)
+                val wired = runCatching { Keeping.wire(secret, o) }.getOrDefault(false)   // the answer rides the standing channels too (iOS 2424)
+                val boxed = Keeping.knock(secret, o, me)
+                Log.d("Montana", "twin_saved landed here " + what + " m=" + mid.take(12) + " told=" + (if (boxed) 1 else 0) + " wire=" + (if (wired) 1 else 0))
+            }.onFailure { Log.w("Montana", "twin_saved " + it.javaClass.simpleName) }
+        }
+    }
+    /** Another device of the seed said a row of Saved Messages, or its file, stands there. */
+    private fun heardLanded(o: JSONObject) {
+        val f = o.optString("f"); val m = o.optString("m")
+        if (f.isEmpty() || f == Archive.writerHex() || m.isEmpty()) return
+        val what = if (o.optString("k") == "file") "file" else "row"
+        Log.d("Montana", "twin_saved landed at=" + f.take(8) + " " + what + " m=" + m.take(12))
+    }
     private fun lay(chat: String, m: Msg) {
         if (chat == Book.SAVED) Book.saved(Book.ctx)   // born here at its first row (savedBirth)
+        // a row of Saved Messages born within the hour is told back to the device that wrote it (iOS 2423, OZ 1 p.1.5); the past a heal lays is not
+        if (chat == Book.SAVED && System.currentTimeMillis() - m.at < 3_600_000L && Book.chat(chat)?.msgs?.none { it.mid == m.mid } != false) tellLanded(m.mid, false)
         var n = 0
         Book.edit(chat) { c ->
             if (c.msgs.none { it.mid == m.mid } && !Book.isBuried(chat, m.mid)) { c.msgs.add(m); c.msgs.sortBy { it.at } }

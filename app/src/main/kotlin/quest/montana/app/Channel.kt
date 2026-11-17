@@ -552,11 +552,16 @@ object Channels {
         val conv = if (underTag) myPipes()[Wire.hex(of.dst.copyOfRange(0, 16))] else null
         // the point of a first letter, and the card it is opened under (iOS MTPipeBook.addressed 649-664: one question for both marks)
         val root = if (underTag && conv == null) firstPoints()[Wire.hex(of.dst.copyOfRange(0, 16))] else null
-        val mine = conv != null || root != null || (!underTag && Wire.myPositions(me.tag).any { it.contentEquals(of.dst) })
+        // THE TAG OF THE SEED'S OWN PIPE IS MINE TOO (iOS 71e0605a, 2424, OZ 1 p.1.8): that pipe stands in no book of pipes, so a word
+        // of the seed's other device under its tag was carried on as a stranger's, never opened here
+        val twin = underTag && conv == null && root == null && Twin.tagged(Wire.hex(of.dst.copyOfRange(0, 16)))
+        val mine = conv != null || root != null || twin || (!underTag && Wire.myPositions(me.tag).any { it.contentEquals(of.dst) })
         if (!mine) { carry(c, of, underTag, me); return }
         // an acknowledgement goes back down the channel it came by and addresses nobody (iOS 1423-1428)
         c.send(NetMsg.OVERLAY_FRAME, OverlayFrame(OverlayFrame.ACK, ByteArray(32), of.msgId, ByteArray(0)).encode())
-        Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else if (root != null) "first-point" else "window-pos") + " bytes=" + of.payload.size)
+        Log.d("Montana", "of_mine by=" + (if (conv != null) "pipe" else if (root != null) "first-point" else if (twin) "seed-pipe" else "window-pos") + " bytes=" + of.payload.size)
+        // a word of the seed's own pipe: opened by the seed's key, landed by the door the box lands at
+        if (twin) { if (of.payload.size > 17 && of.payload[0] == 0x01.toByte()) Thread { runCatching { Twin.wired(of.payload.copyOfRange(17, of.payload.size)) } }.start(); return }
         Thread { open(c, conv, root, of.payload) }.start()   // the channel's read loop never waits on a letter's landing
     }
 
@@ -601,11 +606,11 @@ object Channels {
      * the rest carry it, and the node reads zero bytes. Only when the path is assembled: a standing channel whose machine named its
      * owner (MontanaPath.hopMin = 1). The box's road goes on beside it, and the receiving side drops the second copy by its mid.
      */
-    fun lay(secret: ByteArray, mid: String, body: ByteArray): Boolean {
+    fun lay(secret: ByteArray, mid: String, body: ByteArray, to: String = Wire.reference(secret)): Boolean {
         val w = Wire.minute()
         val tag = Wire.windowTag(secret, w)
         val sealed = Wire.seal(Wire.bodyKey(secret, w), body) ?: return false
-        return under(tag, mid, byteArrayOf(0x01) + tag + sealed, Wire.reference(secret))
+        return under(tag, mid, byteArrayOf(0x01) + tag + sealed, to)
     }
 
     /**

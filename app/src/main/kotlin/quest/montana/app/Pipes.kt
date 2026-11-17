@@ -1331,10 +1331,12 @@ class Msg(
     var lp: String? = null,   // the link's card (iOS linkPreview, LinkPreview.kt): the body's seventh field
     val from: String? = null,   // a group's speaker (iOS Message.senderRef, Groups.speakerName); null in a pipe's own feed
     var peerReact: String? = null,   // the correspondent's one answer on this letter (iOS Message.peerReact): a new one replaces it
+    var ch: Double = 0.0,   // the moment a row of Saved Messages last changed, seconds (iOS Message.changedAt, 2424); 0 = as it was born
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
         .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "").put("sr", from ?: "").put("pr", peerReact ?: "")
+        .apply { if (0 < ch) put("ch", ch) }   // absent = 0: an older reader skips the key
 
     /** The moment the letter's rung was reached, or its birth (iOS Message.statusMoment). */
     val statusMoment: Long get() = if (statusAt > 0) statusAt else at
@@ -1366,7 +1368,8 @@ class Msg(
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
             o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null },
-            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null }, o.optString("pr").ifEmpty { null })
+            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null }, o.optString("pr").ifEmpty { null },
+            o.optDouble("ch", 0.0).takeIf { !it.isNaN() } ?: 0.0)
     }
 }
 
@@ -1930,8 +1933,11 @@ object Book {
         return born <= funeral
     }
     /** Letters leave a chat by the one road (iOS deleteLocally([(chat, msg)])): their names buried once, their rows by one write. */
-    fun drop(ref: String, mids: Collection<String>) {
+    fun drop(ref: String, mids: Collection<String>, tell: Boolean = true) {
         if (mids.isEmpty()) return
+        // A ROW OF SAVED MESSAGES DELETED HERE GOES ON THE SEED'S OTHER DEVICES TOO (iOS e451e027, 2424, OZ 1 p.9, the author's word
+        // 23611): its name rides at once; there it is buried, and its row goes by this same road, told nobody again
+        if (tell && ref == SAVED) chat(ref)?.msgs?.filter { it.mid in mids }?.forEach { Twin.gone(ref, it.mid, it.mine, it.at / 1000.0) }
         bury(ref, mids)
         edit(ref) { c -> c.msgs.removeAll { it.mid in mids } }
         mids.forEach { Notify.withdraw(ref, it) }   // a letter deleted for me is a letter gone too: its banner leaves (iOS 5a82f7cb)
