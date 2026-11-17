@@ -271,6 +271,8 @@ object CoinBook {
     fun received(ref: String): Boolean = holds(CoinEntry.RECEIVE, ref)
     /** The coins of one move by its kind and name (a coin letter's transfer, read when its row is gone: CoinSend.arrived). */
     @Synchronized fun amount(k: String, ref: String): Long? { ensure(); return entries.lastOrNull { it.k == k && it.ref == ref }?.c }
+    /** One move by its kind and name (iOS entry(_:_:)): the letter a SEND stood under comes back with its coins. */
+    @Synchronized fun entry(k: String, ref: String): CoinEntry? { ensure(); return entries.lastOrNull { it.k == k && it.ref == ref } }
     /** How many moves the book holds: the wallet reads its chains' heads again when it moves (iOS .task(id: book.entries.count)). */
     @Synchronized fun size(): Int { ensure(); return entries.size }
     /** The moves, newest first, for the history. */

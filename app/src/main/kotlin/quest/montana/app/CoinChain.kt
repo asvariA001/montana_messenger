@@ -68,6 +68,22 @@ object CoinTx {
     /** The seated key's tag, held once known (the words are read through the Keystore; a seat's turn restarts the process). */
     @Volatile private var tagHeld: String? = null
     val myKeyTag: String? get() = tagHeld ?: keys()?.from?.also { tagHeld = it }
+    /** The coin key already derived in this process, never derived here (iOS cachedKeyTag: a caller must not pay the seed's derivation). */
+    val cachedKeyTag: String? get() = tagHeld ?: keyCache?.second?.from
+    /**
+     * THE KEY DERIVED FOR THE WORD ABOUT ONESELF (iOS deriveForTheWord, MTWalletCore.swift 3452; the author's word 21.10.2026 09:41 UTC:
+     * «if there is a chat there is everything, and it must work at once»): once at a time, off the caller's thread; when it stands,
+     * every correspondent not yet told hears it (MyAbout.broadcast).
+     */
+    private val deriving = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun deriveForTheWord() {
+        if (!deriving.compareAndSet(false, true)) return
+        Thread {
+            val k = runCatching { myKeyTag }.getOrNull()
+            deriving.set(false)
+            if (k != null) MyAbout.broadcast()
+        }.start()
+    }
 
     fun chainNode(from: String): String? = from.take(2).toIntOrNull(16)?.let { chainNodes[it % chainNodes.size].first }
     fun chainDoor(from: String): String? = chainNode(from)?.let { n -> chainNodes.firstOrNull { it.first == n } }?.let { "https://" + it.second + "/pushwake" }
@@ -414,6 +430,156 @@ object CoinTx {
         if (here && hereFrom == null && CoinChainRules.ONLINE_CUT <= st.now) hereFrom = st.now
         CoinSplit.heard(st.proven, st.declared, st.v3, false, st.height, st.now, st.mintEnd)
         return st
+    }
+
+    /** The records an ended process left waiting, each decided by a node's word; then the pipes are asked (iOS settle, 3108). Off the main thread. */
+    fun settle() {
+        val me = myKeyTag ?: return
+        File(Book.ctx.filesDir, "Coins").listFiles { f -> f.name.startsWith("tx-pending-") && f.name.endsWith(".rec") }?.forEach { u ->
+            val rec = runCatching { u.readBytes() }.getOrNull()
+            val r = rec?.let { read(it) }
+            if (rec == null || r == null) { u.delete(); return@forEach }
+            val conv = Book.refs().firstOrNull { c -> Book.secret(c)?.takeIf { Wire.isWhole(it) }?.let { Wire.pairTag(it).contentEquals(r.pair) } == true }
+            val word = lay(rec)
+            if (me != myKeyTag) return   // the records wait in their person's folder
+            when (word) {
+                Word.LEFT -> u.delete()
+                Word.NOT_LEFT, Word.BEHIND -> {
+                    if (conv != null) CoinBook.receive(r.coins, conv, BACK_PREFIX + r.id, CoinBook.entry(CoinEntry.SEND, REF_PREFIX + r.id)?.on)
+                    u.delete()
+                }
+                Word.UNKNOWN, Word.PACED -> {}   // paced: the record stays in its folder, the next settle lays it again
+            }
+        }
+        scan("launch")
+    }
+
+    private val scanning = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var again = false
+    /**
+     * RECEIVES (iOS scan, 3141-3195): every pipe's tag asked on every chain node; a verified record from another key is a credit, a
+     * record from my own key my own send from another device of the words -- each once, by its name; a version 2 or 3 record is
+     * believed only from its key's chain node, so a record laid on another node (a fork a dishonest client tried) moves nothing.
+     * Then the chain is reconciled and the untaken SENDs of a day come back (refundDue). Off the main thread: it asks the nodes.
+     */
+    fun scan(why: String) {
+        if (!scanning.compareAndSet(false, true)) { again = true; return }
+        try {
+            val me = myKeyTag ?: return
+            val conv = HashMap<String, String>()
+            for (c in Book.refs()) Book.secret(c)?.takeIf { Wire.isWhole(it) }?.let { conv[Wire.hex(Wire.pairTag(it))] = c }
+            if (conv.isEmpty()) return
+            val tags = conv.keys.toList()
+            var got = 0; var credited = 0; var own = 0; var bad = 0; var foreign = 0
+            val seen = HashSet<String>()
+            for ((node, host) in chainNodes) {
+                val door = "https://$host/pushwake"
+                for (part in tags.chunked(256)) {
+                    var since = 0L
+                    while (true) {
+                        val a = ask("$door/tx-pair", JSONObject().put("tags", org.json.JSONArray(part)).put("since", since))
+                        val txs = a.obj?.optJSONArray("txs")
+                        if (a.code != 200 || txs == null) break
+                        for (i in 0 until txs.length()) {
+                            val x = txs.optJSONObject(i) ?: continue
+                            val id = x.optString("id"); if (id.isEmpty() || id in seen) continue
+                            val b = runCatching { Base64.decode(x.optString("rec"), Base64.DEFAULT) }.getOrNull() ?: continue
+                            got++
+                            val r = read(b); val c = r?.let { conv[Wire.hex(it.pair)] }
+                            if (r == null || r.id != id || c == null) { bad++; continue }
+                            if (r.version != 1 && chainNode(r.from) != node) { foreign++; continue }
+                            seen.add(id)
+                            if (me != myKeyTag) return   // the pipes and the key were the person's who left
+                            if (r.from == me) {
+                                if (!CoinBook.holds(CoinEntry.SEND, REF_PREFIX + r.id) && CoinBook.retake(r.coins, c, REF_PREFIX + r.id)) own++
+                            } else if (r.version == 3) {
+                                if (receive3(r, c)) credited++
+                            } else if (CoinBook.receive(r.coins, c, REF_PREFIX + r.id)) credited++
+                        }
+                        val last = a.obj?.optLong("last", since) ?: since
+                        if (txs.length() != 512 || since >= last) break
+                        since = last
+                    }
+                }
+            }
+            Log.i(TAG, "coin_tx_scan why=$why pipes=${conv.size} got=$got credited=$credited own=$own bad=$bad foreign=$foreign")
+            if (me != myKeyTag) return
+            reconcile()   // the chain announced (COIN-TX-V3 sections 3-4)
+            refundDue()   // a SEND no one took in a day comes back (section 5)
+        } finally {
+            scanning.set(false)
+            if (again) { again = false; Thread { scan("again") }.start() }
+        }
+    }
+
+    /**
+     * A SEND OF VERSION 3 TO ME IS TAKEN BY A RECV ON MY CHAIN (iOS receive3, 3560-3576): the SEND commits to my key under one of the
+     * pipe's blinds; the RECV names it and the blind, and only a RECV the node took (or a send it says I already took) credits the book.
+     */
+    fun receive3(s: Record, conv: String): Boolean {
+        val me = myKeyTag ?: return false
+        if (s.kind != Kind3.SEND.raw) return false
+        val mine = unhex(me) ?: return false
+        val secret = Book.secret(conv)?.takeIf { Wire.isWhole(it) } ?: return false
+        val blind = Wire.itemKeys(secret).map { CoinChainRules.blind(it, s.nonce) }
+            .firstOrNull { CoinChainRules.commitment(mine, it).contentEquals(s.to) } ?: return false
+        if (CoinBook.holds(CoinEntry.RECEIVE, REF_PREFIX + s.id)) return false
+        val st = reconcile(); if (st == null || !st.v3) return false
+        val r = layOnHead { c -> if (me == myKeyTag) build3(Kind3.RECV, s.coins, c.head, fresh(), to = blind, ref = s.id, a = s.a) else null }
+        var taken = r.code == 200
+        if (!taken && (r.word == "settled" || r.word == "not yours")) chainDoor(s.from)?.let { door ->
+            val f = ask("$door/tx-settle", JSONObject().put("send", s.id))
+            taken = f.obj?.optString("state") == "recv" && f.obj?.optString("by") == me
+        }
+        Log.i(TAG, "coin_v3 recv code=" + r.code + " word=" + r.word + " taken=" + (if (taken) 1 else 0) + " id=" + s.id.take(12))
+        return taken && me == myKeyTag && CoinBook.receive(s.coins, conv, REF_PREFIX + s.id)
+    }
+
+    /** An untaken SEND comes back after a day by a REFUND on my chain (iOS refundDue, 3632; section 5): its node's clock decides, one fate a SEND. */
+    fun refundDue() {
+        val me = myKeyTag ?: return
+        val door = chainDoor(me) ?: return
+        refundSpent2(me, door)
+        val rows = openSends(); if (rows.isEmpty()) return
+        val left = ArrayList<JSONObject>()
+        for (o in rows) {
+            val id = o.optString("id"); val conv = o.optString("conv"); val coins = o.optLong("coins", 0)
+            if (id.isEmpty() || conv.isEmpty() || coins <= 0) continue
+            val at = o.optLong("at", 0)
+            val f = ask("$door/tx-settle", JSONObject().put("send", id))
+            if (me != myKeyTag) return   // the open sends stay in their person's folder
+            val state = f.obj?.optString("state") ?: ""
+            if (state == "recv") continue
+            val on = CoinBook.entry(CoinEntry.SEND, REF_PREFIX + id)?.on
+            if (state == "refund") { CoinBook.receive(coins, conv, BACK_PREFIX + id, on); continue }
+            val st = if (state == "open") chain3(me, door) else null
+            if (st == null || at + 86_460 > st.now) { left.add(o); continue }
+            val r = layOnHead { c -> if (me == myKeyTag) build3(Kind3.REFUND, coins, c.head, fresh(), ref = id) else null }
+            Log.i(TAG, "coin_v3 refund code=" + r.code + " word=" + r.word + " id=" + id.take(12))
+            if (me != myKeyTag) return
+            if (r.code == 200) CoinBook.receive(coins, conv, BACK_PREFIX + id, on) else left.add(o)
+        }
+        if (me == myKeyTag) keepOpen(left)
+    }
+
+    /**
+     * A V2 RECORD THAT SPENT COMES BACK AFTER ITS DAY (iOS refundSpent2, fold-4): my chain's node names my unsettled sends; a v2 one a
+     * day old names no receiver, so no chain could ever take it -- it is taken back by a REFUND, under the send's own name.
+     */
+    private fun refundSpent2(me: String, door: String) {
+        val u = ask("$door/tx-unsettled", JSONObject().put("from", me))
+        val rows = u.obj?.optJSONArray("sends")
+        if (u.code != 200 || rows == null || rows.length() == 0) return
+        val st = chain3(me, door) ?: return
+        for (i in 0 until rows.length()) {
+            val o = rows.optJSONObject(i) ?: continue
+            val id = o.optString("id"); val coins = o.optString("amount").toLongOrNull() ?: continue
+            if (o.optInt("v") != 2 || id.isEmpty() || !o.has("at") || o.optLong("at") + 86_460 > st.now) continue
+            val r = layOnHead { c -> if (me == myKeyTag) build3(Kind3.REFUND, coins, c.head, fresh(), ref = id) else null }
+            Log.i(TAG, "coin_v3 refund v2 code=" + r.code + " word=" + r.word + " coins=" + coins + " id=" + id.take(12))
+            if (me != myKeyTag) return
+            if (r.code == 200) CoinBook.receive(coins, CoinBook.entry(CoinEntry.SEND, REF_PREFIX + id)?.peer ?: "", BACK_PREFIX + id)
+        }
     }
 }
 

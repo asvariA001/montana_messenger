@@ -3391,7 +3391,14 @@ object Post {
             text.startsWith(Marks.ABOUT) -> {
                 runCatching {
                     val o = JSONObject(text.removePrefix(Marks.ABOUT))
-                    PeerAbout.note(ref, o.optString("b"), o.optString("l"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
+                    // a word with the coin key alone says nothing of the bio (iOS 20.10)
+                    if (o.has("b") || o.has("l")) PeerAbout.note(ref, o.optString("b"), o.optString("l"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
+                    // the pair's coin key: v3 sends commit to it (iOS heardAbout, COIN-TX-V3); THEIR SEND FOUND NO KEY OF MINE («q»,
+                    // 21.10.2026): the word they hold is lost or never came -- told again now
+                    if (GooglePlay.COINS) {
+                        o.optString("k").takeIf { it.isNotEmpty() }?.let { CoinTx.notePeerFrom(ref, it) }
+                        if (o.has("q")) { CoinTx.forgetToldKey(ref); Thread { MyAbout.sendIfNeeded(ref) }.start() }
+                    }
                 }
                 Book.edit(ref) {}
                 receipt(ref, sid)
@@ -3718,16 +3725,33 @@ object MyAbout {
      * (announcedDelivered); until it, the words are on their way for an hour and are not said twice; a letter lost past that hour goes
      * again at the next announce. The old mark «annAbout.» was written before the send and meant nothing -- it is not read.
      */
-    fun sendIfNeeded(ref: String) {
+    /**
+     * MY COIN KEY RIDES THE SAME WORD (iOS E2E.sendAboutIfNeeded 1636-1690 + the coin door's about/word/told, MTWalletCore.swift
+     * 400-422; COIN-TX-V3 section 1): a SEND of version 3 commits to the receiver's key, so a correspondent learns mine -- a coin
+     * key's tag, never a name -- once per key (toldKey), whatever my words. A key not derived yet is derived off the thread now and
+     * the whole book hears it when it stands (CoinTx.deriveForTheWord). Unread or unshown words leave b and l out; the key still goes.
+     * askKey: my send found no key of theirs, «q» asks their phone to tell it again. Only with the coins' doors open (Messenger's
+     * word carries my words alone, iOS cut C6).
+     */
+    fun sendIfNeeded(ref: String, askKey: Boolean = false) {
         if (PeerSafety.isBlocked(ref) || SamePair.merged(ref) != null) return
-        if (!Privacy.admits(Privacy.Act.PAGE, ref)) return   // who may see my page (iOS wordsHeld, OZ 1 p.1.8)
-        if (!Prefs.has("profileBio") && !Prefs.has("profileLink")) return   // unread words are silence, not «no words» (iOS MontanaSelf.holds)
+        // who may see my page (iOS wordsHeld, OZ 1 p.1.8); unread words are silence, not «no words» (iOS MontanaSelf.holds)
+        val wordsHeld = (Prefs.has("profileBio") || Prefs.has("profileLink")) && Privacy.admits(Privacy.Act.PAGE, ref)
+        val coinKey = if (GooglePlay.COINS) CoinTx.cachedKeyTag.also { if (it == null) CoinTx.deriveForTheWord() } else null
+        val keyDue = GooglePlay.COINS && (askKey || (coinKey != null && !CoinTx.toldKey(ref, coinKey)))
+        if (!wordsHeld && !keyDue) return
         val b = bio(); val l = link(); val t = tag(b, l)
         val held = Prefs.str("annAbout2.$ref", "")
-        if (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t)) return
+        if (!keyDue && (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t))) return
+        val word = JSONObject().put("at", System.currentTimeMillis() / 1000.0)
+        if (wordsHeld) word.put("b", b).put("l", l)
+        if (coinKey != null) word.put("k", coinKey)
+        if (askKey) word.put("q", 1)
         val mid = Marks.mintMid()
-        Post.flight("A", ref, t, mid)
-        Post.send(ref, mid, Marks.ABOUT + JSONObject().put("b", b).put("l", l).put("at", System.currentTimeMillis() / 1000.0))
+        if (wordsHeld) Post.flight("A", ref, t, mid)   // only a word that carries the words is receipted as them
+        Post.send(ref, mid, Marks.ABOUT + word)
+        if (coinKey != null) CoinTx.noteToldKey(ref, coinKey)
+        Log.d("Montana", "about_tx to=" + ref.take(10) + " words=" + (if (wordsHeld) 1 else 0) + " key=" + (if (coinKey != null) 1 else 0) + " ask=" + (if (askKey) 1 else 0))
     }
     fun broadcast() { Book.refs().forEach { sendIfNeeded(it) } }
 }
