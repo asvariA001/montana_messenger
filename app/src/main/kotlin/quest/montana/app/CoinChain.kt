@@ -30,6 +30,10 @@ object CoinChainRules {
 
     /** What the time step adds to a key folded at the node second [s] by the node second [t], no record between (iOS since). */
     fun since(s: Long, t: Long): Long = if (s < TIME_CUT) 0L else maxOf(0L, minOf(t, ONLINE_CUT) - minOf(s, ONLINE_CUT))
+    /** The blind of a SEND: HMAC-SHA-256 under the pair's secret over ASCII mt-coin-blind and the SEND's nonce (iOS blind, section 1). */
+    fun blind(secret: ByteArray, nonce: ByteArray): ByteArray = Hkdf.hmac(secret, "mt-coin-blind".toByteArray(Charsets.US_ASCII) + nonce)
+    /** The receiver's commitment: SHA-256 of ASCII mt-coin-to, the receiver's from (32 bytes) and the blind (iOS commitment, section 1). */
+    fun commitment(from: ByteArray, blind: ByteArray): ByteArray = Wire.sha("mt-coin-to".toByteArray(Charsets.US_ASCII), from, blind)
 }
 
 object CoinTx {
@@ -254,6 +258,140 @@ object CoinTx {
             return Laid(a.code, word, rec)
         }
         return Laid(409, "not on the head", null)
+    }
+
+    /** The node's word on a record laid (iOS MTCoinTx.Word). */
+    enum class Word { LEFT, NOT_LEFT, UNKNOWN, BEHIND, PACED }
+    /**
+     * THE NODE'S WORD DECIDES (iOS lay, MTWalletCore.swift 2998-3020, the v3 road): a record of version 3 goes to its key's chain node
+     * alone -- taken there, left; standing on a head that moved (409), behind; the key's pace spent (429), paced; refused (400, 507)
+     * or never reached, not left; anything else waits for that node's word (tx-get: found, left; else unknown). The node's code and
+     * word go to the diary (coin_lay), never guessed.
+     */
+    fun lay(rec: ByteArray): Word {
+        if (rec.size != SIZE3 || rec[4].toInt() != 3) return Word.NOT_LEFT
+        val id = name(rec)
+        val door = chainDoor(keyTag(rec.copyOfRange(182, 2134))) ?: return Word.NOT_LEFT
+        val a = ask("$door/tx-put", JSONObject().put("rec", Base64.encodeToString(rec, Base64.NO_WRAP)))
+        if (a.code == 200 && a.obj?.optString("id") == id) return Word.LEFT
+        Log.i(TAG, "coin_lay code=" + a.code + " error=" + (a.obj?.optString("error")?.ifEmpty { null } ?: "-") + " unreached=" + (if (a.unreached) 1 else 0) + " id=" + id.take(12))
+        if (a.code == 409) return Word.BEHIND
+        if (a.code == 429) return Word.PACED
+        if (a.code == 400 || a.code == 507 || a.unreached) return Word.NOT_LEFT
+        return if (ask("$door/tx-get", JSONObject().put("id", id)).code == 200) Word.LEFT else Word.UNKNOWN
+    }
+    /** Where a SEND waits for its node's word, in the person's folder (iOS pendingURL: tx-pending-<id>.rec; settle reads it). */
+    fun pendingFile(id: String): File = File(File(Book.ctx.filesDir, "Coins").apply { mkdirs() }, "tx-pending-$id.rec")
+
+    // THE PAIR'S COIN STATE, THE PERSON'S OWN (iOS load/save of coin3-peers.json and coin3-open.json, MTWalletCore.swift 3406-3468):
+    // one held copy per file path, so the next person seated never reads the one before's correspondents.
+    private val held = HashMap<String, JSONObject>()
+    private fun stateFile(name: String): File = File(File(Book.ctx.filesDir, "Coins").apply { mkdirs() }, name)
+    private fun load(name: String): JSONObject {
+        val f = stateFile(name)
+        synchronized(held) { held[f.path]?.let { return it } }
+        val o = runCatching { JSONObject(f.readText()) }.getOrNull() ?: JSONObject()
+        synchronized(held) { return held.getOrPut(f.path) { o } }
+    }
+    private fun save(name: String, o: JSONObject) {
+        val f = stateFile(name)
+        synchronized(held) { held[f.path] = o }
+        runCatching { val t = File(f.path + ".tmp"); t.writeText(o.toString()); t.renameTo(f) }
+    }
+    private const val PEERS = "coin3-peers.json"   // NOT-UI: the file's name
+    private const val OPEN = "coin3-open.json"     // NOT-UI: the file's name
+    /** A correspondent's coin key, told in their about word (k): the key a SEND of version 3 commits to (iOS peerFrom). */
+    fun peerFrom(conv: String): String? = load(PEERS).optJSONObject("k")?.optString(conv)?.takeIf { it.isNotEmpty() }
+    fun notePeerFrom(conv: String, from: String) {
+        if (from.length != 64 || !from.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) return
+        synchronized(held) {
+            val o = load(PEERS); val m = o.optJSONObject("k") ?: JSONObject()
+            if (m.optString(conv) == from) return
+            save(PEERS, JSONObject(o.toString()).put("k", m.put(conv, from)))
+        }
+    }
+    /** Whether this correspondent was already told my coin key (the about word carries it until then; iOS toldKey). */
+    fun toldKey(conv: String, k: String): Boolean = load(PEERS).optJSONObject("told")?.optString(conv) == k
+    fun noteToldKey(conv: String, k: String) = synchronized(held) {
+        val o = load(PEERS); val m = o.optJSONObject("told") ?: JSONObject()
+        save(PEERS, JSONObject(o.toString()).put("told", m.put(conv, k)))
+    }
+    /** Their SEND found no key of mine («q» in their about word): told again (iOS forgetToldKey). */
+    fun forgetToldKey(conv: String) = synchronized(held) {
+        val o = load(PEERS); val m = o.optJSONObject("told") ?: return@synchronized
+        if (m.remove(conv) == null) return@synchronized
+        save(PEERS, JSONObject(o.toString()).put("told", m))
+    }
+    /** SENDs laid and not yet taken or refunded (iOS openSends/keepOpen: rows of id, conv, coins, at). */
+    fun openSends(): List<JSONObject> = load(OPEN).optJSONArray("open")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } ?: emptyList()
+    fun keepOpen(rows: List<JSONObject>) = save(OPEN, JSONObject().put("open", org.json.JSONArray(rows)))
+
+    const val REF_PREFIX = "tx:"       // NOT-UI: the book's name of a transfer's moves (iOS refPrefix)
+    const val BACK_PREFIX = "txback:"  // NOT-UI: the book's name of a debit no node took (iOS backPrefix)
+    const val NO_RECEIVER_KEY = "no receiver key"   // NOT-UI: the trace's reason, and the one the send page names
+    /** What a v3 send came to (iOS Send3); PACED: the key's node took its thirty records this minute and the next. */
+    sealed class Send3 {
+        class Sent(val id: String) : Send3()
+        object Pending : Send3()
+        class NotApplicable(val why: String) : Send3()
+        object Failed : Send3()
+        object Paced : Send3()
+    }
+    /**
+     * SENDS (version 3; iOS send3, MTWalletCore.swift 3506-3558): the receiver's key known (their about word), my chain opened and
+     * holding the sum, the record names the declared part of it (proven is spent first), commits to the receiver's key under the
+     * pair's blind, and is laid on my chain's head. THE KEY'S PACE IS WAITED, NOT REFUSED (the author's word 14463): a 429 goes again
+     * every five seconds, a minute at most. Off the main thread: it asks the node.
+     */
+    fun send3(coins: Long, conv: String, on: String? = null): Send3 {
+        val me = myKeyTag ?: return Send3.NotApplicable("no pipe")
+        val door = chainDoor(me) ?: return Send3.NotApplicable("no pipe")
+        val secret = Book.secret(conv)?.takeIf { Wire.isWhole(it) } ?: return Send3.NotApplicable("no pipe")
+        val pair = Wire.pairTag(secret)
+        val peerBytes = peerFrom(conv)?.takeIf { it.length == 64 }?.let { h -> runCatching { ByteArray(32) { h.substring(2 * it, 2 * it + 2).toInt(16).toByte() } }.getOrNull() }
+            ?: return Send3.NotApplicable(NO_RECEIVER_KEY)
+        val first = reconcile()
+        if (first == null || !first.v3 || first.proven + first.declared < coins) return Send3.NotApplicable("chain short")
+        val nonce = fresh()
+        val blind = CoinChainRules.blind(Wire.itemKey(secret), nonce)   // the item key's blind (iOS pipe.blind)
+        val commit = CoinChainRules.commitment(peerBytes, blind)
+        repeat(2) { attempt ->
+            val st = chain3(me, door)
+            if (st == null || !st.v3 || st.proven + st.declared < coins) return Send3.NotApplicable("chain short")
+            if (!headIsMine(st.head, me, door)) return Send3.Failed
+            if (me != myKeyTag) return Send3.Failed
+            val dec = maxOf(0L, coins - st.proven)
+            val rec = build3(Kind3.SEND, coins, st.head, nonce, pair = pair, to = commit, a = dec) ?: return Send3.Failed
+            val id = name(rec)
+            if (!CoinBook.sendHeld(coins, conv, REF_PREFIX + id, on)) return Send3.Failed
+            val pending = pendingFile(id)
+            runCatching { val t = File(pending.path + ".tmp"); t.writeBytes(rec); t.renameTo(pending) }
+            var word = lay(rec)
+            var paced = 0
+            while (word == Word.PACED && paced < 12) { paced++; Thread.sleep(5_000); word = lay(rec) }
+            Log.i(TAG, "coin_v3 send word=" + word + " coins=" + coins + " dec=" + dec + " id=" + id.take(12) + " attempt=" + (attempt + 1) + " paced=" + paced)
+            if (me != myKeyTag) return Send3.Pending   // the record waits in its person's folder (settle)
+            when (word) {
+                Word.LEFT -> {
+                    pending.delete()
+                    keepOpen(openSends() + JSONObject().put("id", id).put("conv", conv).put("coins", coins).put("at", st.now))
+                    CoinSplit.laid(id, coins, st.height)
+                    return Send3.Sent(id)
+                }
+                Word.NOT_LEFT, Word.BEHIND, Word.PACED -> {
+                    CoinBook.receive(coins, conv, BACK_PREFIX + id, on)
+                    pending.delete()
+                    if (word == Word.NOT_LEFT) return Send3.Failed
+                    if (word == Word.PACED) return Send3.Paced
+                }
+                Word.UNKNOWN -> {
+                    keepOpen(openSends() + JSONObject().put("id", id).put("conv", conv).put("coins", coins).put("at", st.now))
+                    CoinSplit.laid(id, coins, st.height)
+                    return Send3.Pending
+                }
+            }
+        }
+        return Send3.Failed
     }
 
     /**

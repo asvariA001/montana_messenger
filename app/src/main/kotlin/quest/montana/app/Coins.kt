@@ -233,6 +233,16 @@ object CoinBook {
         }
         return take(e)
     }
+    /** A send the chain already weighed (iOS sendHeld, MTWalletCore.swift 1971): the book's balance does not refuse it. */
+    @Synchronized fun sendHeld(coins: Long, peer: String, ref: String, on: String? = null): Boolean {
+        ensure()
+        val e = CoinEntry(CoinEntry.SEND, coins, ref, peer, on, moment(ref))
+        if (coins <= 0 || ref.isEmpty() || e.id in taken) {
+            Log.i("Montana", "coin_refused send coins=" + coins + " balance=" + balance)
+            return false
+        }
+        return take(e)
+    }
     /** Coins that arrived, credited once by their name. */
     @Synchronized fun receive(coins: Long, peer: String, ref: String, on: String? = null): Boolean {
         ensure()
