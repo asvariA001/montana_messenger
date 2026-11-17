@@ -49,7 +49,7 @@ object Groups {
     private const val PEOPLE_LIMIT = 200
     /** [I-14]: the posts one word of a channel's views names (iOS viewsBatch). */
     const val VIEWS_BATCH = 200
-    private const val PIECE_CHARS = 4500   // iOS ChatStore.sendPieceChars
+    const val PIECE_CHARS = 4500   // iOS ChatStore.sendPieceChars
     private const val HEARD_LIMIT = 512
     private val CROWNS = setOf(0x1F451, 0x2654, 0x2655, 0x265A, 0x265B)   // iOS MTCrown: only the Montana room wears a crown
 
@@ -211,7 +211,12 @@ object Groups {
         groups.clear(); gone.clear(); copies.clear()
         val raw = DeviceVault.get(STORE)
         val kept = DeviceVault.get(COPIES)
-        unread = (raw == null && DeviceVault.has(STORE)) || (kept == null && DeviceVault.has(COPIES))
+        // A STORE SEALED UNDER A KEY THAT IS GONE IS AN EMPTY ONE (iOS MTGroup 4b559de0 2416, OZ 1 p.11): it never opens, every read
+        // named the store unread and nothing was written again, so the groups a copy laid stood without a row. The next write lays
+        // the store anew under the key at hand.
+        val lost = listOf(STORE, COPIES).filter { n -> (if (n == STORE) raw else kept) == null && DeviceVault.has(n) && DeviceVault.lost(n) }
+        unread = (raw == null && DeviceVault.has(STORE) && STORE !in lost) || (kept == null && DeviceVault.has(COPIES) && COPIES !in lost)
+        if (lost.isNotEmpty()) Log.i("Montana", "group_lost keys=" + lost.joinToString(","))
         if (raw != null) runCatching {
             val o = JSONObject(String(raw, Charsets.UTF_8))
             o.optJSONObject("g")?.let { g -> g.keys().forEach { k -> groups[k] = State.of(g.getJSONObject(k)) } }
@@ -366,6 +371,8 @@ object Groups {
     fun key(id: String) = KEY_HEAD + id
     /** Every group and channel this phone holds, by its key (iOS MTGroup.shared.groups.keys.map(key(of:))): the archive names their folders. */
     fun keys(): List<String> = synchronized(lock) { if (ready()) groups.keys.map { key(it) } else emptyList() }
+    /** The group store read (iOS a shelf that reads): an unread store names no group, and no folder may be judged by it. */
+    fun readWhole(): Boolean = synchronized(lock) { ready() }
     /** [I-14]: a letter's link card on the wire, at most -- the pair's leg (iOS cardLimit). [I-15]: how long a card that outran its letter waits for it (iOS cardWait). */
     private const val CARD_LIMIT = 16_384
     private const val PASSPORT_LIMIT = 4_096          // iOS passportLimit: a sticker's passport, never a carrier of anything else

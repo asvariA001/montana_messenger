@@ -991,7 +991,7 @@ object Wire {
         if (bulk) BulkPuts.enter(place, quiet)
         // a resting door stands last in the list, not outside it (iOS restingLast, 996b13f7): the living first, in their order
         val taken = (try { hedgedPut(Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } },
-            bid, data, cargo, last) }
+            bid, data, cargo, last, fan = bulk && quiet) }
             finally { if (bulk) BulkPuts.leave(place, quiet) }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
@@ -999,7 +999,12 @@ object Wire {
         // THE KEEPING'S COPIES RIDE ITS OWN QUIET LANE (iOS 2414 e72752ea; T1 16.11.2026 13:24 UTC: a copy of 1419 media laid 1.3 GB
         // of pieces, two copies of each at once beside the person's puts and a call, and one stall of the link dropped 7183 of them).
         // A quiet piece's copies go one machine at a time, each after the person, by the same pulsed put; a letter's keep their threads.
-        if (bulk && quiet) {
+        // THE MACHINE LAYS THE KEEPING'S COPIES (iOS 2416 4b559de0, OZ 3, record 995 = b): a quiet piece is put with «fan», and a
+        // machine that says it lays the copies itself (the cap blob_fan) takes the piece once -- the phone sends a backup's bytes one
+        // time, not three. A machine of an older store gets the copies from the phone, as before.
+        if (bulk && quiet && Doors.holds(taken, "blob_fan")) {
+            Log.d("Montana", "blob_fan id=" + bid.take(8) + " to=" + (android.net.Uri.parse(taken).host ?: "-") + " -- the machine lays the copies")
+        } else if (bulk && quiet) {
             for ((id, door) in copies(bid, taken)) {
                 if (!BulkPuts.yieldToPerson("copy")) break
                 val code = putBlobAt(door, bid, data, cargo, last)
@@ -1016,7 +1021,7 @@ object Wire {
      * gives up no piece. The first door that holds the piece wins and the others are let go; a failed door calls the next at once,
      * a busy one (429) is waited, not jumped; a quiet or resting door calls one more in once a second at most: never a storm.
      */
-    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean): String? {
+    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean, fan: Boolean = false): String? {
         if (doors.isEmpty()) return null
         val answers = java.util.concurrent.LinkedBlockingQueue<Pair<String, Int>>()
         val stop = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1029,7 +1034,7 @@ object Wire {
             val spoke = java.util.concurrent.atomic.AtomicBoolean(false)
             called = System.currentTimeMillis(); flying[door] = called to spoke
             if (next > 1) Log.d("Montana", "blob_up id=" + bid.take(8) + " next door=" + (android.net.Uri.parse(door).host ?: door))
-            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop) } catch (_: Throwable) { -1 })) }
+            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop, fan) } catch (_: Throwable) { -1 })) }
                 .apply { isDaemon = true }.start()
         }
         launch()
@@ -1146,9 +1151,11 @@ object Wire {
     private const val FIRST_BYTE_MS = 1_500L
     /** The answer's code; -2 when the put was let go because another door won the race (it teaches the door book nothing). */
     private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean,
-                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
+                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null,
+                          fan: Boolean = false): Int {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
+        if (fan) body.put("fan", true)   // a quiet piece asks the machine that takes it to hand it on (iOS 2416)
         val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid, spoke, stop)
         if (code == 200) Signal.doorAnswered(door) else if (code != -2) Signal.doorFailed(door, code)
         return code
@@ -1324,10 +1331,12 @@ class Msg(
     var lp: String? = null,   // the link's card (iOS linkPreview, LinkPreview.kt): the body's seventh field
     val from: String? = null,   // a group's speaker (iOS Message.senderRef, Groups.speakerName); null in a pipe's own feed
     var peerReact: String? = null,   // the correspondent's one answer on this letter (iOS Message.peerReact): a new one replaces it
+    var ch: Double = 0.0,   // the moment a row of Saved Messages last changed, seconds (iOS Message.changedAt, 2424); 0 = as it was born
 ) {
     fun json(): JSONObject = JSONObject().put("m", mid).put("t", text).put("o", mine).put("at", at).put("s", state).put("e", edited)
         .put("qt", qt ?: "").put("qm", qm ?: "").put("r", JSONArray(reactions)).put("mr", myReact ?: "")
         .put("f", file ?: "").put("mm", meta ?: "").put("sa", statusAt).put("h", heard).put("lp", lp ?: "").put("sr", from ?: "").put("pr", peerReact ?: "")
+        .apply { if (0 < ch) put("ch", ch) }   // absent = 0: an older reader skips the key
 
     /** The moment the letter's rung was reached, or its birth (iOS Message.statusMoment). */
     val statusMoment: Long get() = if (statusAt > 0) statusAt else at
@@ -1359,7 +1368,8 @@ class Msg(
             o.optString("qt").ifEmpty { null }, o.optString("qm").ifEmpty { null },
             o.optJSONArray("r")?.let { a -> MutableList(a.length()) { a.getString(it) } } ?: mutableListOf(),
             o.optString("mr").ifEmpty { null }, o.optString("f").ifEmpty { null }, o.optString("mm").ifEmpty { null },
-            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null }, o.optString("pr").ifEmpty { null })
+            o.optLong("sa"), o.optBoolean("h"), o.optString("lp").ifEmpty { null }, o.optString("sr").ifEmpty { null }, o.optString("pr").ifEmpty { null },
+            o.optDouble("ch", 0.0).takeIf { !it.isNaN() } ?: 0.0)
     }
 }
 
@@ -1466,8 +1476,14 @@ object Book {
             val ref = idx.getString(i)
             HistoryFile.get(ref)?.let { raw -> runCatching { Chat.of(JSONObject(String(raw, Charsets.UTF_8))) }.getOrNull() }?.let { chats[ref] = it }
         }
+        // A SHELF THAT DOES NOT READ SAYS SO (iOS chatsShelf → nil, the critic 24.09): the index unread, or a chat it names that did not
+        // open, is no empty shelf -- the archive's orphan pass waits for a whole one (Archive.eraseOrphans)
+        whole = (DeviceVault.get(INDEX) != null || !DeviceVault.has(INDEX)) && chats.size == idx.length()
         Log.d("Montana", "book_read chats=" + chats.size + " of=" + idx.length() + " moved=" + HistoryFile.moved)
     }
+    private var whole = false
+    /** The book read whole: its index and every chat it names (iOS rowsRead != nil). */
+    fun readWhole(): Boolean = synchronized(lock) { ensure(); whole }
     private fun saveIndex() { DeviceVault.set(INDEX, JSONArray(chats.keys.toList()).toString().toByteArray()) }
     // one conversation, one sealed file: a letter writes its own conversation, never the whole book (iOS MTHistoryFile, P-6)
     private fun save(c: Chat) { HistoryFile.put(c.ref, c.json().toString().toByteArray()) }
@@ -1923,8 +1939,11 @@ object Book {
         return born <= funeral
     }
     /** Letters leave a chat by the one road (iOS deleteLocally([(chat, msg)])): their names buried once, their rows by one write. */
-    fun drop(ref: String, mids: Collection<String>) {
+    fun drop(ref: String, mids: Collection<String>, tell: Boolean = true) {
         if (mids.isEmpty()) return
+        // A ROW OF SAVED MESSAGES DELETED HERE GOES ON THE SEED'S OTHER DEVICES TOO (iOS e451e027, 2424, OZ 1 p.9, the author's word
+        // 23611): its name rides at once; there it is buried, and its row goes by this same road, told nobody again
+        if (tell && ref == SAVED) chat(ref)?.msgs?.filter { it.mid in mids }?.forEach { Twin.gone(ref, it.mid, it.mine, it.at / 1000.0) }
         bury(ref, mids)
         edit(ref) { c -> c.msgs.removeAll { it.mid in mids } }
         mids.forEach { Notify.withdraw(ref, it) }   // a letter deleted for me is a letter gone too: its banner leaves (iOS 5a82f7cb)
@@ -2467,6 +2486,15 @@ object Post {
         }
     }
 
+    /** A receipt for a letter still in the queue: it is delivered, it leaves the queue (a letter the shelf carried for its person). */
+    private fun settle(mid: String) = synchronized(outLock) {
+        val a = outbox()
+        if ((0 until a.length()).none { a.getJSONObject(it).optString("m") == mid }) return@synchronized
+        val keep = JSONArray()
+        for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optString("m") != mid) keep.put(it) }
+        if (keepOutbox(keep)) Log.i("Montana", "queue_settled m=" + mid.take(8) + " — its receipt came")
+    }
+
     /** The names the queue holds (iOS queueMids): the letters and copies waiting in it, and the files whose intent waits for the drain. */
     fun queued(): Set<String> {
         val a = synchronized(outLock) { outbox() }
@@ -2902,11 +2930,7 @@ object Post {
         val now = System.currentTimeMillis()
         val rested = synchronized(boxRest) { HashMap(boxRest) }
         val free = all.filter { Signal.doorAlive(it) }.ifEmpty { all }.filter { (rested[hostOf(it)]?.first ?: 0L) <= now }
-        // ONE DOOR PER MACHINE (iOS oneDoorPerNode 206): the door book says which door led to which machine; an unknown one keeps its place
-        val book = Doors.book()
-        val known = Doors.list()
-        val seen = HashSet<String>()
-        return free.filter { d -> known.firstOrNull { it.host == hostOf(d) }?.let { book[it.label]?.first }?.let { seen.add(it) } ?: true }
+        return Doors.onePerNode(free)   // one door per machine (iOS oneDoorPerNode 206)
     }
     /**
      * Every machine of the box rests (iOS boxRested, bookAfterRest): A PICKUP THE REST HELD IS BOOKED, NOT DROPPED -- one pickup at the
@@ -2925,6 +2949,10 @@ object Post {
         if (!Wire.agreesWithCanon()) { Log.e("Montana", "box: the wire disagrees with the canon — nothing is read"); return }
         val twin = MontanaSeed.twin ?: return
         LetterAuthor.await()   // the author's key stands before a letter is told mine or theirs (iOS MontanaWakePush.swift:861)
+        // THE SHELF'S POST (iOS MTSeats.landShelf, MTShelfPost.soon at every pickup of the person seated): what the shelf received for
+        // the one seated lands first; the persons still waiting are read on the shelf's own thread
+        Seats.landShelf()
+        ShelfPost.soon()
         val secretOf = HashMap<String, ByteArray>()
         val invOf = HashMap<String, String>()
         val chatOf = HashMap<String, String>()
@@ -3160,6 +3188,19 @@ object Post {
 
     /** A letter off one of the phone's own channels lands where the box's letters land (iOS: one door, MontanaDeliveryEngine.receive). */
     fun fromChannel(ref: String, plain: ByteArray) { letter(ref, plain) }
+    /** A row the shelf received for the person now seated lands where the box's letters land (iOS MTSeats.landShelf ->
+     *  MontanaWakePush.stashFromShelf); false -- later (a long letter's cargo not yet at hand), the row stays on the shelf. */
+    fun fromShelf(ref: String, plain: ByteArray): Boolean = letter(ref, plain)
+    /** A first letter the shelf opened by the person's card: its pipe is born here from the secret the shelf met, as first() gives
+     *  it birth (iOS: the landing door at the lift, MTPipeBook.establish). */
+    fun firstFromShelf(plain: ByteArray, secret: ByteArray, root: ByteArray): Boolean {
+        if (plain.size <= 1092) return true
+        val f = Wire.fields(plain, 1088)
+        var text = f[1]
+        if (f[0].isEmpty() || text.isEmpty()) return true   // nothing to land: the row leaves
+        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false
+        return land(secret, root, f[0], text, f[2])
+    }
 
     /** A letter under a pipe's label: a person's word becomes a row, a word of the wire changes the feed. */
     private fun letter(ref: String, plain: ByteArray): Boolean {
@@ -3204,7 +3245,11 @@ object Post {
         // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
         // other devices -- the box gave it to this one, and this one's confirmation erases it there
         if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])
-        place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
+        // A LETTER WITH AN AUTHOR FIELD IS TOLD MINE OR THEIRS ONLY BY THE PERSON'S AUTHOR KEY (iOS DeliveryEngine.receive, 9e9f755b,
+        // 2433): while the key is not derived yet its envelope names nobody -- a word of the seed's other device would name the chat
+        // with the person's own name.
+        val envelope = if (f[7].isNotEmpty() && LetterAuthor.key == null) "" else f[2]
+        place(ref, f[0], text, envelope, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
     }
 
@@ -3346,7 +3391,14 @@ object Post {
             text.startsWith(Marks.ABOUT) -> {
                 runCatching {
                     val o = JSONObject(text.removePrefix(Marks.ABOUT))
-                    PeerAbout.note(ref, o.optString("b"), o.optString("l"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
+                    // a word with the coin key alone says nothing of the bio (iOS 20.10)
+                    if (o.has("b") || o.has("l")) PeerAbout.note(ref, o.optString("b"), o.optString("l"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
+                    // the pair's coin key: v3 sends commit to it (iOS heardAbout, COIN-TX-V3); THEIR SEND FOUND NO KEY OF MINE («q»,
+                    // 21.10.2026): the word they hold is lost or never came -- told again now
+                    if (GooglePlay.COINS) {
+                        o.optString("k").takeIf { it.isNotEmpty() }?.let { CoinTx.notePeerFrom(ref, it) }
+                        if (o.has("q")) { CoinTx.forgetToldKey(ref); Thread { MyAbout.sendIfNeeded(ref) }.start() }
+                    }
                 }
                 Book.edit(ref) {}
                 receipt(ref, sid)
@@ -3564,6 +3616,7 @@ object Post {
 
     /** THE ONE DELIVERY DOOR (iOS markDelivered): a receipt, or a presence word naming the letter whole (HeldLetters, «by=word»). */
     fun markDelivered(ref: String, d: String) {
+        settle(d)   // a letter carried from the shelf (ShelfPost.carry) is still in its person's queue: its receipt settles it (iOS)
         announcedDelivered(ref, d)   // a receipt of my name or my face writes the mark (iOS recordDelivered)
         // a group's copy witnesses the group's row, never a row of the pipe (iOS markDelivered → MTGroup.copyDelivered)
         if (Groups.copyDelivered(d)) return
@@ -3672,16 +3725,33 @@ object MyAbout {
      * (announcedDelivered); until it, the words are on their way for an hour and are not said twice; a letter lost past that hour goes
      * again at the next announce. The old mark «annAbout.» was written before the send and meant nothing -- it is not read.
      */
-    fun sendIfNeeded(ref: String) {
+    /**
+     * MY COIN KEY RIDES THE SAME WORD (iOS E2E.sendAboutIfNeeded 1636-1690 + the coin door's about/word/told, MTWalletCore.swift
+     * 400-422; COIN-TX-V3 section 1): a SEND of version 3 commits to the receiver's key, so a correspondent learns mine -- a coin
+     * key's tag, never a name -- once per key (toldKey), whatever my words. A key not derived yet is derived off the thread now and
+     * the whole book hears it when it stands (CoinTx.deriveForTheWord). Unread or unshown words leave b and l out; the key still goes.
+     * askKey: my send found no key of theirs, «q» asks their phone to tell it again. Only with the coins' doors open (Messenger's
+     * word carries my words alone, iOS cut C6).
+     */
+    fun sendIfNeeded(ref: String, askKey: Boolean = false) {
         if (PeerSafety.isBlocked(ref) || SamePair.merged(ref) != null) return
-        if (!Privacy.admits(Privacy.Act.PAGE, ref)) return   // who may see my page (iOS wordsHeld, OZ 1 p.1.8)
-        if (!Prefs.has("profileBio") && !Prefs.has("profileLink")) return   // unread words are silence, not «no words» (iOS MontanaSelf.holds)
+        // who may see my page (iOS wordsHeld, OZ 1 p.1.8); unread words are silence, not «no words» (iOS MontanaSelf.holds)
+        val wordsHeld = (Prefs.has("profileBio") || Prefs.has("profileLink")) && Privacy.admits(Privacy.Act.PAGE, ref)
+        val coinKey = if (GooglePlay.COINS) CoinTx.cachedKeyTag.also { if (it == null) CoinTx.deriveForTheWord() } else null
+        val keyDue = GooglePlay.COINS && (askKey || (coinKey != null && !CoinTx.toldKey(ref, coinKey)))
+        if (!wordsHeld && !keyDue) return
         val b = bio(); val l = link(); val t = tag(b, l)
         val held = Prefs.str("annAbout2.$ref", "")
-        if (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t)) return
+        if (!keyDue && (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t))) return
+        val word = JSONObject().put("at", System.currentTimeMillis() / 1000.0)
+        if (wordsHeld) word.put("b", b).put("l", l)
+        if (coinKey != null) word.put("k", coinKey)
+        if (askKey) word.put("q", 1)
         val mid = Marks.mintMid()
-        Post.flight("A", ref, t, mid)
-        Post.send(ref, mid, Marks.ABOUT + JSONObject().put("b", b).put("l", l).put("at", System.currentTimeMillis() / 1000.0))
+        if (wordsHeld) Post.flight("A", ref, t, mid)   // only a word that carries the words is receipted as them
+        Post.send(ref, mid, Marks.ABOUT + word)
+        if (coinKey != null) CoinTx.noteToldKey(ref, coinKey)
+        Log.d("Montana", "about_tx to=" + ref.take(10) + " words=" + (if (wordsHeld) 1 else 0) + " key=" + (if (coinKey != null) 1 else 0) + " ask=" + (if (askKey) 1 else 0))
     }
     fun broadcast() { Book.refs().forEach { sendIfNeeded(it) } }
 }

@@ -58,6 +58,8 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         DeviceVault.init(this)
         Prefs.init(this)
+        NothingLeft.again(this, "launch")   // a phone erased whole is swept again before any owner is born, until a seed comes (iOS MTNothingLeft)
+        Seats.launch(this)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         forgetContactCard()
         window.setDecorFitsSystemWindows(false)
@@ -272,6 +274,7 @@ class MainActivity : Activity() {
                 Archive.sealForForget {
                     ShareSuggest.forgetAll(this)   // the share sheet's suggestions of the departed person go with them
                     MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
+                    Seats.leaveForgotten(this)   // the seat of the one forgotten leaves the book; others on the shelf stay (iOS leaveForgotten)
                     MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
                     MontanaBackupID.withdraw(this)   // a record a build before wrote leaves the account
                     hasSeed = false; termsAccepted = false
@@ -553,7 +556,7 @@ class MainActivity : Activity() {
         }
     }
     override fun onResume() {
-        super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
+        super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; CoinTx.onScreen = true; CoinTx.beHere(); Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
         sweepCallRecordings(hasSeed && termsAccepted)   // NO CALL IS RECORDED (iOS 214dc096, the author's word 16428): what an earlier build left leaves this phone
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
@@ -570,6 +573,8 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { MyWall.roadBack("active") }.start()   // a post on its way goes on by itself (iOS roadBack 1922)   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
+    /** The app left the screen (iOS didEnterBackground): the person's stay ends at once (MTPresenceWait.watch). */
+    override fun onStop() { super.onStop(); CoinTx.left() }
     override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the

@@ -397,6 +397,39 @@ object Signal {
         if (start) listen(ref)
     }
 
+    /**
+     * THE SEED'S OWN LANE IS HELD AT EVERY NODE (iOS ea31b640 seedLaneDoors, 2419, OZ 1 p.4, the author's words 23266-23268, 23279: T1
+     * wrote at 15:54:33, the Mac took it at 15:56:02): each device elects a door of its own, and a letter is boxed -- and its hint told
+     * -- only at the node whose door the writer knocked; the stores never talk to each other. The seed's lane asks one living door of
+     * every node, so the hint reaches every running device the same second whichever node the writer chose.
+     */
+    private fun seedLaneDoors(): List<String> = Doors.onePerNode(Doors.ordered("signal")).filter { doorAlive(it) }.ifEmpty { listOf(signalDoor()) }
+    private val seedLanes = HashSet<String>()   // under holders: the nodes' doors the seed's lane asks beside its first one
+    /** The seed's lane at the nodes beside the first: one long question per node, while the lane is held and the node is one of them. */
+    private fun seedLanesBeside(first: String) {
+        val others = seedLaneDoors().filter { it != first && it.isNotEmpty() }
+        for (door in others) {
+            if (!synchronized(holders) { seedLanes.add(door) }) continue
+            Log.d("Montana", "twin_lane at " + host(door))
+            Thread {
+                var fails = 0
+                try {
+                    while (true) {
+                        val twin = Twin.deviceRef(); val secret = Twin.secret()
+                        if (twin == null || secret == null || synchronized(holders) { holders[Twin.PIPE].isNullOrEmpty() }) break
+                        if (door !in seedLaneDoors()) break   // the node fell silent or is the first door now
+                        val cw = Wire.convW(secret, Wire.day())
+                        val (code, text) = Wire.post(door, "/signal-fetch", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("wait", 12), 15_000, asking)
+                        if (code != 200 || text == null) { doorFailed(door, code); fails++; if (fails >= 3) break; Thread.sleep(1000L * fails); continue }
+                        doorAnswered(door)
+                        fails = 0
+                        runCatching { JSONObject(text).optJSONArray("envs") }.getOrNull()?.let { envs -> if (envs.length() > 0) open(Twin.PIPE, envs) }
+                    }
+                } finally { synchronized(holders) { seedLanes.remove(door) } }
+            }.apply { isDaemon = true }.start()
+        }
+    }
+
     /** THE CHAT OR ITS BOARD STANDS ON THE SCREEN (iOS chatConvs ∪ boardConvs): a letter to them then rides the lane beside the box. */
     fun onScreen(ref: String): Boolean = synchronized(holders) { holders[ref]?.let { "chat" in it || "board" in it } == true }
 
@@ -434,7 +467,8 @@ object Signal {
                 }
                 if (!go || twin == null || secret == null) return@Thread
                 // ONE QUESTION, AT THE CONVERSATION'S DOOR (iOS fetchSignals 3276-3277): the first door alive for both, or mine
-                val door = signalDoor(ref)
+                // the seed's own lane: one door of every node (iOS seedLaneDoors, 2419, OZ 1 p.4)
+                val door = if (twinLane) seedLaneDoors().first().also { seedLanesBeside(it) } else signalDoor(ref)
                 if (door.isEmpty()) { Thread.sleep(2000); continue }
                 val gen = laneGen.get()
                 val cw = Wire.convW(secret, Wire.day())
@@ -577,7 +611,11 @@ object Presence {
      * digits — the lane hands it over at once and the node keeps it as my last word, which an open wallet asks for every few seconds.
      * Nothing before the book is read, nothing when the owner hid the coins (CoinShow); Android's balance rode no word at all.
      */
-    private fun coinTail(): String { val coins = CoinBook.said ?: return ""; return if (CoinShow.on) "C" + coins else "" }
+    private fun coinTail(): String {
+        val book = CoinBook.said ?: return ""
+        val coins = if (CoinSplit.spoke) CoinSplit.available else book   // the chain's available once it spoke (iOS MTCoinBalance.set(available))
+        return if (CoinShow.on) "C" + coins else ""
+    }
     /** App-level presence for one correspondence (iOS appBeacon 731-738): the word, my moment, what I hold of them, their letters I hold whole. */
     private fun appBeacon(ref: String, open: Boolean) {
         if (!sharing || PeerSafety.isBlocked(ref)) return

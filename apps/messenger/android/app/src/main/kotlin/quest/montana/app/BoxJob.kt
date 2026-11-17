@@ -40,6 +40,7 @@ class BoxJob : JobService() {
         // the app may have been started by this job alone: what the first screen sets up, set up here
         DeviceVault.init(applicationContext)
         Prefs.init(applicationContext)
+        Seats.launch(applicationContext)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         if (!MontanaSeed.hasSeed || !Prefs.termsAccepted) return false
         stopped = false

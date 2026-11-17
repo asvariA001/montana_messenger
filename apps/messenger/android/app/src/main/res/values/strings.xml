@@ -58,7 +58,7 @@
 
     <string name="no_chats">No chats yet</string>
     <string name="saved_messages">Saved Messages</string>
-    <string name="forget_device">Forget this device</string>
+    <string name="forget_device">Delete account</string>
     <string name="chats">Chats</string>
     <string name="contacts">Contacts</string>
     <string name="settings">Settings</string>
@@ -163,19 +163,20 @@
     <string name="no_mail">No mail account on this phone. The address is copied.</string>
     <!-- Privacy, Data and Storage (iOS PrivacyView, DataStorageView) -->
     <string name="online_status">Online status</string>
-    <string name="online_status_sub">Only whether others see you online. Walls and pages come and go regardless.</string>
+    <string name="online_status_sub">Only whether others see you online. Everything else comes and goes regardless.</string>
     <string name="read_receipts">Read receipts</string>
-    <string name="live_chat">Live chat</string>
+    <string name="money_flow">Money Flow</string>
+    <string name="money_flow_begun">Money flow has begun</string>
     <string name="sync_contacts">Sync contacts</string>
     <string name="link_previews">Link previews</string>
     <string name="link_previews_sub">Your phone reads the page of a link you send, so that site sees this phone.</string>
     <string name="filter_objectionable">Filter objectionable content</string>
     <string name="seed_phrase">Seed phrase</string>
-    <string name="forget_q">Forget this device?</string>
+    <string name="forget_q">Delete account?</string>
     <string name="show_seed">Show seed phrase</string>
     <string name="forget">Forget</string>
     <string name="cancel">Cancel</string>
-    <string name="forget_msg">This device erases the seed and the identity. Your history stays here sealed and opens again only from the same 24 words — on this device, or on another one that already holds a copy. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. Deleting the app erases the history as well.</string>
+    <string name="forget_msg">Your account is deleted: this device erases your 24-word identity. Your history stays here sealed and opens again only from the same 24 words — on this device, or on another one that already holds a copy. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. Deleting the app erases the history as well.</string>
     <string name="media_autodownload">Media auto-download</string>
     <string name="over_mobile">Over mobile network</string>
     <string name="over_wifi">Over Wi-Fi</string>
@@ -435,12 +436,19 @@
     <string name="coin_send_coins">Send coins</string>
     <string name="coin_key">Coin</string>
     <string name="coin_available">Available</string>
+    <string name="coin_available_n">Available %s</string>
     <string name="close">Close</string>
     <string name="yt_full_screen">Full Screen</string>
     <string name="yt_small_screen">Exit Full Screen</string>
     <string name="coin_not_enough_sub">Your coin balance is lower than this.</string>
     <string name="coin_not_sent">Coins were not sent</string>
     <string name="coin_not_sent_sub">Nothing left your balance. Try again in a moment.</string>
+    <string name="coin_pending">Transfer is being confirmed</string>
+    <string name="coin_pending_sub">The available balance was sufficient. The transfer has one pending record and must not be sent again.</string>
+    <string name="coin_no_key_sub">This person\'s Montana has not shared its coin key yet. Nothing left your balance. Try again after they update and open Montana.</string>
+    <string name="coin_paced_sub">Your key\'s node takes thirty records a minute, and this minute was full. Nothing left your balance. Try again in a minute.</string>
+    <string name="coin_time_epochs">%1$d ep.</string>
+    <string name="coin_time_centuries">%1$d cent.</string>
     <string name="coin_you">You</string>
     <string name="coin_letter_sent">Coins sent</string>
     <string name="coin_letter_received">Coins received</string>
@@ -667,7 +675,7 @@
     <string name="call_filtered_body">This network passes only permitted destinations. A call cannot go through it until the filter is lifted.</string>
     <string name="picture_cache_header">PICTURE CACHE</string>
     <string name="picture_cache_clear">Clear</string>
-    <string name="picture_cache_footer">Pictures are kept in memory so chats and walls open without waiting. They stay until you clear them here.</string>
+    <string name="picture_cache_footer">Pictures are kept in memory so they open without waiting. They stay until you clear them here.</string>
     <string name="share_preparing">Preparing</string>
     <string name="share_sending">Sending…</string>
     <string name="share_still_on_way">Some items are still on their way — Montana will send them.</string>
@@ -702,10 +710,10 @@
     <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
     <string name="sound_sub">Notifications of new messages play a sound. Off, they arrive silently.</string>
     <string name="show_text_sub">A notification shows the words of the message. Off, it shows none of them.</string>
-    <string name="show_sender_sub">A notification of a message names who wrote. Off, it reads Montana instead.</string>
+    <string name="show_sender_sub">A notification of a message shows who wrote and their photo. Off, it reads Montana instead.</string>
     <string name="name_lock_sub">When the phone hides previews on the lock screen, the notification still names who wrote.</string>
     <string name="read_receipts_sub">People see that you have read their messages, and channel owners count your views. Off, nobody is told.</string>
-    <string name="filter_objectionable_sub">Messages, wall posts and comments from others with offensive words stay folded until you tap them.</string>
+    <string name="filter_objectionable_sub">Messages, posts and comments from others with offensive words stay folded until you tap them.</string>
     <string name="note_quality_footer">Max takes the camera\'s sharpest picture at the highest bitrate, Min makes the lightest file. A camera that cannot keep up steps down by itself.</string>
     <string name="message_style_footer">Montana: yours in the system blue, others\' in grey. Classic: yours in your bubble colour, others\' in dark grey. Custom: the colours you set below.</string>
     <string name="cache_kept_on_node">Kept on your node</string>
@@ -726,6 +734,8 @@
     <string name="keep_1_month">1 month</string>
     <string name="keep_forever">Forever</string>
     <string name="cache_limit">Maximum cache size</string>
+    <string name="keep_media_sub">A photo, video or file your node holds leaves this phone when nobody has opened it for this long. It comes back from your node when you open it.</string>
+    <string name="cache_limit_sub">Past this size the files opened longest ago leave this phone first, only those your node holds.</string>
     <string name="cache_no_limit">No limit</string>
     <string name="cp_conversations">Conversations</string>
     <string name="cp_records">Records</string>
@@ -757,11 +767,12 @@
     <string name="ds_unnamed">Files no letter names</string>
     <string name="ds_walls">Pictures of walls</string>
     <string name="ds_shelf">Copies waiting on this phone</string>
+    <string name="ds_kept">Kept for the people who write to you</string>
     <string name="ds_history">History of chats</string>
     <string name="ds_faces">Faces</string>
     <string name="ds_rest">The rest</string>
     <string name="ds_total">On this phone</string>
-    <string name="ds_footer">Measured on this phone\'s disk, each file once. Attachments and files no letter names are chosen by kind: select all of a kind and remove them.</string>
+    <string name="ds_footer">Measured on this phone\'s disk, each file once. Attachments and files no letter names are chosen by kind: select all of a kind and delete them.</string>
     <string name="ds_shelf_q">Clear the copies waiting on this phone?</string>
     <string name="ds_shelf_msg">The copies made for your node or for a file leave this phone; the next copy is made again.</string>
     <string name="cp_leave_out">Leave out of the copy</string>
@@ -820,7 +831,6 @@
     <string name="dv_link_warn">This device will get your whole identity: your words and your chats. Connect only your own device.</string>
     <string name="dv_link_connect">Connect</string>
     <string name="dv_link_giving">Connecting…</string>
-    <string name="dv_link_given">The device is connected.</string>
     <string name="dv_link_not_found">The device was not found. Show a new code on it and scan again.</string>
     <string name="dv_link_no_lock">Set a passcode on this phone — without it no device can be connected.</string>
     <string name="dv_link_failed">The device could not be connected. Check the network and try again.</string>
@@ -829,4 +839,7 @@
     <string name="dv_end_words">The device leaves this list. A device that signed in with your seed phrase keeps it and your chats; to remove them, delete the account on that device.</string>
     <string name="dv_end_all_q">End all other sessions?</string>
     <string name="dv_end_all_msg">Every device leaves this list. A connected Mac erases your identity from itself as soon as it hears this phone; a device that signed in with your seed phrase keeps it and your chats.</string>
+    <string name="save_words">Save 24 words</string>
+    <string name="save_words_footer">Write the 24 words down and keep them: on a new phone your identity and your saved history open only from them.</string>
+    <string name="privacy_policy">Privacy Policy</string>
 </resources>

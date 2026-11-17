@@ -187,7 +187,7 @@ object Media {
         var p = picked
         val mid = named ?: Marks.mintMid()   // a sticker names its letter first: its passport rides under the same name (iOS letterMidFor)
         val local = file(c, mid, p.ext)
-        local.writeBytes(p.bytes)
+        DiskDoor.write(local, p.bytes, "media")
         MediaPlace.told(local.path, true)
         val provisional = Marks.MEDIA + JSONObject().put("k", p.kind).put("e", p.ext).put("sz", p.bytes.size).apply {
             p.name?.let { put("n", it) }; if (caption.isNotEmpty()) put("cap", caption); p.du?.let { put("du", it) }
@@ -208,7 +208,7 @@ object Media {
             // 3822-3846 at 2155): `swap` brings the full bytes behind the standing row; the file's name never changes, only what lies
             // under it, and the picture plays its three cycles again in its full shape (iOS MTGifPlay.renew)
             swap?.invoke()?.let { full ->
-                local.writeBytes(full)
+                DiskDoor.write(local, full, "media")
                 p = Picked(full, p.kind, p.ext, p.name, p.du, p.wave, p.round, p.badge)
                 GifPlay.renew(local.name)
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = it.text } }
@@ -851,7 +851,7 @@ object Media {
             val edge = System.currentTimeMillis() - GRACE_MS
             d.listFiles()?.forEach { if (it.lastModified() < edge) it.delete() }
             val f = File(d, id)
-            if (!f.exists()) runCatching { f.writeBytes(sealed) }
+            if (!f.exists()) DiskDoor.write(f, sealed, "media-sealed")
         }
 
         fun get(id: String): ByteArray? {

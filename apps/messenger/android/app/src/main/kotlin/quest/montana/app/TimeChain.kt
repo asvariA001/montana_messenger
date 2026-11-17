@@ -187,4 +187,7 @@ object LetterSeal {
         kept.put(mid, g)
         return g
     }
+    /** The seal's first eight hex digits, the ribbon of time's mark beside the gematria (iOS MTLetterSeal.Mark.head). */
+    fun head(mid: String): String? =
+        if (mid.isEmpty() || Archive.isRestored(mid)) null else seal(CoinSend.wire(mid))?.take(8)
 }

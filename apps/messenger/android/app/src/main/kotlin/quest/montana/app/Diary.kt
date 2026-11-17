@@ -66,7 +66,8 @@ object Diary {
         val words = (if (m.groupValues[4] == "AndroidRuntime") "CRASH " else "") + m.groupValues[5]
         if (!d.isDirectory) d.mkdirs()   // «Forget this device» takes the folder with the person; the diary goes on in a new one
         val f = File(d, FILE)
-        runCatching { f.appendText(iso.format(java.util.Date(ms)) + hide(" " + words) + "\n") }
+        val line = iso.format(java.util.Date(ms)) + hide(" " + words) + "\n"
+        if (runCatching { f.appendText(line) }.isSuccess) DiskDoor.count("log", line.length.toLong())   // the diary's own bytes are named too (iOS 01.11)
         // THE TRACE OF A CALL IS NOT ROTATED UNDER THE CALL (iOS MontanaLog.holdRotation, atom 319c1ca96b0a): four rings at most
         if (f.length() >= ROTATE && !(Calls.busy() && f.length() < 4 * ROTATE)) rotate(d, f)
         if (m.groupValues[3] == "E" || m.groupValues[4] == "AndroidRuntime" || isFailure(m.groupValues[5])) failure()
@@ -167,6 +168,16 @@ object Diary {
             t
         }
     }
+    /**
+     * THE DIARY LEAVES WITH THE PERSON (iOS MontanaLog.eraseDiary, 2434; the author's word «erase everything clean»): its files leave
+     * under the writer's own lock -- a line handed in before is written and goes with them, a line after begins the next diary -- and
+     * the salt held in memory goes, so no label of the life before is drawn again.
+     */
+    @Synchronized fun erase() {
+        saltCache = null
+        dir?.listFiles()?.forEach { it.deleteRecursively() }
+    }
+
     @Volatile private var saltCache: String? = null
     private fun salt(): String {
         saltCache?.let { return it }
@@ -336,4 +347,52 @@ object Diary {
         refused++
         return false
     }
+}
+
+/**
+ * THE DISK DOOR (iOS MTDiskDoor, MontanaLog.swift, the law of 01.11: every writer to the disk is named, the hour has a budget): a file
+ * written whole or bytes appended pass here under their writer's name. Once an hour the diary says how much the named writers wrote and
+ * what the kernel counted (/proc/self/io write_bytes), the largest writers first; past 256 MiB in an hour it says so once, with the frames
+ * that wrote the last bytes. Only counting: a write that fails here fails as it would without the door.
+ */
+object DiskDoor {
+    private const val HOUR_BUDGET = 256L shl 20
+    private val lock = Any()
+    private var hourAt = android.os.SystemClock.elapsedRealtime()
+    private val named = HashMap<String, Long>()
+    private var outAt = outBytes()
+    private var spoke = false
+
+    /** A file written whole, under its writer's name. */
+    fun write(f: File, data: ByteArray, name: String): Boolean {
+        if (runCatching { f.writeBytes(data) }.isFailure) return false
+        count(name, data.size.toLong())
+        return true
+    }
+    /** Bytes written by a handle of the writer's own, under its name. */
+    fun count(name: String, bytes: Long) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        var hour: String? = null; var over: String? = null
+        synchronized(lock) {
+            if (3_600_000L <= now - hourAt) {
+                val out = outBytes()
+                hour = "DISK HOUR named=" + named.values.sum() + " out_bytes=" + (out - outAt) + " top=" + top()
+                named.clear(); hourAt = now; spoke = false; outAt = out
+            }
+            named[name] = (named[name] ?: 0L) + bytes
+            val total = named.values.sum()
+            if (HOUR_BUDGET < total && !spoke) { spoke = true; over = "DISK OVER what=$name total=$total budget=$HOUR_BUDGET top=" + top() }
+        }
+        hour?.let { android.util.Log.i("Montana", it) }
+        over?.let { o ->
+            val frames = Thread.currentThread().stackTrace.drop(3).take(12).joinToString(" < ") { (it.className.substringAfterLast('.') + "." + it.methodName).take(90) }
+            android.util.Log.w("Montana", "$o frames: $frames")
+        }
+    }
+    /** The hour's writers, the largest first (under the lock). */
+    private fun top(): String = named.entries.sortedByDescending { it.value }.take(8).joinToString(",") { it.key + ":" + it.value }
+    /** What the kernel says this process wrote to storage since it began. */
+    private fun outBytes(): Long = runCatching {
+        File("/proc/self/io").readLines().firstOrNull { it.startsWith("write_bytes:") }?.substringAfter(':')?.trim()?.toLong()
+    }.getOrNull() ?: 0L
 }

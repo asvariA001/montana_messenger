@@ -55,6 +55,7 @@ object HistoryFile {
         val tmp = File(d, "$n.tmp")
         val ok = runCatching {
             FileOutputStream(tmp).use { it.write(sealed); it.fd.sync() }
+            DiskDoor.count("history", sealed.size.toLong())
             tmp.renameTo(part(n))
         }.getOrDefault(false)
         if (!ok) { tmp.delete(); return refused(n, "write failed") }

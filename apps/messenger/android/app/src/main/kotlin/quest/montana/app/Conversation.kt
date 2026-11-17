@@ -42,6 +42,7 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     // a group's event row speaks the group's names (iOS MTRowLetter.eventWords, stage R)
     Groups.isEvent(t) -> Groups.eventWords(c, t) ?: ""
     // a post's card: «Wall post» and the post's words (iOS MTRowLetter.preview, MTRowLetter.swift:143 at 2155)
+    t.startsWith(FlowRow.MARK) -> c.getString(R.string.money_flow_begun)   // iOS MTRowLetter.preview 88: «Money flow has begun»
     t.startsWith(WallCard.MARK) -> WallCard.of(t)?.let { k -> c.getString(R.string.wall_post) + WallCard.words(c, k).let { w -> if (w.isEmpty()) "" else " · " + w } } ?: ""
     t.startsWith(Marks.VOICE) -> c.getString(R.string.voice_message)
     t.startsWith(Marks.MEDIA) -> mediaWords(c, meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(t))
@@ -348,16 +349,21 @@ object Notify {
             (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, sys),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
+    /**
+     * NO BANNER WHILE A PERSON PLAYS (iOS MTPlayQuiet.held, ContentView.swift:3262-3273, the author's words 03.10: «notifications
+     * during the games and the minting fully off; only in the ordinary mode»): a game is what the screen of the app in front shows --
+     * the open chat's own Money Flow, or a chess board -- and it says no letter of anyone; a phone in the background or locked rings
+     * every letter (the app in front alone is asked, never a fact kept for days: iOS 04.10, 4 479 banners held).
+     */
+    fun playQuiet(): Boolean =
+        CallScreen.front != null && (ChessSend.shownGame != null || MoneyFlow.on(Book.openChat ?: ""))
     private const val LETTER = 1   // a letter's banner: one a chat, under the chat's alias as its tag
     private const val QUIET = "letters_quiet"
     fun letter(ref: String, text: String, who: String? = null, mid: String? = null, mentioned: Boolean = false, action: Notification.Action? = null) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
-        // NO BANNER WHILE A PERSON PLAYS (iOS MTPlayQuiet.held, ContentView.swift:3232-3240, the author's words 03.10, atom
-        // 9aa1fe955129): a chess board on the screen of the app in front says no letter of anyone; a phone in the background or
-        // locked rings every letter. The Money Flow half of the rule waits for the flow, which Android has not.
-        if (ChessSend.shownGame != null && CallScreen.front != null) return
+        if (playQuiet()) return
         // A MUTED OR ARCHIVED CHAT SAYS NOTHING (iOS MTQuietChats, MontanaNotify 190-193; build 2083): no banner, no sound, no count --
         // but A MENTION RINGS THROUGH THE MUTE (iOS presentGroup mentioned, stage R): the person was named in a group
         if (!mentioned && (ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref))) return
@@ -451,7 +457,7 @@ object Notify {
     fun pinned(ref: String, sid: String, m: Msg) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
-        if (!Prefs.bool("notifMessages", true) || ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref) || Book.openChat == ref) return
+        if (!Prefs.bool("notifMessages", true) || ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref) || Book.openChat == ref || playQuiet()) return
         val sound = Prefs.bool("notifSound", true)
         val channel = if (sound) CHANNEL else QUIET
         nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
@@ -726,10 +732,19 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     // THE ROOM WITHOUT AN ADDRESS (iOS isLocalRoom): Saved Messages opens here like every chat -- no wire, no presence, no rung, no call
     val local = Book.isLocal(ref)
+    Archive.traceRows(ref)   // the feed's rows and its print go to the diary on EVERY opening (iOS traceRows, 2418)
     val saved = ref == Book.SAVED   // one's own room wears one's own face and its own word; the Montana room its crowned name (iOS rowModel)
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val feedFrame = FrameLayout(c)
+    // THE FEED'S TURN (iOS newestFirst = MTApps.flowOn(chat.name), MontanaConversation.swift:1410; the author's word 02.10 14:03):
+    // with this chat's Money Flow on, the newest letters stand on top, the field under the header, and the peer's live words over
+    // the newest letter; off, the feed stands as every chat's, the newest at the foot over the field
+    var turned = !group && MoneyFlow.on(ref)
+    var turning = false   // the pass of the turn itself: the rows change places, nobody is born (iOS: the turn pins, never animates a birth)
+    var turnPage: () -> Unit = {}   // the page laid again for the turn (the feed, the field, the way to the newest), born with the page
+    var flowBegins: () -> Unit = {}   // the coin's one turn in the middle of the chat as the flow comes on (MTMoneyFlowBegins), born with the page
+    val feedStack = c.vstack(Gravity.NO_GRAVITY)
     // THE FEED BEHIND A TAPE IS BLURRED (iOS MontanaConversation.swift:1446-1452 at 2155: «.blur(radius: holding ? 10 : 0)» while a
     // voice or a note records; the open note's cloud blurs it on its own): radius 10, off again where every tape ends (onRecIdle).
     // WHAT STANDS BEHIND THE BLUR TAKES NO TOUCHES (iOS .allowsHitTesting(!recorder.isRecording), MontanaConversation.swift:1420 at
@@ -788,9 +803,21 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         isVerticalScrollBarEnabled = false
         isFillViewport = true
         // the feed, and under it their live draft (iOS LiveDraftBubble at the feed's foot)
-        addView(feedFrame.apply { addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); addView(draftRow, lp()) }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
+        addView(feedFrame.apply { addView(feedStack, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
     }
-    fun toBottom() = scroll.post { scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) }
+    // the feed's order of parts for the turn: the live words at the newest end -- the foot over the field, or the top under it
+    // (iOS snap.appendItems: the draft beside the newest letter, MontanaMessageFeed.swift:981-984); the turned feed starts at the top
+    fun stackFeed() {
+        feedStack.removeAllViews()
+        if (turned) { feedStack.addView(draftRow, lp()); feedStack.addView(column, lp()) }
+        else { feedStack.addView(column, lp()); feedStack.addView(draftRow, lp()) }
+        draftRow.setPadding(c.dp(10), if (turned) c.dp(8) else 0, c.dp(10), if (turned) 0 else c.dp(8))
+        (feedStack.layoutParams as FrameLayout.LayoutParams).gravity = if (turned) Gravity.TOP else Gravity.BOTTOM
+        feedStack.requestLayout()
+    }
+    stackFeed()
+    // «TO THE NEWEST» GOES UP IN THE TURNED FEED (iOS scrollToBottom: newestOnTop → scrollToTop, MontanaMessageFeed.swift:216-221)
+    fun toBottom() = scroll.post { scroll.scrollTo(0, if (turned) 0 else scroll.getChildAt(0)?.height ?: 0) }
 
     var replyTo: Msg? = null
     var editing: Msg? = null
@@ -1045,7 +1072,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             var up = column.parent as? android.view.ViewGroup
             while (up != null) { up.clipChildren = false; if (up === scroll) break; up = up.parent as? android.view.ViewGroup }
         }
-        for (v in births) { v.translationY = v.height * LetterMotion.RISE; ways.add(v to v.translationY); fadeIn(v) }
+        // turned, the newborn comes down from under the field on top (iOS animateBirth fromTop, MontanaMessageFeed.swift:1056)
+        for (v in births) { v.translationY = v.height * LetterMotion.RISE * (if (turned) -1 else 1); ways.add(v to v.translationY); fadeIn(v) }
         newborn.clear(); stood.clear(); flying.clear()
         if (ways.isEmpty()) return
         val d = LetterMotion.duration
@@ -1103,7 +1131,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val m = row[0]
             val s = ArrayList<Any?>(11 * row.size + 12)
             for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp); s.add(x.file == null && x.text.startsWith(Marks.MEDIA) && Media.cargoGone(x.mid)) }
-            s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
+            s.add(skin); s.add(turned); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
             s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
             s.add(if (channel) ChannelViews.views(m, ref) else -1)
             if (m.qt != null && !isForwardQuote(m.qt)) {
@@ -1146,7 +1174,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }
         }
         fun letterRow(m: Msg, row: List<Msg>, head: Boolean = true, tail: Boolean = true): View {
-            val b = letterBubble(c, m, feedChat, row, head)
+            val b = letterBubble(c, m, feedChat, row, head, ribbon = turned)
             if (selecting) {
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
@@ -1177,7 +1205,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // the plate's last letter, «Read» while a video of the same pick still rode
             // a post's card is this phone's own row, not a letter: no rung under it (iOS MTRowLetter.ownRow, MTRowLetter.swift:60-63 at 2155)
             // nor a channel's post: it goes out to every subscriber, no one rung speaks for it (iOS ladder !isChannel, MontanaConversation 2967)
-            val laddered = m.mine && !local && !channel && WallCard.of(m.text) == null
+            val laddered = m.mine && !local && !channel && WallCard.of(m.text) == null && !FlowRow.of(m.text)
             if (laddered) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             // ANY FAILED BUBBLE: A TAP SENDS IT AGAIN (iOS primaryTap → onResend → resendAny, the author's invariant 24.08): a plate's
@@ -1264,8 +1292,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             return group && !x.mine && !y.mine && x.from != null && x.from == y.from && b[0].at - a.last().at < 600_000
                 && dayOf(a.last().at) == dayOf(y.at) && Groups.eventWords(c, x.text) == null && Groups.eventWords(c, y.text) == null
         }
+        // each row of the book is one unit of the column -- its day, its «unread» line and its own row -- so the turn moves it whole
+        val unitAt = ArrayList<Int>(rows.size)
         for ((at, row) in rows.withIndex()) {
             val m = row[0]
+            unitAt.add(want.size)
             val head = !group || at == 0 || !sameRun(rows[at - 1], row)
             val tail = !group || at == rows.size - 1 || !sameRun(row, rows[at + 1])
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
@@ -1302,6 +1333,38 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
             }
         }
+        // THE FEED'S TURN IS THE ONE OWNER OF THE ORDER (iOS rows, MontanaConversation.swift:2663-2683): turned, the units stand newest
+        // first, each with its day and «unread» line above its own row as in every chat. A LONG TEXT READS DOWNWARD IN THE TURNED FEED
+        // TOO (the author's word 25.10.2026 11:23 UTC): the pieces of one text cut at its sending (Groups.pieces) -- one side, plain
+        // letters, born under two seconds apart, the earlier as long as a cut piece is -- hand their letters over reversed, the
+        // places' days and lines staying where they stand.
+        if (turned && unitAt.size > 1) {
+            val n = unitAt.size
+            fun end(u: Int) = if (u + 1 < n) unitAt[u + 1] else want.size
+            fun piece(u: Int) = rows[u].size == 1 && want[end(u) - 1].letter
+            fun continues(a: Int, b: Int): Boolean {
+                val x = rows[a][0]; val y = rows[b][0]
+                return piece(a) && piece(b) && x.mine == y.mine && x.from == y.from && y.at - x.at < 2000 && x.text.length * 2 >= Groups.PIECE_CHARS
+            }
+            val order = IntArray(n) { n - 1 - it }   // the place → the unit standing there
+            val letterOf = order.copyOf()   // the place → whose row stands there (a run of pieces read downward)
+            var a = 0
+            while (a < n) {
+                var b = a
+                while (b + 1 < n && continues(b, b + 1)) b++
+                if (b > a) for (k in 0..(b - a)) letterOf[n - 1 - b + k] = a + k
+                a = b + 1
+            }
+            val w2 = ArrayList<FeedRow>(want.size)
+            val m2 = ArrayList<() -> View>(want.size)
+            for (place in 0 until n) {
+                val u = order[place]
+                for (i in unitAt[u] until end(u) - 1) { w2.add(want[i]); m2.add(makers[i]) }
+                val l = letterOf[place]
+                w2.add(want[end(l) - 1]); m2.add(makers[end(l) - 1])
+            }
+            want.clear(); want.addAll(w2); makers.clear(); makers.addAll(m2)
+        }
         // A WHOLE PASS DURING THE PARTS KEEPS TO WHAT THEY LAID (iOS 77ff8b0d, OZ 1 p.1): an arrival or a change while the rest still
         // comes lays only the newest rows the parts have laid, and the parts go on -- it no longer lays the whole feed in one frame
         // (on T1 a chat of 87 letters: one frame of 571-637 ms, three passes of 141 ms).
@@ -1311,7 +1374,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         restPending = false
         if (jump == null && !searching && limit < want.size) {
             val cut = want.size - limit
-            want.subList(0, cut).clear(); makers.subList(0, cut).clear()
+            if (turned) { want.subList(limit, want.size).clear(); makers.subList(limit, makers.size).clear() }   // the oldest stand below
+            else { want.subList(0, cut).clear(); makers.subList(0, cut).clear() }
             restPending = true
         }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
@@ -1320,10 +1384,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             for (r in feed) old[r.key] = r
             // THE BIRTH FOLLOWS THE NEWEST END (iOS grewNewest, MontanaMessageFeed 846-848 and 911): the newest letter before the pass
             // still stands and a letter now stands after it; the rows laid on opening, or older ones read in, are born still
-            val prevLast = feed.lastOrNull { it.letter }?.key
+            // (turned, the newest end is the top: the newborns stand above the newest letter kept -- iOS grewNewest with newestOnTop)
+            val prevLast = (if (turned) feed.firstOrNull { it.letter } else feed.lastOrNull { it.letter })?.key
             val lastKept = if (prevLast == null) -1 else want.indexOfFirst { it.key == prevLast }
-            val motion = laid && LetterMotion.on
-            val grew = motion && 0 <= lastKept && (lastKept + 1 until want.size).any { want[it].letter }
+            val motion = laid && LetterMotion.on && !turning
+            val grew = motion && 0 <= lastKept && (if (turned) 0 until lastKept else lastKept + 1 until want.size).any { want[it].letter }
             if (motion && !landing && (grew || flight?.isRunning == true)) {
                 // where every row on the screen stands before the pass, its flight included (iOS before, 868-875)
                 flight?.cancel()
@@ -1362,7 +1427,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     v.translationY = prior.translationY; v.alpha = prior.alpha
                     if (newborn.remove(prior)) newborn.add(v)
                     column.removeView(prior)
-                } else if (prior == null && grew && lastKept < i) { v.alpha = 0f; newborn.add(v); born++ }   // unseen until it rises
+                } else if (prior == null && grew && (if (turned) i < lastKept else lastKept < i)) { v.alpha = 0f; newborn.add(v); born++ }   // unseen until it rises
                 if (column.getChildAt(i) !== v) { if (v.parent === column) column.removeView(v); column.addView(v, i) }
             }
             feed.clear(); feed.addAll(want)
@@ -1380,7 +1445,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 if (sliding() && restWaits < 40) { restWaits++; partQueued = true; scroll.postOnAnimation { restPart() }; return }
                 restLaid += firstScreenRows * 2
                 val before = column.height
-                column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                if (!turned) column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {   // turned, they come in below
                     override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or2: Int, ob: Int) {
                         v.removeOnLayoutChangeListener(this)
                         scroll.scrollTo(0, scroll.scrollY + (b - t) - before)
@@ -1540,6 +1605,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val before = if (caption) Media.captionOf(e) else e.text
             if (words != before && CoinLetter.parse(words) == null && !(caption && words.isEmpty())) {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == e.mid }?.let { if (caption) Post.reword(it, words) else { it.text = words; it.edited = true } } }
+                Twin.changed(ref, e.mid)   // the seed's other devices show the edit of a row of Saved Messages (iOS 2424, OZ 1 p.9)
                 android.util.Log.d("Montana", "edit_tx caption=" + (if (caption) 1 else 0) + " len=" + words.length)
                 val edit = Marks.EDIT + JSONObject().put("sid", e.mid).put("tx", words)
                 // a group's edit rides the group's carrier to every phone of it (iOS editMessage → MTGroup.signal)
@@ -1795,7 +1861,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             pressable { bar.toMic() }
         }, lp(dp(36), dp(36)))
     }
-    val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinBook.balance) }
+    val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinSplit.available) }   // the chain's available (iOS MTCoinSplit.available)
     bar.onCoinMode = { on -> coinPlate.visibility = if (on) View.VISIBLE else View.GONE; if (on) coinListener() }
     // A CHANNEL'S FIELD (iOS channel/silent/onSilent, 3806-3808): «Broadcast...» and the bell that turns the sound of the next posts
     if (group && Groups.isChannel(ref)) {
@@ -1808,12 +1874,23 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     bar.coins = CoinSend.canPay(ref) || groupCoin
     bar.onSendCoin = { n ->
         if (groupCoin) { hideKeys(); act.push { close -> sendCoinsPage(act, close, ref, n) { field.setText(""); Prefs.setStr("draft.$ref", "") } } }
-        else when (CoinSend.transferResult(ref, n)) {
-            // the three honest answers (iOS sendCoin 1636-1645): sent -- the field empties; short -- the balance; refused -- nothing left
-            CoinSend.Sent.SENT -> { field.setText(""); Prefs.setStr("draft.$ref", "") }
-            CoinSend.Sent.SHORT -> AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
-            CoinSend.Sent.REFUSED -> AlertDialog.Builder(c).setTitle(R.string.coin_not_sent).setMessage(R.string.coin_not_sent_sub).setPositiveButton(R.string.ok, null).show()
-        }
+        // the pair's SEND asks the nodes, so off the main thread (iOS sendCoin's Task, MontanaConversation.swift 1661-1682)
+        else Thread {
+            val r = CoinSend.transferResult(ref, n)
+            MainThread.post {
+                fun said(title: Int, sub: Int) = AlertDialog.Builder(c).setTitle(title).setMessage(sub).setPositiveButton(R.string.ok, null).show()
+                when (r) {
+                    // the honest answers (iOS 1627-1638): sent -- the field empties; short -- the available; pending -- one record waits,
+                    // never sent again; refused, no key, paced -- nothing left the balance
+                    CoinSend.Sent.SENT -> { field.setText(""); Prefs.setStr("draft.$ref", "") }
+                    CoinSend.Sent.SHORT -> said(R.string.coin_not_enough, R.string.coin_not_enough_sub)
+                    CoinSend.Sent.PENDING -> said(R.string.coin_pending, R.string.coin_pending_sub)
+                    CoinSend.Sent.REFUSED -> said(R.string.coin_not_sent, R.string.coin_not_sent_sub)
+                    CoinSend.Sent.NO_KEY -> said(R.string.coin_not_sent, R.string.coin_no_key_sub)
+                    CoinSend.Sent.PACED -> said(R.string.coin_not_sent, R.string.coin_paced_sub)
+                }
+            }
+        }.start()
     }
     bar.onSendLater = { v -> sendLaterMenu(act, v, ref, { field.text.toString() }) { field.setText(""); Prefs.setStr("draft.$ref", "") } }
     // A CONTACT OF THE PHONE (iOS ContactPicker): its name and number leave as one letter
@@ -2151,10 +2228,20 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     val ringInk = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(Math.round(1.5f * c.resources.displayMetrics.density), MT.blue) }
     val chessRing = View(c).apply { background = ringInk; visibility = View.GONE }   // iOS MTMiniFace.playingRing, 1.5 inside the plate
+    // THE MONEY FLOW'S COIN (iOS flipMark, MontanaConversation.swift:2164-2210): our coin on the marks' round, standing on its face while
+    // the flow is off; on, it spins inside the platform's ring -- the sign that holds when motion is reduced too. Open without coins
+    // (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing, and the hold's auto-reactions (coins) are not here.
+    val flowCoin = MintCoin(c, 22)
+    val flowRing = View(c).apply { background = ringInk; visibility = View.GONE }
+    fun drawFlow() {
+        val on = MoneyFlow.on(ref)
+        flowRing.visibility = if (on) View.VISIBLE else View.GONE
+        flowCoin.spinAt(if (on) 1 else 0)
+    }
     fun playedGame(): String? = ChessGame.current(ChessSend.entries(ref))?.takeIf { ChessSend.state(ref, it)?.status?.finished == false }
     fun drawMarks() {
         if (!coinStands) return
-        val bal = CoinBook.balance
+        val bal = CoinSplit.available
         walletBadge.text = if (0L < bal) PiLevels.short(c, bal) else ""   // USER-DATA: the balance, short
         walletBadge.visibility = if (0L < bal) View.VISIBLE else View.GONE
         chessRing.visibility = if (playedGame() != null) View.VISIBLE else View.GONE
@@ -2301,12 +2388,41 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }, lp(dp(44), dp(44)))
         }
         if (coinStands) {
+            // THE FEED'S TURN IS OUR COIN (iOS flipMark): a tap turns this chat's flow alone (04.10); live chat lives in it alone
+            addView(FrameLayout(c).apply {
+                background = c.glassPlate(oval = true)
+                contentDescription = c.getString(R.string.money_flow)
+                addView(flowCoin, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+                addView(flowRing, FrameLayout.LayoutParams(MATCH, MATCH))
+                pressable {
+                    // the keys go down first: the field is reborn with the turn (iOS 2175-2176)
+                    hideKeys()
+                    val on = !MoneyFlow.on(ref)
+                    MoneyFlow.set(ref, on)
+                    LiveDraft.flowSwitched(ref, on)
+                    drawFlow()
+                    // THE FEED TURNS WITH THE FLOW (iOS flows.flowWatch → newestFirst): on, the newest on top under the field; off, the
+                    // turn back lands at the foot, where the newest letter then stands (MontanaMessageFeed.swift:1003-1009)
+                    turned = !group && on
+                    turnPage()
+                    if (on) {
+                        // its row in the chat (iOS appendMoneyFlow), and THE FLOW STANDS READY AT ONCE (iOS 2182-2191, the author's word
+                        // 05.10.2026): the panel of buttons unfolded, the feed at its newest end, the field taking the keys
+                        FlowRow.lay(ref)
+                        flowBegins()
+                        bar.unfold()
+                        field.postDelayed({ toBottom(); showKeys() }, 350)
+                    }
+                    android.util.Log.d("Montana", "feed_turn flow=" + (if (on) 1 else 0) + " peer=" + ref.take(10))
+                }
+            }.also { rounds.add(it); if (walletStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (walletStands) marginStart = dp(6) })
+            drawFlow()
             // THE CHESS MARK (iOS chessMark): the game's knight on the marks' round, the platform's blue ring while the game is played
             addView(FrameLayout(c).apply {
                 addView(roundMark(R.drawable.chess_knight, R.string.app_chess) { hideKeys(); chessTap() }.also { rounds.add(it) },
                     FrameLayout.LayoutParams(MATCH, MATCH))
                 addView(chessRing, FrameLayout.LayoutParams(MATCH, MATCH))
-            }.also { if (walletStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (walletStands) marginStart = dp(6) })
+            }.also { gapped.add(it) }, lp(dp(44), dp(44)).apply { marginStart = dp(6) })
         }
         // THE HANDSET AS IT WAS (iOS handsetMark, a pair's chat): the calls' menu behind the one bar glyph — a voice call or a video call
         if (!group && !local) addView(roundMark(R.drawable.ic_bar_calls, R.string.pi_voice_call) { v ->
@@ -2331,6 +2447,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val inset = if (wide) 0 else c.dp(2)
         for (r in rounds) r.background = android.graphics.drawable.InsetDrawable(c.glassPlate(oval = true), inset)
         chessRing.background = android.graphics.drawable.InsetDrawable(ringInk, inset)
+        flowRing.background = android.graphics.drawable.InsetDrawable(ringInk, inset)
         for (v in gapped) (v.layoutParams as LinearLayout.LayoutParams).marginStart = if (wide) c.dp(6) else 0
         (nameBubble?.layoutParams as? LinearLayout.LayoutParams)?.apply {
             marginStart = if (wide) c.dp(6) else c.dp(2)
@@ -2468,10 +2585,17 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // the letters scroll on under them and show between the plates; the plates alone carry the glass. The feed's own room above
         // and below is the bars' height as drawn, so the first and the last letter rest clear of them, and a feed at its end stays
         // at its end when the panel grows (a reply line, a recording, the keyboard).
+        val topCompose = c.vstack(Gravity.NO_GRAVITY)
+        val rowSlot = c.vstack(Gravity.NO_GRAVITY).apply {
+            setPadding(dp(16), dp(ChatInputBar.BAR_PAD), dp(16), dp(ChatInputBar.BAR_PAD)); visibility = View.GONE
+        }
         val head = c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
             addView(searchBar, lp(MATCH, WRAP))
             addView(selTop, lp(MATCH, WRAP))
+            // THE FIELD ON TOP (iOS MTKeyboardRider onKeys: false over the turned feed, MontanaConversation.swift:1476-1488): with the
+            // Money Flow on, the line of words and its previews stand here, under the header, over the newest letter
+            addView(topCompose, lp())
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             // THE ROOM'S BAR (iOS MTRoomBar): a group's living voice or video chat, or its stream
@@ -2486,11 +2610,32 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10) })   // the seats' row is 56 tall: the capsule keeps 10 below
             addView(bar.apply { if ((group && !Groups.fieldOpen(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
+            addView(rowSlot, lp())   // the open bar's buttons in the turned feed, riding the keys (ChatInputBar.rowTo)
             addView(panel.host, lp(MATCH, dp(300)))
             addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
             addView(foot, lp())
             addView(groupFoot, lp())
         }
+        // THE COMPOSE NODE'S PLACE (iOS bottomGroup: composeSlot then composePreviews when turned, the previews then the slot
+        // otherwise, MontanaConversation.swift:3758-3765): the bar and the plates of the reply, the coin, the link, the «@» and the
+        // pasted pictures go up under the header for the turn and come home over the keys without it
+        fun placeCompose() {
+            bar.flowing(turned)   // the flow's ring on the field and the keys, its send plate at the finger's size (iOS .flowing(ribbon), 3872)
+            val ups = listOf(strip, coinPlate, linkPlate, mentionPlate, stagedStrip)
+            for (v in ups + bar) (v.parent as? android.view.ViewGroup)?.removeView(v)
+            fun plateLp(side: Int) = lp().apply { marginStart = dp(side); marginEnd = dp(side); if (turned) { topMargin = dp(4) } else { bottomMargin = dp(4) } }
+            val lps = listOf(plateLp(10), plateLp(10), plateLp(10), plateLp(8), lp())
+            if (turned) {
+                topCompose.addView(bar, lp())
+                ups.forEachIndexed { i, v -> topCompose.addView(v, lps[i]) }
+                bar.rowTo(rowSlot)
+            } else {
+                ups.forEachIndexed { i, v -> under.addView(v, i, lps[i]) }
+                under.addView(bar, under.indexOfChild(recStrip) + 1, lp())
+                bar.rowTo(null)
+            }
+        }
+        placeCompose()
         scroll.clipToPadding = false
         // THE FEED SINKS INTO THE GROUND PAST THE HEADER AND THE BAR (iOS MTEdgeWash, ContentView.swift:1182-1207 at 2155,
         // read 21.09 in WallpaperEdgeEffectNodeImpl; atoms d4817f6e3b72/39b5b03396cb/331a040adb4e/df3a6b50be61 -- the ground
@@ -2508,22 +2653,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val t = head.height
             val b = under.height + lifted
             if (scroll.paddingTop == t && scroll.paddingBottom == b) return
-            val atEnd = !scroll.canScrollVertically(1)
+            val atEnd = !scroll.canScrollVertically(if (turned) -1 else 1)   // the newest end: the top of the turned feed
             scroll.setPadding(0, t, 0, b)
             if (!atEnd || ride?.dragging == true) return
-            if (keys) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0)   // this frame, not the next: the letters ride with the bar
+            if (keys) scroll.scrollTo(0, if (turned) 0 else scroll.getChildAt(0)?.height ?: 0)   // this frame, not the next: the letters ride with the bar
             else toBottom()
         }
         // THE WAY TO THE NEWEST (iOS ScrollDownButton 384-399, MontanaConversation 2928-2940): the chevron in the compose tier's glass,
         // on the microphone's own vertical line, ten points above the panel; on past 260 points from the newest, off under 60
+        // turned, it stands at the top under the field with its chevron up (iOS ScrollDownButton top:, MontanaConversation.swift:3210-3213)
+        val downGlyph = c.icon(if (turned) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down, Color.rgb(204, 204, 204))
         val downKey = FrameLayout(c).apply {
             addView(FrameLayout(c).apply {
                 background = c.glassPlate(oval = true)
-                addView(c.icon(R.drawable.ic_chevron_down, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+                addView(downGlyph, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
             }, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
             contentDescription = c.getString(R.string.to_newest)
             visibility = View.GONE
-            pressable { scroll.smoothScrollTo(0, (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
+            pressable { scroll.smoothScrollTo(0, if (turned) 0 else (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
         }
         addView(downKey, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(12) })
         // THE DAY THE FINGER IS READING (iOS MTDayHeader 359-372, stage 13.1): the pill of the topmost row's day under the header while
@@ -2540,7 +2687,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         Motion.watch(scroll) { _, _, y, _, _ ->
             val d = resources.displayMetrics.density
             val content = scroll.getChildAt(0) ?: return@watch
-            val fromEnd = (content.height + scroll.paddingTop + scroll.paddingBottom - scroll.height - y) / d
+            val fromEnd = (if (turned) y else content.height + scroll.paddingTop + scroll.paddingBottom - scroll.height - y) / d
             if (!downOn && 260 < fromEnd) { downOn = true; downKey.visibility = View.VISIBLE; downKey.alpha = 0f; downKey.animate().alpha(1f).setDuration(180).start() }
             else if (downOn && fromEnd < 60) { downOn = false; downKey.animate().alpha(0f).setDuration(180).withEndAction { if (!downOn) downKey.visibility = View.GONE }.start() }
             // the topmost row under the header: its letter's day
@@ -2561,7 +2708,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }
         }
         fun lift() {
-            (downKey.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = under.height + dp(10); if (lp.bottomMargin != want) { lp.bottomMargin = want; downKey.layoutParams = lp } }
+            (downKey.layoutParams as FrameLayout.LayoutParams).let { lp ->
+                val g = (if (turned) Gravity.TOP else Gravity.BOTTOM) or Gravity.END
+                val top = if (turned) head.height + dp(10) else 0
+                val bottom = if (turned) 0 else under.height + dp(10)
+                if (lp.gravity != g || lp.topMargin != top || lp.bottomMargin != bottom) { lp.gravity = g; lp.topMargin = top; lp.bottomMargin = bottom; downKey.layoutParams = lp }
+            }
             (dayPill.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = head.height + dp(6); if (lp.topMargin != want) { lp.topMargin = want; dayPill.layoutParams = lp } }
         }
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
@@ -2578,10 +2730,46 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (want == lifted && under.translationY == -want.toFloat()) return
             lifted = want
             under.translationY = -want.toFloat()
-            downKey.translationY = -want.toFloat()
+            downKey.translationY = if (turned) 0f else -want.toFloat()   // turned, the way to the newest stands under the field, off the keys
             room(keys = true)
         }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> ridePlace() }
+        // the keys' own drag begins at their top: the row at the keys when the field stands on top (iOS MTInputField: the accessory
+        // holds no room), the bar otherwise
+        barTop = { IntArray(2).also { (if (turned) under else bar).getLocationOnScreen(it) }[1] }
+        // THE FIELD TAKEN IS THE NEWEST LETTER SEEN (iOS onChange(of: inputFocused) with newestFirst → stickBottom, 1977): on top, the
+        // field and the newest letter stand together
+        field.setOnFocusChangeListener { _, on -> if (on && turned) toBottom() }
+        // THE MONEY FLOW BEGINS (iOS MTMoneyFlowBegins, MTWalletScreen.swift:3005-3029; the author's word 03.10.2026: «when it is
+        // switched on, an active animation»): our coin, large, makes one turn in the middle of the chat under its name on the glass,
+        // and leaves -- springing in for 0.35 s, gone from 1.4 s; the row of the chat stays (FlowRow). It takes no touch.
+        flowBegins = {
+            val coin = MintCoin(c, 120)
+            val plate = c.vstack(Gravity.CENTER_HORIZONTAL) {
+                background = c.glassPlate().apply { cornerRadius = dp(28).toFloat() }
+                setPadding(dp(28), dp(28), dp(28), dp(28))
+                addView(coin, lp(dp(120), dp(120)))
+                addView(c.text(c.getString(R.string.money_flow), 22f, Color.WHITE, bold = true), lp(WRAP, WRAP).apply { topMargin = dp(12) })
+                alpha = 0f; scaleX = 0.6f; scaleY = 0.6f
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            }
+            addView(plate, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+            coin.post { coin.turnOnce() }
+            plate.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(350).setInterpolator(android.view.animation.OvershootInterpolator(1.1f)).withEndAction {
+                plate.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setStartDelay(1050).setDuration(350)
+                    .setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction { removeView(plate) }.start()
+            }.start()
+        }
+        turnPage = {
+            stackFeed()
+            placeCompose()
+            downGlyph.setImageResource(if (turned) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down)
+            downKey.translationY = if (turned) 0f else -lifted.toFloat()
+            lift(); room()
+            turning = true
+            try { redraw() } finally { turning = false }
+            toBottom()
+        }
         // the keyboard key on the panel puts the panel away itself before the keys rise: its room is held for them from that tap
         val unhold = Runnable { hold = 0; ridePlace() }
         val emojiKey = bar.onEmojiKey
@@ -2913,7 +3101,7 @@ private fun TextView.takesSelection(words: String) {
     }
 }
 
-private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true, selectable: Boolean = false): ReplySwipe = ReplySwipe(c).apply {
+private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true, selectable: Boolean = false, ribbon: Boolean = false): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
     val wordsMax = bubbleCeiling(c, chat.ref) - c.dp(24)   // the words' measure inside the bubble's padding of 12 on each side
@@ -3007,6 +3195,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (Release.of(m.text) != null) Release.body(c, m, this)
             // A POST ON A WALL OF THE PAIR (iOS wallCardBubble, MontanaBubble.swift:694-695 and 903-920 at 2155): the wall's glyph, «Wall
             // post» and the post's first lines; the touch opens the wall the post stands on (wallCardPlate)
+            // THE MONEY FLOW BEGAN (iOS letterKinds MTMoneyFlowRow, MontanaBubble.swift:863-877): our coin turning once as the row
+            // appears, «Money flow has begun» as the headline -- no letter mints (the author's word 02.11.2026)
+            else if (FlowRow.of(m.text)) addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(MintCoin(c, 40).also { coin -> coin.post { coin.turnOnce() } }, lp(dp(40), dp(40)))
+                gap(10)
+                addView(c.text(c.getString(R.string.money_flow_begun), 17f, BubbleStyle.text(mine), bold = true), lp(WRAP, WRAP))
+            }, lp(WRAP, WRAP))
             else if (WallCard.of(m.text) != null) addView(wallCardPlate(c, c as? MainActivity, chat.ref, WallCard.of(m.text)!!, mine), lp(WRAP, WRAP))
             // A GAME'S INVITATION (iOS the chess letter's bubble): the knight, the seat and the clock; Accept and Decline while it waits for me
             else if (ChessSend.letterOf(m)?.kind == ChessLetter.INVITE) addView(c.chessPlate(c as? MainActivity, chat.ref, m, ChessSend.letterOf(m)!!, mine), lp(WRAP, WRAP))
@@ -3131,9 +3327,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                         if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = gap })
                     }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))
                     // the letter's gematria after the clock, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark);
-                    // the seal's head beside it waits for the ribbon of time (iOS newestFirst && coinStands), which Android has not got
+                    // THE RIBBON OF TIME (iOS mtTimeRibbon, MontanaBubble.swift:214-219, 2101-2112; the author's words 02.10: «the fabric of
+                    // time unfolds in the chat with the peer»): this chat's flow on, the stamp wears the head of its letter's seal beside
+                    // the gematria -- each bubble a link of the chain with its own seal
                     LetterSeal.gematria(m.mid)?.let { g ->
                         addView(c.text("· $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's gematria
+                        if (ribbon) LetterSeal.head(m.mid)?.let { h ->
+                            addView(c.text(" · $h", 11f, metaInk).apply { typeface = android.graphics.Typeface.MONOSPACE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's seal
+                        }
                     }
                 }
                 // UNDER THE ROUND NOTE THE STAMP WEARS THE PICTURE'S PLATE (iOS videoNoteBubble 1285-1288): white on black 0.45, the
@@ -3267,6 +3468,7 @@ internal fun answerLetter(ref: String, m: Msg, e: String, group: Boolean) {
         val word = Marks.REACTION + JSONObject().put("sid", "mid:" + m.mid).put("txt", m.text.take(200)).put("e", emoji).put("op", if (add) "add" else "del")
         if (group) Groups.signal(ref, word) else Post.send(ref, Marks.mintMid(), word)
     }
+    Twin.changed(ref, m.mid)   // the seed's other devices show the answer on a row of Saved Messages (iOS 2424, OZ 1 p.9)
     if (prev != null) tell(prev, false)
     if (added) { tell(e, true); QuickReactions.note(e) }
 }
@@ -3282,7 +3484,7 @@ private const val SPEAKER_INSIDE = 2
  */
 private fun speakerPlace(c: Context, m: Msg, members: List<Msg>): Int = when {
     1 < members.size || edgePlate(m) -> SPEAKER_NONE
-    m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null
+    m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null || FlowRow.of(m.text)
         || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null -> SPEAKER_ABOVE
     m.qt == null && PlaceLetter.parse(c, m.text) != null -> SPEAKER_NONE
     else -> SPEAKER_INSIDE

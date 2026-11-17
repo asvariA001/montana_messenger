@@ -144,6 +144,10 @@ fun View.standAboveKeys() = setOnApplyWindowInsetsListener { v, insets ->
 fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): View {
     val c: Context = act
     return settingsPage(act, c.getString(R.string.settings), onClose, cross = true) {
+        // THE 24 WORDS AT THE HEAD (iOS MontanaSettings 119-128, the author's word 08.10.2026: «bring the seed up to the top of
+        // Settings»): the one thing nobody can give back stands first; Privacy keeps its own row beside the account's deletion
+        section(null, c.getString(R.string.save_words_footer),
+            c.settingsRow(R.drawable.ic_key, SysColor.gray, c.getString(R.string.save_words)) { act.push { seedPage(act, it) } })
         section(null, null,
             c.settingsRow(R.drawable.ic_set_bell, SysColor.red, c.getString(R.string.notif_sounds)) { act.push { notificationsPage(act, it) } },
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.indigo, c.getString(R.string.data_storage)) { act.push { dataStoragePage(act, it) } },
@@ -154,7 +158,11 @@ fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): 
             c.settingsRow(R.drawable.ic_language, SysColor.cyan, c.getString(R.string.language)) { act.push { languagePage(act, it) } })
         section(null, null,
             c.settingsRow(R.drawable.ic_set_help, SysColor.blue, c.getString(R.string.ask_question)) { act.push { supportPage(act, it) } },
-            c.settingsRow(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.terms_of_use)) { act.push { termsGate(act, onAgree = null, onClose = it) } })
+            c.settingsRow(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.terms_of_use)) { act.push { termsGate(act, onAgree = null, onClose = it) } },
+            // THE POLICY STANDS WHERE THE TERMS STAND (iOS 153-155, App Review 5.1.1(i)): reachable from inside the app, on the site
+            c.settingsRow(R.drawable.ic_hand, SysColor.blue, c.getString(R.string.privacy_policy)) {
+                runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_URL))) }
+            })
     }
 }
 
@@ -181,7 +189,7 @@ fun notificationsPage(act: MainActivity, onBack: () -> Unit): View {
             if (!asked()) {
                 Prefs.notifyAsked = true
                 act.requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 2)
-            } else act.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, c.packageName))
+            } else SystemSettings.open(act, page = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, c.packageName))   // iOS MontanaSystemSettings.open: warned while a call stands
         })
         section(null, null,
             sw(R.drawable.ic_set_speaker, SysColor.pink, R.string.sound, "notifSound", R.string.sound_sub),
@@ -322,12 +330,13 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     drawPlace()
     // WHO MAY REACH ME (iOS PrivacyView, b9b212d4, OZ 1 p.1.8, the author's word 21096): the four rules as Privacy keeps them; a
     // choice is the rule at once, obeyed on this phone. The platform's own menu offers the choices, as iOS's Picker does.
-    fun reach(icon: Int, color: Int, word: Int, a: Privacy.Act): View {
+    // the rows wear no glyph, as iOS's Picker labels wear none (MontanaSettings PrivacyView, «Who can reach me»)
+    fun reach(word: Int, a: Privacy.Act): View {
         val names = listOf(Privacy.Who.EVERYONE to R.string.pv_everyone, Privacy.Who.CONTACTS to R.string.pv_contacts, Privacy.Who.NOBODY to R.string.pv_nobody)
         val value = c.text("", 15f, MT.gray)
         fun shown() { value.text = c.getString(names.first { it.first == Privacy.rule(a) }.second) }
         shown()
-        return c.settingsRow(icon, color, c.getString(word), value = value, chevron = false) {
+        return c.settingsRow(null, 0, c.getString(word), value = value, chevron = false) {
             PopupMenu(act, value).apply {
                 names.forEachIndexed { i, (w, n) -> menu.add(0, i, i, c.getString(n)) }
                 setOnMenuItemClickListener { Privacy.set(a, names[it.itemId].first); shown(); true }
@@ -337,10 +346,10 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
     }
     val page = settingsPage(act, c.getString(R.string.privacy), onBack) {
         section(c.getString(R.string.pv_reach), null,
-            reach(R.drawable.ic_peer_message, SysColor.blue, R.string.pv_write, Privacy.Act.WRITE),
-            reach(R.drawable.ic_peer_phone, SysColor.green, R.string.pv_call, Privacy.Act.CALL),
-            reach(R.drawable.ic_set_eye, SysColor.teal, R.string.pv_page, Privacy.Act.PAGE),
-            reach(R.drawable.ic_app_groups, SysColor.indigo, R.string.pv_invite, Privacy.Act.INVITE))
+            reach(R.string.pv_write, Privacy.Act.WRITE),
+            reach(R.string.pv_call, Privacy.Act.CALL),
+            reach(R.string.pv_page, Privacy.Act.PAGE),
+            reach(R.string.pv_invite, Privacy.Act.INVITE))
         section(null, null,
             c.settingsRow(R.drawable.ic_language, SysColor.blue, c.getString(R.string.local_network), c.text(c.getString(if (Mesh.discoverable) R.string.st_connected else R.string.st_disconnected), 15f, MT.gray)) { systemSettings() },
             c.settingsRow(R.drawable.ic_compose_location, SysColor.blue, c.getString(R.string.location), place) {
@@ -353,7 +362,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             // the switch speaks: hidden, one farewell word; shown, «here» at once (iOS MontanaPresencePrivacy.setSharing)
             c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub)) { Presence.setSharing(it) },
             sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled", R.string.read_receipts_sub),
-            sw(R.drawable.ic_set_keyboard, SysColor.indigo, R.string.live_chat, "liveTypingEnabled"),
+            // «Live chat» is not a switch of Privacy: it lives inside a chat's Money Flow alone (iOS MontanaSettings, 03.10; MoneyFlow)
             // «Sync contacts» (iOS ContactsTabView.upsertSystemCard 2463-2476) writes a person's Montana name into the phone's
             // book; Android has no names yet, so the switch would claim what nothing does — it stands again with the names
             sw(R.drawable.ic_set_link, SysColor.blue, R.string.link_previews, "linkPreviewsEnabled", R.string.link_previews_sub),
@@ -372,10 +381,11 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
         section(null, null, c.text(c.getString(R.string.forget_device), 16f, MT.red, center = true).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             pressable {
-                // The words come first: a person without the phrase leaves here toward it, not past the edge.
+                // DELETE ACCOUNT (iOS MontanaSettings 2287-2310, decision 974): the words come first -- a person without the phrase
+                // leaves here toward it, not past the edge.
                 AlertDialog.Builder(act).setTitle(R.string.forget_q).setMessage(R.string.forget_msg)
                     .setNeutralButton(R.string.show_seed) { _, _ -> act.push { seedPage(act, it) } }
-                    .setPositiveButton(R.string.forget) { _, _ -> onForget() }
+                    .setPositiveButton(R.string.forget_device) { _, _ -> onForget() }   // «Delete account», iOS decision 974
                     .setNegativeButton(R.string.cancel, null).show()
             }
         })
@@ -707,12 +717,6 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
         section(c.getString(R.string.media_autodownload), c.getString(R.string.autodownload_footer),
             sw(R.drawable.ic_set_antenna, SysColor.green, R.string.over_mobile, "autoDownloadCellular"),
             sw(R.drawable.ic_set_wifi, SysColor.blue, R.string.over_wifi, "autoDownloadWiFi"))
-        section(c.getString(R.string.backup_header), c.getString(R.string.backup_footer),
-            c.settingsRow(R.drawable.ic_arrow_circle_up, SysColor.green, c.getString(R.string.create_backup), chevron = false) { make() },
-            c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.orange, c.getString(R.string.restore_backup), chevron = false) { restore() },
-            progress, planRows)
-        count()
-        keepingSection(act)   // the copy kept by the people one writes to (iOS MTKeepingSection, under BACKUP)
         // THE PICTURE CACHE (iOS MontanaSettings.swift:1225-1242 at 2155, MontanaCaches.dropAll; atom 542558a36f0e): the pictures kept
         // so chats and walls open without waiting are emptied here alone, by the person; the checkmark says it was done
         val cleared = c.icon(R.drawable.ic_check, MT.gray).apply { visibility = View.INVISIBLE }
@@ -750,7 +754,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
         }
         // AS THE REFERENCE KEEPS ITS CACHE (iOS f5803d8c): a term for what nobody opened, a ceiling for the whole -- what leaves is
         // what the node holds, asked anew. The platform's own menu offers the choices, as iOS's Picker does.
-        fun choice(icon: Int, color: Int, word: Int, key: String, options: List<Pair<Int, String>>): View {
+        fun choice(icon: Int, color: Int, word: Int, key: String, options: List<Pair<Int, String>>, caption: Int): View {
             val value = c.text("", 15f, MT.gray)
             fun shown() { value.text = options.firstOrNull { it.first == (Prefs.str(key, "0").toIntOrNull() ?: 0) }?.second ?: options.last().second }
             shown()
@@ -762,16 +766,21 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                     show()
                 }
             }
-            return row
+            // the line under the choice says what it does (iOS: the caption under each Picker of CACHE)
+            return c.vstack(Gravity.NO_GRAVITY) {
+                addView(row, lp())
+                addView(c.text(c.getString(caption), 12f, MT.gray).apply { setPadding(dp(16), 0, dp(14), dp(10)) }, lp())
+            }
         }
         val gb = { g: Int -> android.text.format.Formatter.formatShortFileSize(c, g * 1_073_741_824L) }   // USER-DATA: a size in the platform's own units
         val keepRow = choice(R.drawable.ic_restore, SysColor.blue, R.string.keep_media, HomeKeep.KEEP_DAYS,
-            listOf(3 to c.getString(R.string.keep_3_days), 7 to c.getString(R.string.keep_1_week), 30 to c.getString(R.string.keep_1_month), 0 to c.getString(R.string.keep_forever)))
+            listOf(3 to c.getString(R.string.keep_3_days), 7 to c.getString(R.string.keep_1_week), 30 to c.getString(R.string.keep_1_month), 0 to c.getString(R.string.keep_forever)),
+            R.string.keep_media_sub)
         val limitRow = choice(R.drawable.ic_hub, SysColor.gray, R.string.cache_limit, HomeKeep.LIMIT,
-            listOf(5 to gb(5), 16 to gb(16), 32 to gb(32), 0 to c.getString(R.string.cache_no_limit)))
+            listOf(5 to gb(5), 16 to gb(16), 32 to gb(32), 0 to c.getString(R.string.cache_no_limit)), R.string.cache_limit_sub)
         // no node holds this phone's files, nothing to clear: the section stands only while a node brings them back (iOS 214dc096);
         // its footer used to send the person to a Settings row that no longer exists
-        if (HomeShelf.bringing) section(c.getString(R.string.cache_header), c.getString(R.string.cache_footer_node), keepRow, limitRow, keptRow, clearRow)
+        if (HomeShelf.bringing) section(c.getString(R.string.cache_header), c.getString(R.string.cache_footer_node), keptRow, clearRow, keepRow, limitRow)   // iOS's order
         // WHAT THIS PHONE HOLDS, MEASURED ON ITS DISK (iOS «On this phone», e02595a5 and e9187672; the author's word 18.10.2026 10:2x MSK:
         // «I cannot see what weighs so much nor how to clean it»): the sum is the phone's own, each file counted once; the attachments
         // are chosen by kind on their pages, the copies waiting are cleared here
@@ -807,6 +816,7 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
                 diskRow(R.drawable.ic_set_doc, SysColor.gray, R.string.ds_unnamed, u.unnamed, onTap = kinds),
                 diskRow(R.drawable.ic_grid_2x2, SysColor.teal, R.string.ds_walls, u.walls),
                 diskRow(R.drawable.ic_archive, SysColor.orange, R.string.ds_shelf, u.shelf, act0 = bin),
+                diskRow(R.drawable.ic_app_groups, SysColor.green, R.string.ds_kept, u.kept),
                 diskRow(R.drawable.ic_restore, SysColor.blue, R.string.ds_history, u.history),
                 diskRow(R.drawable.ic_person, SysColor.pink, R.string.ds_faces, u.faces),
                 diskRow(R.drawable.ic_more_horiz, SysColor.gray, R.string.ds_rest, u.other),
@@ -819,6 +829,14 @@ fun dataStoragePage(act: MainActivity, onBack: () -> Unit): View {
         diskRows.addView(ProgressBar(c).apply { indeterminateTintList = ColorStateList.valueOf(MT.gray) },
             lp(dp(28), dp(28)).apply { gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(10); bottomMargin = dp(10) })
         section(c.getString(R.string.ds_header), c.getString(R.string.ds_footer), diskRows)
+        // THE BACKUP STANDS LAST, THE KEEPING UNDER IT (iOS DataStorageView: auto-download, picture cache, cache, on this phone,
+        // sync, backup, MTKeepingSection); iOS's SYNC is iCloud's alone, which Android has no native road to
+        section(c.getString(R.string.backup_header), c.getString(R.string.backup_footer),
+            c.settingsRow(R.drawable.ic_arrow_circle_up, SysColor.green, c.getString(R.string.create_backup), chevron = false) { make() },
+            c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.orange, c.getString(R.string.restore_backup), chevron = false) { restore() },
+            progress, planRows)
+        count()
+        keepingSection(act)   // the copy kept by the people one writes to (iOS MTKeepingSection, under BACKUP)
         measure = {
             val named = desk?.inv?.owner?.keys?.toSet() ?: emptySet()
             act.background {

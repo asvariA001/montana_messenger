@@ -13,7 +13,7 @@ import org.json.JSONObject
  * I type them — a grey bubble at the feed's foot with the caret where I hold it — and theirs on mine. The word is
  * «⁣mtdraft:» + base64 {t, c, n[, rm][, ck]}: the text, the caret, the moment it was said (strictly growing), the letter it
  * answers, «ck» for a checkpoint of a closing chat. It rides the signal lane (at most four a second, the ending always);
- * an empty text is the ending. «Live chat» in Privacy (liveTypingEnabled) silences my words and hides theirs.
+ * an empty text is the ending. It speaks and is heard only in a chat whose Money Flow is on (MoneyFlow, iOS 03.10).
  */
 object LiveDraft {
     const val MARK = "⁣mtdraft:"
@@ -29,7 +29,6 @@ object LiveDraft {
     fun unlisten(l: () -> Unit) { synchronized(listeners) { listeners.remove(l) } }
     private fun changed() { val ls = synchronized(listeners) { listeners.toList() }; MainThread.post { ls.forEach { it() } } }
 
-    private val on get() = Prefs.bool("liveTypingEnabled", true)
     private val h = android.os.Handler(android.os.Looper.getMainLooper())
     private var lastStamp = 0L
     /** The moment a word was said, strictly growing (iOS draftStamp): two words in one millisecond keep their order. */
@@ -44,9 +43,10 @@ object LiveDraft {
         val ending = text.isEmpty()
         // THE GATE OF THE LIVE WORD, NAMED WHEN IT CLOSES (iOS draft_gate, MontanaConversation.swift:4342-4351 at 2155; atom
         // 4a13e35a76e9): a closed gate looked exactly like a broken feature -- nothing on their screen, nothing in the record.
-        // Android's own gates are the «Live chat» switch and the block (iOS's are the money flow and the peer near). Folded:
+        // LIVE CHAT LIVES ONLY IN THE MONEY FLOW, AND ALWAYS THERE (iOS sendDraftWord `guard MTApps.flowOn(peer)`, the author's word
+        // 03.10: «only in the Money Flow game, out of the ordinary chats»): the gates are this chat's flow and the block. Folded:
         // a minute of typing leaves one line, not two hundred.
-        if (!ending && !on) { Diary.folded("draft_gate", "live=off to=" + ref.take(10), 30_000, ref); return }
+        if (!ending && !MoneyFlow.on(ref)) { Diary.folded("draft_gate", "flow=off to=" + ref.take(10), 30_000, ref); return }
         if (PeerSafety.isBlocked(ref)) { if (!ending) Diary.folded("draft_gate", "blocked=1 to=" + ref.take(10), 30_000, ref); return }
         if (!checkpoint && said[ref] == text) return        // the wire already says exactly this
         if (ending && said[ref] == null) return              // nothing of mine stands there
@@ -118,7 +118,9 @@ object LiveDraft {
         val state = j.has("rl") || j.has("rq") || j.has("ab") || j.has("al")   // a word of state, never a keystroke (iOS draftStateKeys)
         // THE REFUSAL IS NAMED (iOS draft_gate / draft_shown, MontanaE2E.swift:1059-1080 at 2155; atom 4a13e35a76e9): the word
         // arriving was written down, the word SHOWN was not, nor the reason a word showed nothing. Folded by the peer.
-        if (!on) { if (!state && j.optString("t").isNotEmpty()) Diary.folded("draft_gate", "live=off from=" + ref.take(10), 60_000, ref); return false }
+        // MY MONEY FLOW IS OFF (iOS handleMeshDraft `guard MTApps.flowOn(peer)`): their door and link above are noted -- those are
+        // not live chat -- but their words show nothing and light no «typing…»; the peer's own coin decides whether they speak at all
+        if (!MoneyFlow.on(ref)) { if (!state && j.optString("t").isNotEmpty()) Diary.folded("draft_gate", "flow=off from=" + ref.take(10), 60_000, ref); return false }
         val text = j.optString("t")
         // WORDS THAT ALREADY BECAME A LETTER ARE NOT A DRAFT (iOS draft_ghost): a word equal to a letter of theirs just landed
         val landed = text.isNotEmpty() && Book.chat(SamePair.root(ref))?.msgs?.takeLast(5)?.any { !it.mine && it.text == text } == true
@@ -131,6 +133,49 @@ object LiveDraft {
         return text.isNotEmpty() && !landed && !j.has("ck") && !state && fresh
     }
     fun of(ref: String): Draft? = shown[ref]
+    /**
+     * ONE CHAT'S FLOW WENT OFF (iOS E2E.liveTypingSwitched, MontanaE2E.swift:433-438): the words of mine standing on their screen
+     * are ended, and theirs leave mine -- that peer's alone; the other chats keep theirs.
+     */
+    fun flowSwitched(ref: String, on: Boolean) {
+        android.util.Log.d("Montana", "live_switch " + (if (on) "on" else "off") + " to=" + ref.take(10))
+        if (on) return
+        if (!said[ref].isNullOrEmpty()) say(ref, "")
+        if (shown.remove(ref) != null) changed()
+    }
+}
+
+/**
+ * THE MONEY FLOW OF A CHAT (iOS MTMoneyFlow, MTWalletCore.swift:653-669; the author's word 04.10.2026: «if my chat is turned with one
+ * correspondent, it concerns only the chat with them»): each pair's conversation keeps its own turn, and live chat lives inside it
+ * alone (iOS 03.10). OPEN WITHOUT COINS (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing -- only the chain
+ * mints (iOS, the author's word 29.10.2026) -- and the wallet stays closed.
+ */
+object MoneyFlow {
+    private fun key(ref: String) = "moneyFlow." + SamePair.root(ref)   // a conversation's own key (iOS SeedScope «moneyFlow.», CopyPlan)
+    fun on(ref: String): Boolean = ref.isNotEmpty() && Prefs.bool(key(ref), false)
+    fun set(ref: String, v: Boolean) = Prefs.setBool(key(ref), v)
+}
+
+/**
+ * THE MONEY FLOW BEGAN, A ROW OF THE CHAT (iOS MTMoneyFlowRow, MTRowLetter.swift:223-226; ChatStore.appendMoneyFlow 3348-3358; the
+ * author's word 03.10.2026: «a system message that the game of money flow has begun, with one turn of the coin»): this phone's own
+ * row, laid the moment the coin comes on, mine and read. COMPAT-LOCAL: it never leaves this phone; a copy arriving from outside is a
+ * service word no build knows and is buried unread.
+ */
+object FlowRow {
+    const val MARK = "\u200B\u200BMF:"   // COMPAT-LOCAL: this phone's own row, never on the wire
+    fun of(text: String) = text.startsWith(MARK)
+    /** Once in a minute at most: a coin flipped on and off and on again lays one row (iOS 3350). */
+    fun lay(pipe: String) {
+        val peer = SamePair.root(pipe)
+        val now = System.currentTimeMillis()
+        Book.edit(peer) { c ->
+            c.msgs.lastOrNull()?.let { if (of(it.text) && now - it.at < 60_000) return@edit }
+            c.msgs.add(Msg(Marks.mintMid(), MARK, true, now, state = 3))
+        }
+        android.util.Log.d("Montana", "money_flow begun peer=" + peer.take(10))
+    }
 }
 
 /**

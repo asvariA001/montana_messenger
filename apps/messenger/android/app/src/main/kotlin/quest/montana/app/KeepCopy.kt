@@ -402,10 +402,16 @@ object KeepCopy {
         var triedAt: Double? = null
         /** THE ASKING A NEW ATTACHMENT MADE DUE (iOS Owner.urgent, 11c34ed7 at 2389, decision 872 = v): its copy goes on the battery. */
         var urgent: Boolean? = null
-        var light = JSONObject()              // lightGen, lightAt, lightTriedAt, lightFace, lightName, lightPeople
+        var light = JSONObject()              // lightGen, lightAt, lightTriedAt, lightFace, lightName, lightPeople, lightLaid
+        /** THE ROADS THIS PERSON LAID ON THE NODES (iOS Owner.laid / lightLaid, c22a497d at 2418, OZ 1): every generation laid sixteen
+         *  shares anew and nobody took the older ones off -- Moscow held 22 GB of them. The roads (the list's piece and its key) of the
+         *  generation the keepers hold are kept here, those of the last two light copies under light's «lightLaid»; a newer one takes
+         *  the older off the nodes (Keeping.unlay). */
+        var laid: org.json.JSONArray? = null
+        val lightLaid: org.json.JSONArray? get() = light.optJSONArray("lightLaid")
         fun json(): JSONObject = JSONObject(light.toString()).put("generation", generation).put("askedAt", askedAt).put("yes", org.json.JSONArray(yes))
             .put("n", n).put("keepers", JSONObject().apply { keepers.forEach { (c, k) -> put(c, k.json()) } }).put("renewedAt", renewedAt).put("short", short)
-            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) }; urgent?.let { put("urgent", it) } }
+            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) }; urgent?.let { put("urgent", it) }; laid?.let { put("laid", it) } }
         companion object {
             fun of(o: JSONObject): Owner = Owner(o.optLong("generation")).apply {
                 asking = if (o.has("asking")) o.optLong("asking") else null
@@ -417,6 +423,7 @@ object KeepCopy {
                 short = o.optBoolean("short")
                 triedAt = if (o.has("triedAt")) o.optDouble("triedAt") else null
                 urgent = if (o.optBoolean("urgent")) true else null
+                laid = o.optJSONArray("laid")
                 light = JSONObject().also { l -> for (k in o.keys()) if (k.startsWith("light")) l.put(k, o.get(k)) }
             }
         }
@@ -442,12 +449,16 @@ object KeepCopy {
         Prefs.setBool(MINE, on)
         Prefs.setBool(TOLD, true)   // the switch stands under its own explanation
         ex.execute {
-            synchronized(lock) {
+            val gone = synchronized(lock) {
                 val o = owner()
-                if (on) { o.renewedAt = 0.0; o.triedAt = null; saveOwner() }
-                else { o.keepers.keys.forEach { say(it, JSONObject().put("w", "release")) }; ownerCache = Owner(o.generation); saveOwner() }
+                if (on) { o.renewedAt = 0.0; o.triedAt = null; saveOwner(); null }
+                else {
+                    o.keepers.keys.forEach { say(it, JSONObject().put("w", "release")) }
+                    val g = Keeping.roadsJoin(o.laid, o.lightLaid)
+                    ownerCache = Owner(o.generation); saveOwner(); g
+                }
             }
-            if (on) tick()
+            if (on) tick() else Keeping.unlay(gone)   // no copy kept: its pieces leave the nodes too (iOS 2418)
         }
     }
 
@@ -620,8 +631,9 @@ object KeepCopy {
         // the shares are a third more than the copy, and the pieces of one share are laid beside them
         if (dir.usableSpace < copy.length() / KeepCode.DATA * (KeepCode.GROUP + 1) + 64L * 1_048_576) return Unit.also { Log.i("Montana", "keep_cut refused: no room") }
         val cut = KeepCode.cut(copy, n, dir) ?: return Unit.also { Log.i("Montana", "keep_cut refused n=$n") }
+        val roads = HashMap<Int, JSONObject>()
+        var handed = false
         try {
-            val roads = HashMap<Int, JSONObject>()
             for (k in 0 until n) {
                 // the charger taken away (unless a new attachment made the copy due), the phone grown hot, a metered path: the rest
                 // of the copy waits for the next renewal
@@ -646,14 +658,23 @@ object KeepCopy {
                 slots.firstOrNull()?.let { sent[conv] = Keeper(it, false, slots, emptyList()) }
             }
             if (sent.isEmpty()) return Unit.also { Log.i("Montana", "keep_hand no part left the phone") }
-            synchronized(lock) {
+            val older = synchronized(lock) {
                 val o = owner()
                 for (conv in o.keepers.keys) if (conv !in sent) say(conv, JSONObject().put("w", "release"))
+                val before = o.laid
+                handed = true
                 o.keepers = sent; o.n = n; o.generation = g; o.yes.clear(); o.short = false; o.renewedAt = now()
+                o.laid = Keeping.roadsOf(roads.values)
                 saveOwner()
+                before
             }
             Log.i("Montana", "keep_hand g=$g keepers=${sent.size} parts=$parts laid=${roads.size} bytes=${cut.length}")
-        } finally { cut.shares.forEach { it.delete() } }
+            Keeping.unlay(older)   // the generation before leaves the nodes (iOS 2418)
+        } finally {
+            cut.shares.forEach { it.delete() }
+            // A ROUND THAT DID NOT END TAKES ITS SHARES BACK (iOS 2418): a share laid before the charger went away was nobody's road.
+            if (!handed && roads.isNotEmpty()) Keeping.unlay(Keeping.roadsOf(roads.values))
+        }
     }
 
     // ── the light copy (iOS MTKeeping 652-702, 0be1c720): «everything else back by the words» ──
@@ -685,31 +706,41 @@ object KeepCopy {
      * one the doors may have let go.
      */
     fun lightForLink() {
-        if (!agrees || !MontanaSeed.hasSeed || lighting) return
-        val (face, name) = profileTags()
-        layLight(face, name, peopleTag())
+        if (!agrees || !MontanaSeed.hasSeed) return
+        // a copy already on its way holds for the joining too (iOS 84b18c6e lightJoining, OZ 1 p.6)
+        if (lighting) lightJoining = true else { val (face, name) = profileTags(); layLight(face, name, peopleTag(), joining = true) }
         Log.i("Montana", "keep_light for a joining")
     }
-    private fun layLight(face: String, name: String, people: String) {
+    @Volatile private var lightJoining = false   // a phone gave its words while a light copy was on its way: that copy holds for the joining
+    /** THE COPY IS A PICTURE ON THE MIRROR'S CURSOR (iOS 84b18c6e, OZ 1 p.6): the cursors are read before the copy is gathered, so a
+     *  word after them rides the mirror again and none falls between. */
+    private fun layLight(face: String, name: String, people: String, joining: Boolean = false) {
         if (lighting) return
         lighting = true
         val g = synchronized(lock) { owner().let { o -> o.light.put("lightTriedAt", now()); saveOwner(); o.light.optLong("lightGen", 0L) + 1 } }
         bulk.execute {
+            var lc: JSONObject? = null
             try {
                 val c = Book.ctx
                 val busy = MontanaBackup.shelf(c)?.listFiles { f -> f.name.endsWith(".part") && System.currentTimeMillis() - f.lastModified() < 600_000 }
                 if (!busy.isNullOrEmpty()) { Log.i("Montana", "keep_light waits: another copy is being made"); return@execute }
+                lc = Twin.copyCursors(joining).also { if (joining) Twin.tellJoining(it) }
                 val s = CopyInventory.gather(c).scope(CopyPlan.load())
                 // every letter, no attachment: the attachments come from the keepers
                 val scope = CopyScope(s.skipConvs, CopyKind.values().toSet(), s.skipFiles, s.owner, s.skipPeople, s.skipFaces)
                 val made = MontanaBackup.create(c, scope) {}
                 if (made !is CopyResult.Made) Log.i("Montana", "keep_light refused " + ((made as? CopyResult.Refused)?.why?.javaClass?.simpleName ?: "?"))
-                else try { nameLight(made, g, face, name, people) } finally { made.file.delete() }
+                else try { nameLight(made, g, face, name, people, lc) } finally { made.file.delete() }
             } catch (e: Throwable) { Log.w("Montana", "keep_light " + e.javaClass.simpleName) }
-            finally { lighting = false }
+            finally {
+                lighting = false
+                // a joining that came while this copy was on its way
+                if (lightJoining && !joining) lc?.let { Twin.tellJoining(it, here = true) }
+                if (lc != null) lightJoining = false
+            }
         }
     }
-    private fun nameLight(made: CopyResult.Made, g: Long, face: String, name: String, people: String) {
+    private fun nameLight(made: CopyResult.Made, g: Long, face: String, name: String, people: String, lc: JSONObject?) {
         val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }
         val secret = master?.let { KeepDerive.lightSecret(it) }
         val digest = shaHex(made.file)
@@ -717,14 +748,24 @@ object KeepCopy {
         if (secret == null || road == null) return Unit.also { Log.i("Montana", "keep_light the light copy did not reach the nodes") }
         road.put("w", "light").put("g", g).put("d", digest).put("v", Archive.writerHex() ?: "")   // the device that laid it
             .put("a", Book.ctx.packageName)   // and the app on it: two apps of one phone are two writers of the same words
+            .put("at", now().toLong())   // the moment it was named: words opened elsewhere wait for a picture named after their asking (iOS 2430)
+        lc?.takeIf { it.length() > 0 }?.let { road.put("lc", it) }   // the mirror's cursors the copy stands on: the joined device goes on from them (OZ 1 p.6)
         // The sender of the pipe of light is named «light», never this person's own reference: a phone opening the same words reads
         // the box under that reference, and a letter of its own name the node would keep from it.
         if (!Keeping.knock(secret, road, LIGHT_NAME)) return Unit.also { Log.i("Montana", "keep_light no door boxed the road") }
-        synchronized(lock) {
-            owner().light.put("lightGen", g).put("lightAt", now()).put("lightFace", face).put("lightName", name)
+        val older = synchronized(lock) {
+            val o = owner()
+            o.light.put("lightGen", g).put("lightAt", now()).put("lightFace", face).put("lightName", name)
                 .put("lightPeople", people).put("lightEngine", Card.ENGINE)
+            // THE LAST TWO LIGHT COPIES STAY (iOS 2418): a device in the middle of taking the one before still finds it whole.
+            val lights = Keeping.roadsJoin(o.lightLaid, Keeping.roadsOf(listOf(road)))
+            val keep = org.json.JSONArray(); val gone = org.json.JSONArray()
+            for (i in 0 until lights.length()) (if (i < lights.length() - 2) gone else keep).put(lights.get(i))
+            o.light.put("lightLaid", keep)
             saveOwner()
+            gone
         }
+        Keeping.unlay(older)
         Log.i("Montana", "keep_light named g=$g bytes=${made.file.length()} chats=${made.tally.chats}")
     }
 
@@ -810,7 +851,9 @@ object KeepCopy {
         val t = now()
         if (t - h.answeredAt < 600) return   // a call repeats every two minutes; one answer serves ten
         val r = h.road; val at = h.roadAt
-        val road: JSONObject = if (r != null && at != null && t - at < 6 * 86_400 && r["z"]?.toLongOrNull() == h.bytes) {
+        // The owner's road is ridden while it stands (iOS 2418): a newer generation takes the older off the nodes (unlay), and a
+        // keeper that missed the newer part lays its own.
+        val road: JSONObject = if (r != null && at != null && t - at < 6 * 86_400 && r["z"]?.toLongOrNull() == h.bytes && Keeping.stands(r["mref"] ?: "")) {
             JSONObject().put("z", h.bytes).put("bk", r["bk"] ?: "").put("mref", r["mref"] ?: "").put("mk", r["mk"] ?: "")   // the owner's pieces, alive a week
         } else synchronized(lock) { roads[key]?.takeIf { t - it.first < 86_400 }?.second }?.let { JSONObject(it.toString()) } ?: run {
             val fresh = Keeping.lay(file) ?: return Unit.also { Log.d("Montana", "keep_answer the part did not reach the nodes") }
@@ -854,16 +897,44 @@ object KeepCopy {
      * erases nothing, so one laid after another adds only what it alone holds. The person stands in their correspondences from the
      * first laid. The box keeps the letters: the next phone of the same words reads them too.
      */
+    /**
+     * THE WORDS OPENED ON A NEW DEVICE TAKE ONE PICTURE, AS A JOINING BY QR DOES (iOS 2599c6db, 2430, the author's words 23891 and
+     * 23893: «in Bob's chat the texts doubled and the group's old face stayed»; «it must sync as the sign-in by QR does»). A device
+     * laid another device's copy and then its own copy of an earlier life over it: rows of that life came back. NOTHING IS AWAITED
+     * (iOS 0b74596b, 2432, OZ 1 p.2-p.3, the author's words 23957, 23959: «nothing is awaited, it all happens at once»): the newest
+     * copy ANOTHER device named is the history, alone, taken at once -- this device's own copy of an earlier life stands only where
+     * no other device named one (2431: the iPad laid its own copy of the life before, Alice's chat old, five chats missing). No older
+     * picture is laid over the owner's -- it would bring back what the person deleted since. The owner's cursors are this device's
+     * own (Twin.cursorsFromCopy), so every letter after the picture comes from the books, as on a joined device.
+     */
+    private val lightSeen = HashSet<String>()
     private fun takeLight(secret: ByteArray, dir: File): Boolean {
+        val mine = Archive.writerHex() ?: ""
         val newest = HashMap<String, JSONObject>()
-        for ((_, text) in Post.pickup(mapOf(LIGHT_NAME to secret), take = false)) {
-            val o = Keeping.word(text)?.takeIf { it.optString("w") == "light" } ?: continue
+        val words = Post.pickup(mapOf(LIGHT_NAME to secret), take = false).mapNotNull { (_, text) -> Keeping.word(text) }
+        // THE WRITERS THAT LEFT (iOS MTKeeping.sayGone + takeLight, 456fff61, 2434, OZ 1 p.6; the author's words 24013, 24016, 24017): a
+        // device that deleted its account said «gone» with its writer and its moment; no copy it named before that moment is the
+        // history, whatever store still gives its pieces whole -- the chats and names of the life before came back over the phone's
+        val gone = HashMap<String, Long>()
+        for (o in words) if (o.optString("w") == "gone") {
+            val v = o.optString("v") + "/" + o.optString("a")
+            gone[v] = maxOf(gone[v] ?: 0L, o.optLong("at", 0L))
+        }
+        var left = 0
+        for (o in words) {
+            if (o.optString("w") != "light") continue
             // THE NEWEST ROAD OF EVERY WRITER, A DEVICE AND THE APP ON IT (iOS 09.10.2026): two apps of one phone and the same words
             // count their generations each from one, and one standing for both laid a copy without the other's profile
             val v = o.optString("v") + "/" + o.optString("a")
+            val leftAt = gone[v]
+            if (leftAt != null && o.optLong("at", 0L) <= leftAt) { left++; continue }   // named before its writer left
             if (o.optLong("g", 0L) >= (newest[v]?.optLong("g", -1L) ?: -1L)) newest[v] = o
         }
-        val roads = newest.values.sortedByDescending { it.optLong("z", 0L) }
+        if (gone.isNotEmpty()) Log.i("Montana", "keep_light gone writers=" + gone.size + " copies passed=" + left)
+        val others = newest.values.any { it.optString("v") != mine }   // another device of these words named a copy
+        val roads = newest.values.filter { o ->
+            o.optString("d") !in lightSeen && !(others && o.optString("v") == mine)   // an earlier life's own copy is never the history
+        }.sortedByDescending { it.optLong("at", 0L) }   // the newest picture first
         if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road") }
         var laid = 0
         for (road in roads) {
@@ -871,7 +942,10 @@ object KeepCopy {
             val f = File(dir, UUID.randomUUID().toString() + "." + MontanaBackup.EXT)
             try {
                 taking = Taking.Fetching(0.0)
-                if (!Keeping.fetch(road, f) || shaHex(f) != d) { Log.i("Montana", "keep_light a light copy did not come whole"); continue }
+                if (!Keeping.fetch(road, f) || shaHex(f) != d) {
+                    lightSeen.add(d)
+                    Log.i("Montana", "keep_light a light copy did not come whole"); continue
+                }
                 taking = Taking.Laying(0.0)
                 val r = MontanaBackup.restore(Book.ctx, f, ofMany = true) { taking = Taking.Laying(it) }
                 reread()
@@ -879,10 +953,22 @@ object KeepCopy {
                 Log.i("Montana", "keep_light laid=" + r.javaClass.simpleName + " devices=" + roads.size + " own=" + own + " a=" + road.optString("a"))
                 if (r !is CopyResult.Taken) continue
                 laid++
-                if (laid == 1) { val letIn = onLight; onLight = null; letIn?.invoke() }
+                if (laid == 1) {
+                    val letIn = onLight; onLight = null; letIn?.invoke()
+                    road.optJSONObject("lc")?.let { Twin.cursorsFromCopy(it) }   // the same book from here, joined or opened (iOS 84b18c6e, 2599c6db)
+                    break   // words opened here: the owner's picture alone is the history (iOS 2430)
+                }
             } finally { f.delete() }
         }
         return laid > 0
+    }
+
+    /** The words opened here (iOS takeOpened, 2430, 2432, the author's words 23891, 23893, 23957, 23959): the seed's other devices
+     *  are asked to name a picture of now, and nothing is awaited -- the newest copy another device named stands at once, and every
+     *  letter after it comes from the books by its cursors, as on a device joined by QR. */
+    private fun takeOpened(ls: ByteArray, dir: File): Boolean {
+        Twin.askLight()
+        return takeLight(ls, dir)
     }
 
     /**
@@ -924,7 +1010,7 @@ object KeepCopy {
         taking = Taking.Fetching(0.0)
         // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
         // the pipes it named are asked to give back
-        KeepDerive.lightSecret(master)?.let { ls -> if (takeLight(ls, dir)) askBack() }
+        KeepDerive.lightSecret(master)?.let { ls -> if (takeOpened(ls, dir)) askBack() }
         taking = Taking.Calling(0, 0)
         try {
             while (!Thread.currentThread().isInterrupted) {

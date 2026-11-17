@@ -57,6 +57,38 @@ object CoinText {
         val part = (coins % PER_MONTANA).toString().removePrefix("-")
         return count(whole) + "." + "0".repeat(9 - part.length) + part
     }
+    /** The spans of time people count by (iOS MTTimeSpan, MTWalletScreen.swift 580-582), in seconds; a month is 2 628 000. */
+    private const val CENTURY = 3_153_600_000L
+    private const val EPOCH = 31_536_000_000L
+    private val SPANS = longArrayOf(31_536_000L, 2_628_000L, 604_800L, 86_400L, 3_600L, 60L)
+    /**
+     * THE TIME A COUNT OF COINS IS (iOS MTCoinText.time, MTWalletScreen.swift 450-480; the constitution, article 11: «1 second -- 1
+     * coin»): each span takes what the larger left, a unit at zero unsaid, split here and never by a calendar, so one count reads the
+     * same on every date; the system writes year to second (abbreviated, in the app's language), the catalogue the epoch and century.
+     */
+    fun time(coins: Long, signed: Boolean = true): String {
+        var rest = Math.abs(coins)
+        val epochs = rest / EPOCH; rest %= EPOCH
+        val centuries = rest / CENTURY; rest %= CENTURY
+        val parts = ArrayList<String>()
+        val c = Book.ctx
+        if (0 < epochs) parts.add(c.getString(R.string.coin_time_epochs, epochs))
+        if (0 < centuries) parts.add(c.getString(R.string.coin_time_centuries, centuries))
+        if (parts.isEmpty() || Math.abs(coins) % CENTURY != 0L) {
+            val units = arrayOf(android.icu.util.MeasureUnit.YEAR, android.icu.util.MeasureUnit.MONTH, android.icu.util.MeasureUnit.WEEK,
+                android.icu.util.MeasureUnit.DAY, android.icu.util.MeasureUnit.HOUR, android.icu.util.MeasureUnit.MINUTE)
+            val measures = ArrayList<android.icu.util.Measure>()
+            for (i in SPANS.indices) {
+                val n = rest / SPANS[i]; rest %= SPANS[i]
+                if (0 < n) measures.add(android.icu.util.Measure(n, units[i]))
+            }
+            if (0 < rest || measures.isEmpty()) measures.add(android.icu.util.Measure(rest, android.icu.util.MeasureUnit.SECOND))
+            val f = android.icu.text.MeasureFormat.getInstance(java.util.Locale.getDefault(), android.icu.text.MeasureFormat.FormatWidth.SHORT)
+            parts.add(runCatching { f.formatMeasures(*measures.toTypedArray()) }.getOrDefault(Math.abs(coins).toString()))
+        }
+        val told = parts.joinToString(" ")
+        return if (signed && coins < 0) "−" + told else told
+    }
 }
 
 /**
@@ -233,6 +265,16 @@ object CoinBook {
         }
         return take(e)
     }
+    /** A send the chain already weighed (iOS sendHeld, MTWalletCore.swift 1971): the book's balance does not refuse it. */
+    @Synchronized fun sendHeld(coins: Long, peer: String, ref: String, on: String? = null): Boolean {
+        ensure()
+        val e = CoinEntry(CoinEntry.SEND, coins, ref, peer, on, moment(ref))
+        if (coins <= 0 || ref.isEmpty() || e.id in taken) {
+            Log.i("Montana", "coin_refused send coins=" + coins + " balance=" + balance)
+            return false
+        }
+        return take(e)
+    }
     /** Coins that arrived, credited once by their name. */
     @Synchronized fun receive(coins: Long, peer: String, ref: String, on: String? = null): Boolean {
         ensure()
@@ -261,6 +303,8 @@ object CoinBook {
     fun received(ref: String): Boolean = holds(CoinEntry.RECEIVE, ref)
     /** The coins of one move by its kind and name (a coin letter's transfer, read when its row is gone: CoinSend.arrived). */
     @Synchronized fun amount(k: String, ref: String): Long? { ensure(); return entries.lastOrNull { it.k == k && it.ref == ref }?.c }
+    /** One move by its kind and name (iOS entry(_:_:)): the letter a SEND stood under comes back with its coins. */
+    @Synchronized fun entry(k: String, ref: String): CoinEntry? { ensure(); return entries.lastOrNull { it.k == k && it.ref == ref } }
     /** How many moves the book holds: the wallet reads its chains' heads again when it moves (iOS .task(id: book.entries.count)). */
     @Synchronized fun size(): Int { ensure(); return entries.size }
     /** The moves, newest first, for the history. */
@@ -437,22 +481,63 @@ object CoinSend {
     fun canPay(ref: String): Boolean = !Groups.isKey(ref) && Book.chat(ref) != null && Book.secret(ref) != null && !PeerSafety.isBlocked(ref)
 
     /**
-     * A FIELD TRANSFER'S HONEST OUTCOMES (iOS MTCoinSend.TransferResult): only the balance may call it short; any other refusal is
-     * «not sent», nothing left the book. iOS's pending and noKey belong to the nodes' record (MTCoinTx), which this build has not.
+     * A FIELD TRANSFER'S HONEST OUTCOMES (iOS MTCoinSend.TransferResult): only the available may call it short (CoinSplit.available,
+     * the number the plate shows); pending -- the chain has the SEND and has not said its last word, never «not enough»; refused,
+     * no key, paced -- nothing left the book.
      */
-    enum class Sent { SENT, SHORT, REFUSED }
-    /** Coins to a person, as a coin letter in their chat. False: refused, nothing sent. */
+    enum class Sent { SENT, SHORT, PENDING, REFUSED, NO_KEY, PACED }
+    /** Coins to a person. False: refused, nothing sent. Off the main thread: it asks the nodes. */
     fun transfer(ref: String, coins: Long): Boolean = transferResult(ref, coins) == Sent.SENT
+    /**
+     * COINS TO A PERSON ARE A RECORD ON THE CHAIN, THE LETTER ONLY TELLS (iOS MTCoinSend.transferResult, MTWalletCore.swift 2119-2170):
+     * the pair's version 3 SEND first (CoinTx.send3); a receiver whose coin key is not known yet is asked for it by the about word's
+     * «q» and the same send goes when it comes, within ten seconds (the author's word 21.10.2026 09:41 UTC). Sent -- a letter in the
+     * chat says how many coins and the time they are, and carries the transfer's link (CoinTx.LINK). Off the main thread.
+     */
     fun transferResult(ref: String, coins: Long): Sent {
-        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins); return Sent.REFUSED }
-        if (CoinBook.balance < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " balance=" + CoinBook.balance); return Sent.SHORT }
-        val mid = Marks.mintMid()
-        if (!CoinBook.send(coins, ref, wire(mid))) return Sent.REFUSED
-        val text = CoinLetter.text(coins, mid.substringAfter('-'))
-        Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis())) }
-        Post.send(ref, mid, text)
-        Log.i("Montana", "coin_send coins=" + coins + " balance=" + CoinBook.balance)
-        return Sent.SENT
+        val available = CoinSplit.available
+        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance); return Sent.REFUSED }
+        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance); return Sent.SHORT }
+        var result = chainSend(coins, ref)
+        if (result.first == Sent.NO_KEY) {
+            MyAbout.sendIfNeeded(ref, askKey = true)
+            var waited = 0
+            while (CoinTx.peerFrom(ref) == null && waited < 40) { waited++; Thread.sleep(250) }
+            val got = CoinTx.peerFrom(ref) != null
+            Log.i("Montana", "coin_v3 key asked got=" + (if (got) 1 else 0) + " waited_ms=" + waited * 250)
+            if (got) result = chainSend(coins, ref)
+        }
+        val balance = CoinBook.balance
+        when (result.first) {
+            Sent.SENT -> {
+                // the coin glyph, the coins and the time they are (the author's word 19.10.2026 14:44 UTC), the link the transfer's own
+                // address; no link card (iOS noLinkCard)
+                val text = CoinLetter.MARK + CoinText.count(coins) + " · " + CoinText.time(coins) + "\n" + CoinTx.LINK + result.second
+                val mid = Marks.mintMid()
+                Book.edit(ref) { it.msgs.add(Msg(mid, text, true, Marks.birthMs(mid) ?: System.currentTimeMillis())) }
+                Post.send(ref, mid, text)
+                Log.i("Montana", "coin_send coins=" + coins + " tx=" + result.second + " balance=" + balance)
+            }
+            Sent.PENDING -> Log.i("Montana", "coin_pending transfer coins=" + coins + " balance=" + balance)
+            Sent.NO_KEY -> Log.i("Montana", "coin_refused transfer no receiver key coins=" + coins + " balance=" + balance)
+            Sent.PACED -> Log.i("Montana", "coin_refused transfer paced: the key's node took its thirty records a minute twice over coins=" + coins + " balance=" + balance)
+            else -> Log.i("Montana", "coin_refused transfer not sent coins=" + coins + " balance=" + balance)
+        }
+        return result.first
+    }
+    /**
+     * The pair's SEND and its word (iOS MTCoinTx.sendResult, MTWalletCore.swift 3050-3062): version 3 first; past the v2 cut
+     * (19.10.2026) a send that cannot go as version 3 does not go -- no receiver key, or refused.
+     */
+    private fun chainSend(coins: Long, ref: String): Pair<Sent, String?> = when (val r = CoinTx.send3(coins, ref)) {
+        is CoinTx.Send3.Sent -> Sent.SENT to r.id
+        is CoinTx.Send3.Pending -> Sent.PENDING to null
+        is CoinTx.Send3.Failed -> Sent.REFUSED to null
+        is CoinTx.Send3.Paced -> Sent.PACED to null
+        is CoinTx.Send3.NotApplicable -> {
+            Log.i("Montana", "coin_v3 v2 road why=" + r.why + " coins=" + coins)
+            (if (r.why == CoinTx.NO_RECEIVER_KEY) Sent.NO_KEY else Sent.REFUSED) to null
+        }
     }
 
     /**
@@ -468,6 +553,9 @@ object CoinSend {
 
     /** A letter of theirs landed (Post): a coin letter is credited once by its wire name. */
     fun landed(ref: String, mid: String, text: String, qt: String?) {
+        // A TRANSFER'S TELLING LETTER ASKS THE NODES (iOS landed, MTWalletCore.swift 459-463): the letter credits nothing; the record
+        // it names is read from the chain (CoinTx.scan)
+        if (GooglePlay.COINS && text.contains(CoinTx.LINK)) Thread { CoinTx.scan("told") }.start()
         if (qt != null || Groups.isKey(ref)) return
         val coin = CoinLetter.parse(text) ?: return
         if (credits(coin, mid, ref)) CoinBook.receive(coin.c, ref, wire(mid))
@@ -620,6 +708,8 @@ object CoinSend {
         }
         if (0 < letters) TimeChain.flush()
         Log.i("Montana", "coin_settle letters=" + letters + " coins=" + coins + " balance=" + CoinBook.balance)
+        // the transfers' records: the waiting ones decided, the pipes asked (iOS settle, MTWalletCore.swift 449-452)
+        if (GooglePlay.COINS) CoinTx.settle()
     }
 }
 

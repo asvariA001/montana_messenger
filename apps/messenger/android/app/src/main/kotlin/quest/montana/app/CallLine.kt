@@ -138,6 +138,8 @@ object CallLine {
     private val work = Executors.newSingleThreadExecutor()
     private val gate = Any()
     private var line: Line? = null
+    /** A call is on: the seats do not turn under it (Seats.mayMove, iOS refusedForCall). */
+    val busy: Boolean get() = line != null
     private val waiting = ArrayList<Pair<String, IceCandidate>>()   // the caller's candidates that came before the line stood
     private var focus: AudioFocusRequest? = null
     @Volatile var muted = false

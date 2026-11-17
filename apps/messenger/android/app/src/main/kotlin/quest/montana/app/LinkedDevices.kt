@@ -40,7 +40,30 @@ object LinkedDevices {
         set(v) { if (v in CHOICES) Prefs.setInt(DAYS, v) }
 
     /** THE ONE STAMP OF A LETTER IN THE SEED'S PIPE (iOS stamp, constitution 15): its kind and, on the phone, the term of its joined devices. */
-    fun stamp(o: JSONObject) { o.put("d", KIND).put("e", days) }
+    fun stamp(o: JSONObject) {
+        o.put("d", KIND).put("e", days)
+        val now = System.currentTimeMillis() / 1000.0
+        val e = ended(); val ed = JSONObject()
+        for (k in e.keys()) e.optDouble(k, 0.0).takeIf { now - it < ENDS_RIDE }?.let { ed.put(k, it) }
+        if (ed.length() > 0) o.put("ed", ed)   // the sessions this device ended: part of the history, on every letter (iOS 08cce7f3, OZ 1 p.7)
+    }
+    /**
+     * THE SESSIONS ENDED ARE PART OF THE HISTORY (iOS 08cce7f3 heardEnds, 2419, OZ 1 p.7; the author's words 23250, 23276): the word end
+     * was boxed once, a box keeps a day, and a device away longer heard of its end only when its own next letter made the phone tell it
+     * again; the seed's other devices kept an ended Mac in their lists. Every letter of the seed's pipe carries the ends its device said
+     * within a month, and every device's list loses an ended Mac. Only a joined kind leaves a list by a word; this phone never ends.
+     */
+    private const val ENDS_RIDE = 30 * 86_400.0
+    fun heardEnds(ed: JSONObject) {
+        val mine = Archive.writerHex().orEmpty()
+        val e = ended(); val n = map(NAMES)
+        var added = 0
+        for (t in ed.keys()) {
+            if (t == mine || e.has(t) || n.optString(t) != JOINED_KIND) continue
+            e.put(t, ed.optDouble(t, 0.0)); added++
+        }
+        if (added > 0) { Prefs.setStr(ENDED, e.toString()); Log.d("Montana", "link_end heard ended=$added") }
+    }
 
     private fun map(key: String): JSONObject = runCatching { JSONObject(Prefs.str(key, "{}")) }.getOrNull() ?: JSONObject()
     private fun ended(): JSONObject = map(ENDED)
@@ -88,6 +111,9 @@ object LinkedDevices {
      * most once in ten minutes; it never returns to the list -- unless the phone joined it anew after the end (its letter's moment of
      * joining `joined`, by the phone's clock): that session stands, and the end is lifted.
      */
+    /** An ended device: never given history nor the mirror's letters (iOS MTLinkedDevices.ended). */
+    fun isEnded(tag: String): Boolean = ended().has(tag)
+
     fun endedAgain(tag: String, joined: Double?): Boolean {
         val e = ended()
         if (!e.has(tag)) return false
@@ -274,7 +300,8 @@ fun devicesPage(act: MainActivity, onBack: () -> Unit): View {
                 }, lp(WRAP, WRAP).apply { topMargin = dp(10) })
             } }
             LinkStage.GIVING -> busy(R.string.dv_link_giving)
-            LinkStage.GIVEN -> said(R.string.dv_link_given, MT.green)
+            // the device stands in the list below as soon as its first letter is heard: no green line above it (iOS 2418, the author's word 23250)
+            LinkStage.GIVEN -> null
             LinkStage.NOT_FOUND -> said(R.string.dv_link_not_found, MT.red)
             LinkStage.NO_LOCK -> said(R.string.dv_link_no_lock, MT.red)
             LinkStage.FAILED -> said(R.string.dv_link_failed, MT.red)
@@ -344,9 +371,20 @@ fun devicesPage(act: MainActivity, onBack: () -> Unit): View {
     redraw = { draw() }
     val page = settingsPage(act, c.getString(R.string.devices), onBack) { list = this; draw() }
     // the list is read again each time the page comes back on screen (iOS onAppear)
+    // A DEVICE JOINED OR HEARD STANDS IN THE LIST AT ONCE (iOS c22a497d, 2418, OZ 1 p.6, the author's word 23250): the book is read
+    // anew every two seconds while the page is shown, and the page is drawn again only when what it shows changed
+    fun shown() = LinkedDevices.list().joinToString("|") { it.id + "," + it.kind + "," + it.heard / 60_000L }
+    var drawn = ""
+    val tick = object : Runnable {
+        override fun run() {
+            val now = shown()
+            if (now != drawn) { drawn = now; draw() }
+            page.postDelayed(this, 2_000L)
+        }
+    }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { draw() }
-        override fun onViewDetachedFromWindow(v: View) {}
+        override fun onViewAttachedToWindow(v: View) { drawn = shown(); draw(); v.removeCallbacks(tick); v.postDelayed(tick, 2_000L) }
+        override fun onViewDetachedFromWindow(v: View) { v.removeCallbacks(tick) }
     })
     return page
 }

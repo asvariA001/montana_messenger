@@ -1,5 +1,7 @@
 package quest.montana.app
 
+import org.json.JSONArray
+import org.json.JSONObject
 import android.content.Context
 import android.content.SharedPreferences
 import android.security.keystore.KeyGenParameterSpec
@@ -45,6 +47,7 @@ object DeviceVault {
     private fun keep(name: String, sealed: ByteArray): Boolean {
         if (sealed.size < LOAD) {
             val ok = prefs.edit().putString(name, Base64.encodeToString(sealed, Base64.NO_WRAP)).commit()
+            if (ok) DiskDoor.count("vault:$name", sealed.size.toLong())   // the whole store is written again: the door names the value's own bytes
             if (ok) runCatching { loadFile(name).delete() }
             return ok
         }
@@ -103,6 +106,30 @@ object DeviceVault {
     fun delete(name: String) { prefs.edit().remove(name).commit(); runCatching { loadFile(name).delete() } }
     /** Whether a value is stored at all, opened or not: a store that would not open is not an empty one (Groups). */
     fun has(name: String): Boolean = prefs.contains(name)
+    /**
+     * A VALUE SEALED UNDER A KEY THAT IS GONE (iOS MontanaLocalVault.lost, 4b559de0 2416, OZ 1 p.11): the device key is at hand and
+     * the value is a sealed box it does not open (its tag refuses). The key is drawn anew only when the Keystore holds no such alias
+     * (data carried to a new phone, a Keystore wiped), so the key that sealed the value never comes back: the value is lost, not
+     * waiting. A key not at hand (the Keystore refusing for a moment) is never «lost»; this door never draws a key itself.
+     */
+    fun lost(name: String): Boolean = try {
+        val sealed = sealedOf(name)
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val k = ks.getKey(KEY_ALIAS, null) as? SecretKey
+        if (sealed == null || sealed.size < 12 + 16 || k == null) false
+        else {
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, sealed, 0, 12))
+            c.doFinal(sealed, 12, sealed.size - 12)
+            false
+        }
+    } catch (e: javax.crypto.AEADBadTagException) {
+        true
+    } catch (e: Exception) {
+        false
+    }
+    /** Every name the vault holds, opened or not (Seats: the person's values beside the phone's). */
+    fun names(): Set<String> = prefs.all.keys.toSet()
 
     /** Bytes sealed under the device key for a file of their own (iv ‖ ciphertext ‖ tag); null when the key refuses. */
     fun seal(value: ByteArray): ByteArray? = try {
@@ -172,10 +199,16 @@ object MontanaSeed {
 
     /** The seed must land in storage; false means no identity was created. */
     fun enter(keys: SeedKeys): Boolean {
+        // THE DOOR NEVER WRITES A PERSON OVER ANOTHER (iOS MontanaSeed.enter, MTSeats, the author's word 30.09): beside a person seated,
+        // every road parks them first (Seats.makeRoom); a call that reaches here with another person seated is refused, and says so.
+        val held = mnemonic
+        if (held != null && held != keys.mnemonic) { Log.i("Montana", "seed_enter REFUSED another person is seated"); return false }
+        NothingLeft.lift()   // a seed came: no erase is owed any more (iOS MontanaSeed.setActive, MTNothingLeft)
         clear()
         val stored = DeviceVault.set(MN, keys.mnemonic.toByteArray(Charsets.UTF_8))
         Log.i("Montana", "seed write: words=${keys.mnemonic.split(' ').size} stored=$stored (value not logged)")
         if (stored) Prefs.setStr(ENTERED, System.currentTimeMillis().toString())   // the past ends here (iOS 3ed661fa, decision 865 a)
+        if (stored) Seats.born(Prefs.userName)   // a person born or opened on the empty place takes a seat of their own (iOS MTSeats.born)
         return stored
     }
 
@@ -321,7 +354,7 @@ object Prefs {
 
     var userName: String
         get() = p.getString("userName", "") ?: ""
-        set(v) { p.edit().putString("userName", v).apply() }
+        set(v) { p.edit().putString("userName", v).apply(); runCatching { Seats.named(v) } }   // the drawer's face says the new name
 
     /** The notifications question was asked once (iOS MontanaNotifyGate.asked, "mt.notify.asked"). */
     var notifyAsked: Boolean
@@ -344,5 +377,45 @@ object Prefs {
     /** Every key of the store under one beginning: the marks kept per person, which a copy carries (Card.build). */
     fun keys(prefix: String): List<String> = p.all.keys.filter { it.startsWith(prefix) }
 
-    fun forgetPerson() { p.edit().clear().commit() }
+    /**
+     * THE PHONE'S OWN VALUES (iOS SeedScope settingKeys / deviceKeys): how the phone looks and sounds and what it was told once stay
+     * when a person leaves or another takes the seat (Seats); every other value of the defaults is the seated person's LAYER.
+     * The list errs small: a value not named here leaves with the person, as every value did before seats.
+     */
+    private val SHARED = setOf("mt.notify.asked", "bubbleColorIndex", "bubbleStyle", "noteQuality", "voiceOrb.look", "voiceRate",
+        "diagGen", "diagId", "diagWm", "locAsked", "exitSeen",
+        NothingLeft.ERASED)   // the whole erase still owed on this phone (iOS SeedScope.deviceKeys: MontanaSeed.erasedKey): never a seat's
+    private val SHARED_PREFIXES = listOf("cbMine", "cbPeer", "mt.update.", "mt.release.")
+    fun shared(key: String): Boolean = key in SHARED || SHARED_PREFIXES.any { key.startsWith(it) }
+
+    /** The seated person's layer, every value typed (Seats.park): {key: {t, v}}. */
+    fun layer(): JSONObject {
+        val o = JSONObject()
+        for ((k, v) in p.all) if (!shared(k)) {
+            val (t, w) = when (v) {
+                is String -> "s" to v; is Int -> "i" to v; is Long -> "l" to v; is Float -> "f" to v.toDouble(); is Boolean -> "b" to v
+                is Set<*> -> "S" to JSONArray(v.map { it.toString() }); else -> continue
+            }
+            o.put(k, JSONObject().put("t", t).put("v", w))
+        }
+        return o
+    }
+    /** A layer laid back as it was parked (Seats.liftIn). */
+    fun lay(o: JSONObject) {
+        val e = p.edit()
+        for (k in o.keys()) {
+            if (shared(k)) continue
+            val x = o.optJSONObject(k) ?: continue
+            when (x.optString("t")) {
+                "s" -> e.putString(k, x.optString("v")); "i" -> e.putInt(k, x.optInt("v")); "l" -> e.putLong(k, x.optLong("v"))
+                "f" -> e.putFloat(k, x.optDouble("v").toFloat()); "b" -> e.putBoolean(k, x.optBoolean("v"))
+                "S" -> x.optJSONArray("v")?.let { a -> e.putStringSet(k, (0 until a.length()).map { a.optString(it) }.toSet()) }
+            }
+        }
+        e.commit()
+    }
+    /** The seated person's layer leaves; the phone's own values stay (iOS clearStore). */
+    fun clearLayer() { p.edit().apply { p.all.keys.filterNot(::shared).forEach { remove(it) } }.commit() }
+
+    fun forgetPerson() = clearLayer()
 }

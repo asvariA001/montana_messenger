@@ -329,10 +329,12 @@ object LinkPreview {
     private fun land(ref: String, mid: String, text: String, qt: String?, qm: String?, card: LinkCard) {
         val group = Groups.isKey(ref)
         Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = card.json() }
+        Twin.changed(ref, mid)   // the card of a Saved Messages row rides to the twin (iOS e451e027, 2424, OZ 1 p.9)
         if (group) Groups.carryCard(ref, mid, card)
         else Post.send(ref, mid, text, qt, qm, lp = fitting(card.json()) ?: card.json(withPicture = false))   // the queue keeps the leg's cut
         picture(card)?.let { full ->
             Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.lp = full.json() }
+            Twin.changed(ref, mid)   // the picture rides to the twin too
             if (group) Groups.carryCard(ref, mid, full)
             else Post.send(ref, mid, text, qt, qm, lp = fitting(full.json()) ?: full.json(withPicture = false))
             android.util.Log.d("Montana", "link card: the picture caught up mid=" + mid.take(8))

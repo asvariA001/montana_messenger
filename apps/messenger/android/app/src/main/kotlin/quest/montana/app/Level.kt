@@ -72,6 +72,9 @@ object PersonChain {
         if (!checked) { checked = true; Log.i("Montana", "person_self ok=" + (if (levelKAT()) 1 else 0) + " seconds=" + seconds) }
     }
     private fun keep() {
+        // NO PERSON, NOTHING KEPT (iOS MTPersonChain.save, 77ab33cf; OZ 1 p.5): after the person left, a node's answer wrote the seconds
+        // of the one who left back into the folder the erase had just emptied
+        if (!MontanaSeed.hasSeed) return
         val a = JSONArray()
         for (s in spans) a.put(JSONObject().put("a", s.a).put("b", s.b))
         runCatching {
@@ -122,7 +125,7 @@ object PersonChain {
         val fresh = chain(spans)
         if (fresh.lastOrNull()?.hash == links.lastOrNull()?.hash) return   // the head's seal seals the whole chain
         links = fresh
-        if (!write) return
+        if (!write || !MontanaSeed.hasSeed) return
         runCatching { File(dir(), LINKS).writeText(fresh.joinToString("") { it.line() + "\n" }) }
     }
 

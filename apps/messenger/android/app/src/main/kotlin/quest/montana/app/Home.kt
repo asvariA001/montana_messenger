@@ -640,9 +640,38 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         if (name.isNotEmpty()) addView(c.text(name, 12f, Color.WHITE, center = true).apply { maxLines = 2 }, lp(dp(88), WRAP).apply { topMargin = dp(6) })   // USER-DATA: the person's own name
         pressable(onProfile)
     }
+    // THE PERSONS OF MONTANA ON THIS PHONE (iOS MontanaSideDrawer.faces, ContentView.swift:1767-1797, MTSeats stage 5): the seated
+    // person's face, then each one waiting on the shelf -- the name and the letter the seat kept when it was parked, the touch moves
+    // the seat (Seats.switchTo: the process starts again with them) -- and «+» last: the seated person goes to the shelf and the
+    // first screen opens on an empty place (Seats.makeRoom), its cross brings them back.
+    fun seatFace(s: Seats.Seat) = c.vstack {
+        addView(c.avatar(Seats.face(c, s.id), s.name.ifEmpty { s.glyph }, 48), lp(dp(48), dp(48)))   // their picture parked with them (iOS MTSeats.face)
+        if (s.name.isNotEmpty()) addView(c.text(s.name, 12f, Color.WHITE, center = true).apply { maxLines = 2 }, lp(dp(88), WRAP).apply { topMargin = dp(6) })   // USER-DATA: the person's own name
+        contentDescription = s.name.ifEmpty { "Montana" }
+        pressable { Seats.switchTo(act, s.id) }
+    }
+    val plus = c.vstack {
+        addView(FrameLayout(c).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(20, 255, 255, 255)) }
+            addView(c.icon(R.drawable.ic_person_add, Color.WHITE, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        }, lp(dp(48), dp(48)))
+        contentDescription = "+"
+        pressable { Seats.makeRoom(act) }
+    }
+    val faces = android.widget.HorizontalScrollView(c).apply {
+        isHorizontalScrollBarEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+        addView(c.hstack {
+            gravity = Gravity.TOP
+            addView(face, lp(dp(88), WRAP))
+            val active = Seats.active
+            for (s in Seats.seats) if (s.id != active) addView(seatFace(s), lp(dp(88), WRAP).apply { marginStart = dp(4) })
+            addView(plus, lp(dp(88), WRAP).apply { marginStart = dp(4) })
+        })
+    }
     val column = c.vstack(Gravity.NO_GRAVITY) {
         setPadding(dp(24), dp(20), dp(16), 0)
-        addView(face, lp(dp(88), WRAP).apply { marginStart = -dp(20) })
+        addView(faces, lp().apply { marginStart = -dp(20) })
         gap(14)
         addView(row(glyph(R.drawable.ic_bar_contacts), R.string.contacts) { onPane(Pane.CONTACTS) }, lp())
         addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls, { CallsSeen.unseen() }) { onPane(Pane.CALLS) }, lp())
@@ -706,6 +735,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         groupsBadge.showCount(if (open) groups else 0)
         channelsBadge.showCount(if (open) channels else 0)
         logoBadge.showCount(if (open) 0 else calls + chats + groups + channels)
+        placeMuted()
     }
 
     /**
@@ -758,14 +788,27 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     }
     private var foldLaid = false
     private lateinit var drawerGlyph: ImageView
+    // THE MUTED SOUND'S BADGE (iOS MTMutedBadge, 2424, the author's word 23651, 16.11.2026, a picture: «a badge over the time symbol,
+    // not crooked like this»): a crossed speaker in the platform's red circle of 20, solid, no ring; its tap area is 44.
     private val mutedBadge: View = FrameLayout(act).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.red) }
-        addView(act.icon(R.drawable.ic_speaker_slash, Color.WHITE, 11), LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        addView(FrameLayout(act).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.red) }
+            addView(act.icon(R.drawable.ic_speaker_slash, Color.WHITE, 10), LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        }, LayoutParams(dp(20), dp(20), Gravity.CENTER))
         contentDescription = act.getString(R.string.notifications)
         visibility = View.GONE
         setOnClickListener { act.push { notificationsPage(act, it) } }
     }
     private var refused = false
+    /**
+     * OVER THE TIME SYMBOL, AS A BADGE (iOS MontanaChatsList 2424, the author's word 23651): the badge's centre is the logo's
+     * top-trailing corner, where a glyph's badge stands (18 right of the logo's centre, 12 up); while the folded logo wears the
+     * count there, the top-leading corner.
+     */
+    private fun placeMuted() {
+        mutedBadge.translationX = dp(if (!open && logoBadge.visibility == View.VISIBLE) -18 else 18).toFloat()
+        mutedBadge.translationY = -dp(12).toFloat()
+    }
     private var authzSaid: Boolean? = null
     /**
      * THE SYSTEM'S ANSWER, READ AT EVERY ENTRY AND EVERY RETURN (iOS MTNotifyAllowed.read): refused is the system's «off» after the
@@ -812,12 +855,10 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
             addView(logoBadge, LayoutParams(WRAP, dp(20), Gravity.CENTER))
             // THE MUTED SOUND IS A BADGE OVER THE LOGO, NOT A BUTTON TAKEN (iOS MTMutedBadge, 93023210, P-208, the author's word 21970):
-            // while the system refuses the notifications, a small crossed speaker in a red circle -- the count badge's size and fill --
-            // stands over the logo's top-leading edge and opens the notifications' page
-            addView(mutedBadge, LayoutParams(dp(20), dp(20), Gravity.CENTER).also {
-                mutedBadge.translationX = -dp(16).toFloat()
-                mutedBadge.translationY = -dp(36) / 2f - dp(4) + dp(10)
-            })
+            // while the system refuses the notifications, a crossed speaker in a red circle stands at the logo's corner (placeMuted)
+            // and opens the notifications' page
+            addView(mutedBadge, LayoutParams(dp(44), dp(44), Gravity.CENTER))
+            placeMuted()
             readNotify("entry")
             logoBadge.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
                 v.translationX = dp(36) / 2f + dp(10) - v.width / 2f

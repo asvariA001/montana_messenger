@@ -66,6 +66,9 @@ object Doors {
         return all().filter { known[it]?.contains(cap) != false }
     }
 
+    /** The door is PROVEN to hold the capability (iOS doorsHolding(cap).contains(door)): an unverified door does not. */
+    fun holds(door: String, cap: String): Boolean = synchronized(caps) { caps[door]?.contains(cap) == true }
+
     fun ordered(cap: String): List<String> {
         if (System.currentTimeMillis() - verifiedAt > 600_000L) verifyLater()
         val all = hosts().map { base(it) }
@@ -181,6 +184,14 @@ object Doors {
             if (id.isEmpty()) null else id to doors((0 until ds.length()).joinToString("\n") { ds.optString(it) })
         }
     }.getOrDefault(emptyList())
+
+    /** ONE DOOR PER MACHINE (iOS oneDoorPerNode 206): the door book says which door led to which machine; an unknown one keeps its place. */
+    fun onePerNode(doors: List<String>): List<String> {
+        val book = book()
+        val known = list()
+        val seen = HashSet<String>()
+        return doors.filter { d -> known.firstOrNull { it.host == host(d) }?.let { book[it.label]?.first }?.let { seen.add(it) } ?: true }
+    }
 
     // THE DOOR BOOK (iOS MontanaNodes.book 70-89): which door led to WHICH machine and in how long — an identity behind a door is
     // learned only by a handshake through it, so the first probing is unavoidable while a second must not happen.

@@ -2,6 +2,7 @@ package quest.montana.app
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.graphics.Outline
 import android.graphics.Rect
 import android.text.Editable
@@ -11,6 +12,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.TouchDelegate
 import android.view.View
+import android.view.ViewGroup
 import android.view.VelocityTracker
 import android.view.ViewOutlineProvider
 import android.view.inputmethod.InputMethodManager
@@ -110,6 +112,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         sendColumn.addView(record, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
         sendColumn.addView(coinKey, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
 
+        // the flow's send plate swells past its slot (iOS «the swell overflows it»): no row cuts it
+        clipChildren = false; fieldRow.clipChildren = false; actionRow.clipChildren = false
         addView(fieldRow, lp())
         addView(actionRow, lp().apply { topMargin = dp(TIER_GAP) })
 
@@ -136,6 +140,9 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         Prefs.setBool(OPEN_KEY, v)
         shape()
     }
+
+    /** The Money Flow switched on unfolds the panel (iOS flipMark composeOpen = true, the author's word 05.10.2026). */
+    fun unfold() { if (!open) setOpen(true) }
 
     private fun shape() {
         (sendColumn.parent as? LinearLayout)?.removeView(sendColumn)
@@ -175,7 +182,50 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         syncSend()
         widenTouchTarget()
         if (panelOn) panelShown(true)   // the row's keys are made anew: the emoji key keeps the keyboard's glyph while the panel stands
+        syncHost()
+        wearMint()   // the row's keys are made anew: they wear the flow's ring again
     }
+
+    /**
+     * THE MONEY FLOW IS ON IN THIS CHAT (iOS ChatInputBar.minting / flowing, MontanaConversation.swift:576, 646-690, 777, 882, 907,
+     * 1041, 1123, 1147; the author's words 03.10.2026: «in minting mode make the send button a little bigger, the finger's size, like
+     * the call button»; «the field with the system's highlight, and below all the buttons in the system's blue circle»): the send
+     * plate -- the send, the recording key, the coin -- stands at the marks' 44 instead of the tier's 36, overflowing its slot, and
+     * the field and every glass key of the bar wear the platform's thin blue ring (MTMiniFace.playingRing).
+     */
+    private var minting = false
+    fun flowing(on: Boolean) { if (minting != on) { minting = on; wearMint() } }
+    private fun wearMint() {
+        val ring = Math.round(1.5f * resources.displayMetrics.density)
+        val keys = listOf(unfoldKey) + (0 until actionRow.childCount).map { actionRow.getChildAt(it) }
+        for (k in keys) (k.background as? GradientDrawable)?.let { if (minting) it.setStroke(ring, MT.blue) else it.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255)) }
+        val s = if (minting) MINT_SCALE else 1f
+        sendColumn.scaleX = s; sendColumn.scaleY = s
+        plateRing()
+    }
+    /** The field's ring: the flow's, or the coin's while it takes a number (iOS 907: minting || coinMode). */
+    private fun plateRing() {
+        if (minting || coinHint) plateGlass.setStroke(Math.round(1.5f * resources.displayMetrics.density), MT.blue)
+        else plateGlass.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
+    }
+
+    /**
+     * THE BUTTONS STAY ON THE KEYS (iOS inputBar(.row) with rowGroup, MontanaConversation.swift:1563-1569, 3829; the author's word
+     * 03.10 13:35 and his drawing): in the turned feed of a Money Flow only the line of words goes up under the header; the open bar's
+     * row of buttons stands where it stands in a plain chat, in [host] at the keys. Null brings the row home under the words.
+     */
+    private var rowHost: ViewGroup? = null
+    fun rowTo(host: ViewGroup?) {
+        if (rowHost === host && actionRow.parent != null) return
+        (actionRow.parent as? ViewGroup)?.removeView(actionRow)
+        rowHost?.visibility = View.GONE
+        rowHost = host
+        if (host == null) addView(actionRow, 1, lp().apply { topMargin = dp(TIER_GAP) }) else host.addView(actionRow, lp())
+        syncHost()
+    }
+    /** The host shows while the row would: the bar open and standing (iOS composeOpen && barWrites). */
+    private fun syncHost() { rowHost?.visibility = if (open && visibility == View.VISIBLE) View.VISIBLE else View.GONE }
+    override fun setVisibility(v: Int) { super.setVisibility(v); syncHost() }
 
     /** A CHANNEL'S OWNER'S FIELD (iOS channel): it says «Broadcast...» while empty and holds the bell. */
     var channel = false
@@ -229,8 +279,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         // and the field wears the thin blue ring while it takes a number (iOS 915: MTMiniFace.playingRing, 1.5 around the plate)
         if (coinMode != coinHint) {
             coinHint = coinMode; field.hint = restHint()
-            if (coinHint) plateGlass.setStroke(Math.round(1.5f * resources.displayMetrics.density), MT.blue)
-            else plateGlass.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
+            plateRing()
             onCoinMode?.invoke(coinHint)
         }
     }
@@ -615,6 +664,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         const val FLICK = 400f                             // iOS flick, points a second
         // THE ONE OWNER OF THE COMPOSE TIER (iOS MTInputField 2499-2543): every number of the row lives here and nowhere else
         const val TIER = 36                                // iOS MontanaOctagon.composeHeight
+        const val MINT_SCALE = 44f / TIER                  // iOS mintScale: montanaTouchTarget / composeHeight, the flow's send plate
         const val FONT = 17f                               // iOS MTInputField.fontSize
         const val LINE = 21f                               // iOS MTInputField.minH: one line of words
         const val LINES = 13                               // iOS MTInputField.lines: the field grows to thirteen, then scrolls inside

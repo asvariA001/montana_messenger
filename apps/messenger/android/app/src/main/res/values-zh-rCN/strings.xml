@@ -57,7 +57,7 @@
 
     <string name="no_chats">暂无聊天</string>
     <string name="saved_messages">收藏</string>
-    <string name="forget_device">忘记此设备</string>
+    <string name="forget_device">删除账户</string>
     <string name="chats">聊天</string>
     <string name="contacts">联系人</string>
     <string name="settings">设置</string>
@@ -162,19 +162,20 @@
     <string name="no_mail">此手机上没有邮件账户。地址已复制。</string>
     <!-- Privacy, Data and Storage (iOS PrivacyView, DataStorageView) -->
     <string name="online_status">在线状态</string>
-    <string name="online_status_sub">仅决定他人是否能看到你在线。留言墙和页面的往来不受影响。</string>
+    <string name="online_status_sub">仅决定他人是否能看到你在线。其他内容的往来不受影响。</string>
     <string name="read_receipts">已读回执</string>
-    <string name="live_chat">实时聊天</string>
+    <string name="money_flow">资金流</string>
+    <string name="money_flow_begun">资金流已开始</string>
     <string name="sync_contacts">同步联系人</string>
     <string name="link_previews">链接预览</string>
     <string name="link_previews_sub">你发送链接时，本机会读取该网页，因此该网站会看到这台手机。</string>
     <string name="filter_objectionable">过滤不当内容</string>
     <string name="seed_phrase">助记词</string>
-    <string name="forget_q">忘记此设备？</string>
+    <string name="forget_q">删除账户？</string>
     <string name="show_seed">显示助记词</string>
     <string name="forget">忘记</string>
     <string name="cancel">取消</string>
-    <string name="forget_msg">本设备将抹除种子和身份。您的历史记录会密封保留在此，只能凭同样的二十四个词重新打开——在本设备上，或在已持有副本的另一台设备上。无人替您保管这些词：请先抄下它们：设置 → 隐私 → 助记词。删除应用也会抹除历史记录。</string>
+    <string name="forget_msg">你的账户将被删除：此设备会抹去你的 24 词身份。你的历史记录会加密留在这里，只有用同样的 24 个词才能再次打开——在此设备上，或在已持有副本的另一台设备上。没有人替你保管这些词：请先写下来：设置 → 隐私 → 助记词。删除应用也会抹去历史记录。</string>
     <string name="media_autodownload">媒体自动下载</string>
     <string name="over_mobile">通过移动网络</string>
     <string name="over_wifi">通过 Wi-Fi</string>
@@ -429,12 +430,19 @@
     <string name="coin_send_coins">发送硬币</string>
     <string name="coin_key">硬币</string>
     <string name="coin_available">可用</string>
+    <string name="coin_available_n">可用 %s</string>
     <string name="close">关闭</string>
     <string name="yt_full_screen">全屏</string>
     <string name="yt_small_screen">退出全屏</string>
     <string name="coin_not_enough_sub">您的硬币余额不足。</string>
     <string name="coin_not_sent">金币未发送</string>
     <string name="coin_not_sent_sub">余额未扣除任何金币。请稍后再试。</string>
+    <string name="coin_pending">正在确认转账</string>
+    <string name="coin_pending_sub">可用余额充足。该转账已有一条待确认记录，请勿重复发送。</string>
+    <string name="coin_no_key_sub">对方的 Montana 尚未提供其金币密钥。余额未扣除任何金币。请在对方更新并打开 Montana 后再试。</string>
+    <string name="coin_paced_sub">您的密钥节点每分钟接受三十条记录，这一分钟已满。余额未扣除任何金币。请一分钟后再试。</string>
+    <string name="coin_time_epochs">%1$d纪元</string>
+    <string name="coin_time_centuries">%1$d世纪</string>
     <string name="coin_you">您</string>
     <string name="coin_letter_sent">已发送的硬币</string>
     <string name="coin_letter_received">收到的硬币</string>
@@ -543,7 +551,7 @@
     <string name="chess_time_control">时间限制</string>
     <string name="chess_invite_correspondent">邀请联系人</string>
     <string name="chess_no_correspondents">未找到联系人</string>
-    <string name="chess_ask_new">开始新对局？</string>
+    <string name="chess_ask_new">要开始新对局吗？</string>
     <string name="chess_invite_failed">无法发送邀请</string>
     <string name="chess_accept">接受对局</string>
     <string name="chess_decline">拒绝对局</string>
@@ -653,7 +661,7 @@
     <string name="continue_with_voice">继续语音通话</string>
     <string name="call_cam_off_body">您的视频未发送。请在设置中允许 Montana 使用相机，然后重新打开视频。</string>
     <string name="call_will_pause">通话将暂停</string>
-    <string name="call_will_end">通话将结束</string>
+    <string name="call_will_end">通话将会结束</string>
     <string name="call_will_pause_body">在设置中关闭某项权限时，Android 会重启 Montana。请在一分钟内回到 Montana，通话将继续。</string>
     <string name="call_will_end_body">在设置中关闭某项权限时，Android 会重启 Montana，通话将结束。</string>
     <string name="call_sound_busy_title">通话期间不可用</string>
@@ -662,7 +670,7 @@
     <string name="call_filtered_body">此网络仅允许访问许可的目的地。在过滤解除前无法通话。</string>
     <string name="picture_cache_header">图片缓存</string>
     <string name="picture_cache_clear">清除</string>
-    <string name="picture_cache_footer">图片保存在内存中，让聊天和墙面无需等待即可打开。它们会一直保留，直到你在这里清除。</string>
+    <string name="picture_cache_footer">图片保存在内存中，无需等待即可打开。它们会一直保留，直到你在这里清除。</string>
     <string name="share_preparing">准备中</string>
     <string name="share_sending">发送中…</string>
     <string name="share_still_on_way">部分内容仍在发送中——Montana 会自动完成。</string>
@@ -697,10 +705,10 @@
     <!-- access by level and the keeper's shield (iOS MTLevelAccessPage, MTKeepShield) -->
     <string name="sound_sub">新消息通知会响铃。关闭后，通知静音送达。</string>
     <string name="show_text_sub">通知会显示消息内容。关闭后，不显示任何文字。</string>
-    <string name="show_sender_sub">消息通知会显示发送者。关闭后，改为显示 Montana。</string>
+    <string name="show_sender_sub">消息通知会显示发送者的姓名和头像。关闭后，改为显示 Montana。</string>
     <string name="name_lock_sub">当手机在锁定屏幕上隐藏预览时，通知仍会显示发送者。</string>
     <string name="read_receipts_sub">对方会看到你已读他们的消息，频道主会统计你的浏览。关闭后，不会告知任何人。</string>
-    <string name="filter_objectionable_sub">他人发送的含冒犯性词语的消息、墙帖和评论会被折叠，点按后才显示。</string>
+    <string name="filter_objectionable_sub">他人发送的含冒犯性词语的消息、帖子和评论会被折叠，点按后才显示。</string>
     <string name="note_quality_footer">“最高”使用摄像头最清晰的画面和最高码率，“最低”生成最小的文件。摄像头跟不上时会自动降低画质。</string>
     <string name="message_style_footer">“蒙大拿”：你的消息为系统蓝色，他人的为灰色。“经典”：你的消息为你的气泡颜色，他人的为深灰色。“自定义”：使用你在下方设置的颜色。</string>
     <string name="cache_kept_on_node">存于您的节点</string>
@@ -721,6 +729,8 @@
     <string name="keep_1_month">1 个月</string>
     <string name="keep_forever">永久</string>
     <string name="cache_limit">最大缓存大小</string>
+    <string name="keep_media_sub">您的节点保存的照片、视频或文件，若在这段时间内无人打开，将从此手机移除。打开时会从您的节点取回。</string>
+    <string name="cache_limit_sub">超过此大小时，最久未打开的文件会先从此手机移除，仅限您的节点保存的文件。</string>
     <string name="cache_no_limit">无限制</string>
     <string name="cp_conversations">对话</string>
     <string name="cp_records">记录</string>
@@ -739,9 +749,9 @@
     <string name="cp_no_letter">本设备上没有消息引用它</string>
     <string name="cp_remove_phone">从此手机移除</string>
     <string name="cp_remove_q">从此手机移除？</string>
-    <string name="cp_remove_note">你的节点保存着它，打开时它会回来。消息保留。</string>
+    <string name="cp_remove_note">您的节点会保存它，打开时会取回。信件保留。</string>
     <string name="cp_remove_many_q">从此手机移除 %1$d 个文件？</string>
-    <string name="cp_remove_many_note">你的节点保存着它们，打开时每个都会回来。消息保留。节点尚未保存的文件会留在此手机上。</string>
+    <string name="cp_remove_many_note">您的节点会保存它们，打开时每个文件都会取回。信件保留。节点尚未保存的文件会留在此手机上。</string>
     <string name="cp_stayed">你的节点尚未保存所选文件中的 %1$d 个：它们留在此手机上。</string>
     <string name="cp_select">选择</string>
     <string name="cp_select_all">全选</string>
@@ -752,11 +762,12 @@
     <string name="ds_unnamed">没有对应消息的文件</string>
     <string name="ds_walls">墙面图片</string>
     <string name="ds_shelf">手机上等待的副本</string>
+    <string name="ds_kept">为与你交流的人保管</string>
     <string name="ds_history">聊天记录</string>
     <string name="ds_faces">头像</string>
     <string name="ds_rest">其他</string>
     <string name="ds_total">此手机上</string>
-    <string name="ds_footer">按此手机磁盘测量，每个文件只计一次。附件和没有对应消息的文件按类型选择：选中某一类型的全部并移除。</string>
+    <string name="ds_footer">按此手机磁盘测量，每个文件只计一次。附件和没有对应消息的文件按类型选择：选中某一类型的全部并删除。</string>
     <string name="ds_shelf_q">清除手机上等待的副本？</string>
     <string name="ds_shelf_msg">为你的节点或文件制作的副本将从此手机移除；下一次副本会重新制作。</string>
     <string name="cp_leave_out">不放入副本</string>
@@ -815,7 +826,6 @@
     <string name="dv_link_warn">该设备将获得您的完整身份：助记词和聊天。请只连接您自己的设备。</string>
     <string name="dv_link_connect">连接</string>
     <string name="dv_link_giving">连接中…</string>
-    <string name="dv_link_given">设备已连接。</string>
     <string name="dv_link_not_found">未找到设备。请在其上显示新的二维码后重新扫描。</string>
     <string name="dv_link_no_lock">请为本手机设置密码——没有密码无法连接设备。</string>
     <string name="dv_link_failed">无法连接设备。请检查网络后重试。</string>
@@ -824,4 +834,7 @@
     <string name="dv_end_words">该设备将从此列表中移除。用您的助记词登录的设备仍保留助记词和聊天；如需移除，请在该设备上删除账户。</string>
     <string name="dv_end_all_q">结束所有其他会话？</string>
     <string name="dv_end_all_msg">所有设备都将从此列表中移除。已连接的 Mac 一收到本手机的消息就会删除您的身份；用您的助记词登录的设备仍保留助记词和聊天。</string>
+    <string name="save_words">保存 24 个词</string>
+    <string name="save_words_footer">请写下并保管好这 24 个词：在新手机上，你的身份和已保存的历史记录只能凭它们打开。</string>
+    <string name="privacy_policy">隐私政策</string>
 </resources>
