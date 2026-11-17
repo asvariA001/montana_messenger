@@ -463,6 +463,27 @@ object Archive {
     /** The archive's key of a row's words, the same on every device of the seed (iOS MontanaArchive.rowHash). */
     fun rowHash(archived: String): String = Wire.hex(Wire.sha(archived.toByteArray()).copyOf(8))
 
+    /**
+     * THE FEED'S ROWS IN THE DIARY, AND ITS PRINT (iOS traceRows, c22a497d at 2418, OZ 1 p.4 and p.7): on every opening the count, the
+     * tail -- each row by its last eight signs and its kind read from its file (img, vid, aud, doc; «!» when the file is not here) --
+     * and the print: the hash of the feed's archive keys (second, side, the hash of the words), the same on every device of the seed
+     * for the same rows: two devices that show one chat alike write one print.
+     */
+    fun traceRows(ref: String) {
+        val a = runCatching { Book.chat(ref)?.msgs?.toList() }.getOrNull() ?: return
+        q.execute {
+            val tail = a.takeLast(6).joinToString(",") { m ->
+                val id = m.mid.takeLast(8)
+                if (!m.text.startsWith(Marks.MEDIA)) return@joinToString "$id:text"
+                val k = runCatching { JSONObject(m.text.removePrefix(Marks.MEDIA)).optString("k") }.getOrNull().orEmpty().ifEmpty { "media" }
+                id + ":" + k + (if (m.file?.let { File(it).exists() } == true) "" else "!")
+            }
+            val keys = a.mapNotNull { m -> archivedText(m)?.let { t -> (m.at / 1000).toString() + (if (m.mine) "1" else "0") + rowHash(t) } }
+            val print = rowHash(keys.sorted().joinToString(","))
+            Log.i("Montana", "chat_rows key=${ref.take(10)} n=${a.size} keys=${keys.size} print=$print tail=[$tail]")
+        }
+    }
+
     private const val BOXED = "mt.history.boxed"   // folder → the first block not yet laid for the other devices (iOS boxedKey)
     private const val TWIN_CAP = 8 shl 20           // one letter's file stays small; what is left rides the next round (iOS twinCap)
     /** What the box road gathers for the seed's other devices (iOS layForTwins): length-framed blocks, each folder's top, more left. */

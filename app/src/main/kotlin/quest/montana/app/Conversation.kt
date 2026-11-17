@@ -726,6 +726,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val group = Groups.isKey(ref)   // a group's feed: no pipe, no presence, no doors (iOS MTGroup.isKey)
     // THE ROOM WITHOUT AN ADDRESS (iOS isLocalRoom): Saved Messages opens here like every chat -- no wire, no presence, no rung, no call
     val local = Book.isLocal(ref)
+    Archive.traceRows(ref)   // the feed's rows and its print go to the diary on EVERY opening (iOS traceRows, 2418)
     val saved = ref == Book.SAVED   // one's own room wears one's own face and its own word; the Montana room its crowned name (iOS rowModel)
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
