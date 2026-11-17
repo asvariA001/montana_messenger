@@ -365,7 +365,7 @@ object Seats {
             }.getOrDefault(true)   // a row that cannot be read leaves
             if (ok || now - r.optLong("at", now) > INBOX_LIFE) landed.add(m)
         }
-        val held = Book.refs().toSet()
+        val held = quest.montana.app.Book.refs().toSet()   // the book of pipes (Seats.Book is the book of seats)
         val born = met.keys.count { it in held }
         synchronized(lock) {
             if (read().active != id) return
