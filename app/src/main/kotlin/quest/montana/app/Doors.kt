@@ -66,6 +66,9 @@ object Doors {
         return all().filter { known[it]?.contains(cap) != false }
     }
 
+    /** The door is PROVEN to hold the capability (iOS doorsHolding(cap).contains(door)): an unverified door does not. */
+    fun holds(door: String, cap: String): Boolean = synchronized(caps) { caps[door]?.contains(cap) == true }
+
     fun ordered(cap: String): List<String> {
         if (System.currentTimeMillis() - verifiedAt > 600_000L) verifyLater()
         val all = hosts().map { base(it) }

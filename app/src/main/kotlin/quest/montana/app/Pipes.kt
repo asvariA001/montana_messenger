@@ -991,7 +991,7 @@ object Wire {
         if (bulk) BulkPuts.enter(place, quiet)
         // a resting door stands last in the list, not outside it (iOS restingLast, 996b13f7): the living first, in their order
         val taken = (try { hedgedPut(Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } },
-            bid, data, cargo, last) }
+            bid, data, cargo, last, fan = bulk && quiet) }
             finally { if (bulk) BulkPuts.leave(place, quiet) }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
@@ -999,7 +999,12 @@ object Wire {
         // THE KEEPING'S COPIES RIDE ITS OWN QUIET LANE (iOS 2414 e72752ea; T1 16.11.2026 13:24 UTC: a copy of 1419 media laid 1.3 GB
         // of pieces, two copies of each at once beside the person's puts and a call, and one stall of the link dropped 7183 of them).
         // A quiet piece's copies go one machine at a time, each after the person, by the same pulsed put; a letter's keep their threads.
-        if (bulk && quiet) {
+        // THE MACHINE LAYS THE KEEPING'S COPIES (iOS 2416 4b559de0, OZ 3, record 995 = b): a quiet piece is put with «fan», and a
+        // machine that says it lays the copies itself (the cap blob_fan) takes the piece once -- the phone sends a backup's bytes one
+        // time, not three. A machine of an older store gets the copies from the phone, as before.
+        if (bulk && quiet && Doors.holds(taken, "blob_fan")) {
+            Log.d("Montana", "blob_fan id=" + bid.take(8) + " to=" + (android.net.Uri.parse(taken).host ?: "-") + " -- the machine lays the copies")
+        } else if (bulk && quiet) {
             for ((id, door) in copies(bid, taken)) {
                 if (!BulkPuts.yieldToPerson("copy")) break
                 val code = putBlobAt(door, bid, data, cargo, last)
@@ -1016,7 +1021,7 @@ object Wire {
      * gives up no piece. The first door that holds the piece wins and the others are let go; a failed door calls the next at once,
      * a busy one (429) is waited, not jumped; a quiet or resting door calls one more in once a second at most: never a storm.
      */
-    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean): String? {
+    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean, fan: Boolean = false): String? {
         if (doors.isEmpty()) return null
         val answers = java.util.concurrent.LinkedBlockingQueue<Pair<String, Int>>()
         val stop = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1029,7 +1034,7 @@ object Wire {
             val spoke = java.util.concurrent.atomic.AtomicBoolean(false)
             called = System.currentTimeMillis(); flying[door] = called to spoke
             if (next > 1) Log.d("Montana", "blob_up id=" + bid.take(8) + " next door=" + (android.net.Uri.parse(door).host ?: door))
-            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop) } catch (_: Throwable) { -1 })) }
+            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop, fan) } catch (_: Throwable) { -1 })) }
                 .apply { isDaemon = true }.start()
         }
         launch()
@@ -1146,9 +1151,11 @@ object Wire {
     private const val FIRST_BYTE_MS = 1_500L
     /** The answer's code; -2 when the put was let go because another door won the race (it teaches the door book nothing). */
     private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean,
-                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
+                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null,
+                          fan: Boolean = false): Int {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
+        if (fan) body.put("fan", true)   // a quiet piece asks the machine that takes it to hand it on (iOS 2416)
         val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid, spoke, stop)
         if (code == 200) Signal.doorAnswered(door) else if (code != -2) Signal.doorFailed(door, code)
         return code
