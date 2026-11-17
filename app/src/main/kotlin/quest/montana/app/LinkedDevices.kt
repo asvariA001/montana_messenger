@@ -88,6 +88,9 @@ object LinkedDevices {
      * most once in ten minutes; it never returns to the list -- unless the phone joined it anew after the end (its letter's moment of
      * joining `joined`, by the phone's clock): that session stands, and the end is lifted.
      */
+    /** An ended device: never given history nor the mirror's letters (iOS MTLinkedDevices.ended). */
+    fun isEnded(tag: String): Boolean = ended().has(tag)
+
     fun endedAgain(tag: String, joined: Double?): Boolean {
         val e = ended()
         if (!e.has(tag)) return false

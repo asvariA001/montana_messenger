@@ -5,6 +5,8 @@ import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.security.SecureRandom
+import java.util.TreeSet
 import java.util.UUID
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -107,7 +109,7 @@ object Twin {
     private val ex = Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "twin").apply { isDaemon = true } }
     private val lock = Any()
 
-    fun forget() = synchronized(lock) { listOf(MIRROR, SEEN, ASKED, TwinSelf.HELD, TwinSelf.BOOK).forEach { DeviceVault.delete(it) }; given.clear(); laneHeld = false; Archive.forgetHeld() }
+    fun forget() = synchronized(lock) { listOf(MIRROR, SEEN, ASKED, MBOOK, TwinSelf.HELD, TwinSelf.BOOK).forEach { DeviceVault.delete(it) }; synchronized(bookLock) { book = null }; given.clear(); laneHeld = false; Archive.forgetHeld() }
 
     /**
      * THE SEED'S OWN LANE STANDS WHILE THE APP RUNS (iOS f339b7a3, 2403, holdTwinLane, the author's words 22320, 22581, 22631: heal the
@@ -168,10 +170,11 @@ object Twin {
     @Volatile private var wantedAt = 0L
     /** The word that names this device's cursor to the seed's other devices: at a pickup, at most once in ten minutes. A word too long
      *  for a letter rides the cargo road. */
-    fun wantHistory() {
+    fun wantHistory(soon: Boolean = false) {
         if (MontanaSeed.twin == null) return
         val now = System.currentTimeMillis()
-        synchronized(lock) { if (now - wantedAt <= 600_000L) return; wantedAt = now }
+        val floor = if (soon || mirrorHole) 20_000L else 600_000L   // a hole of the mirror is named within twenty seconds (iOS 2417)
+        synchronized(lock) { if (now - wantedAt <= floor) return; wantedAt = now }
         ex.execute {
             runCatching {
                 val secret = secret() ?: return@runCatching
@@ -181,6 +184,8 @@ object Twin {
                 val body = held.toString()
                 val o = JSONObject().put("w", "hw").put("f", mine)
                 LinkedDevices.stamp(o)   // the cursor word is the device's sign of life on every rise: its kind, and the phone's term (OZ 1 p.4)
+                val lc = mirrorCursors()
+                if (lc.length() > 0) o.put("lc", lc)   // the mirror's cursor rides the same word (iOS 2417, OZ 1 p.2)
                 // iOS says 2000 bytes; here the word must fit one envelope with its name and mark (Keeping.knockText), so the word
                 // itself is measured, and a longer one rides the cargo road
                 val inline = JSONObject(o.toString()).put("c", body)
@@ -200,7 +205,11 @@ object Twin {
     /** Another device of the seed named its cursor: this device's own blocks are laid from there, every folder this device holds. */
     private fun giveHistory(o: JSONObject) {
         val mine = Archive.writerHex() ?: return
-        if (o.optString("f") == mine) return   // this device's own word, heard back from the box
+        val f0 = o.optString("f")
+        if (f0.isEmpty() || f0 == mine) return   // this device's own word, heard back from the box
+        heardTwin(o)   // a device that only reads is heard too: the phone lists it (iOS giveHistory, OZ 1 p.4)
+        if (LinkedDevices.isEnded(f0)) return   // an ended device is told again (heardTwin), never given history
+        giveMirror(o, f0)   // the mirror's letters it lacks, from this device's book (iOS 2417, OZ 1 p.1-2)
         var body = o.optString("c").ifEmpty { null }
         if (body == null && o.has("mref")) {
             val f = scratch()
@@ -412,6 +421,7 @@ object Twin {
             val road = Keeping.lay(f) ?: return 30L.also { Log.d("Montana", "twin_mirror the words did not reach the nodes n=" + batch.length()) }
             road.put("w", "lt").put("n", batch.length()).put("f", Archive.writerHex() ?: "")
             LinkedDevices.stamp(road)   // its kind, and the phone's term for its joined devices (OZ 1 p.4)
+            numberLetter(road)   // the road is in the book before the box (iOS 2417)
             if (!Keeping.knock(secret, road, me)) { Log.d("Montana", "twin_mirror no door boxed the letter n=" + batch.length()); return 30L }
             val sent = HashSet<Long>()
             for (i in 0 until batch.length()) sent.add(batch.getJSONObject(i).optLong("q", -1L))
@@ -422,14 +432,22 @@ object Twin {
                 DeviceVault.set(MIRROR, keep.toString().toByteArray())
                 keep.length()
             }
-            Log.d("Montana", "twin_mirror laid words=" + batch.length() + " left=" + left)
+            Log.d("Montana", "twin_mirror laid words=" + batch.length() + " left=" + left + " sn=" + road.optInt("sn"))
             return if (left > 0) 1L else null
         } finally { f.delete() }
     }
-    /** The words of the seed's other device: each lands here by the one landing road, in the order that device heard them. */
+    /** The words of the seed's other device: each lands here by the one landing road, in the order that device heard them. A numbered
+     *  letter this device took is not fetched again, and a hole it shows is asked at once (the mirror's book, below; iOS 2417). */
     private fun takeMirror(o: JSONObject, mid: String) {
         if (o.optString("f") == Archive.writerHex()) return
         heardTwin(o)
+        val run = runOf(o)
+        val sn = if (o.has("sn")) o.optInt("sn") else null
+        val lo = if (o.has("lo")) o.optInt("lo") else null
+        if (run != null) {
+            if (!o.has("mref")) { noteHole(takeLetter(run, null, lo)); return }   // the writer's oldest, named: nothing to fetch
+            if (sn != null && tookLetter(run, sn)) { Log.d("Montana", "twin_mirror a letter taken before -- not fetched again sn=$sn"); return }
+        }
         if (mid in strings(SEEN)) return
         val f = scratch()
         val words = try {
@@ -438,7 +456,141 @@ object Twin {
         } finally { f.delete() }
         seen(mid)
         for (i in 0 until words.length()) runCatching { land(words.getJSONObject(i)) }.onFailure { Log.w("Montana", "twin_land " + it.javaClass.simpleName) }
-        Log.d("Montana", "twin_mirror taken words=" + words.length())
+        Log.d("Montana", "twin_mirror taken words=" + words.length() + " sn=" + (sn ?: 0))
+        if (run != null) noteHole(takeLetter(run, sn, lo))
+    }
+
+    // ── THE MIRROR'S BOOK: A NUMBER FOR EVERY LETTER, A CURSOR ON EVERY DEVICE (iOS d7672fe4, 2417, OZ 1 p.1-2, the author's words
+    // 23282 and 23284: «build the sync properly, not "someone took it or not"») ──
+    // A mirror letter was a box letter and nothing more: its words left this device's queue the moment a node boxed it (layMirror),
+    // a box keeps a pipe's last 64 letters for a day, and the receiver knew the last 512 letters' names alone -- a device away
+    // longer, or behind more, lost those words for good. Now each mirror letter of a device takes the next number of that device's
+    // run, and the device keeps the letter's road in its book until every other device of the seed named a cursor past it (six days
+    // at most: the pieces live a week on the nodes). Each device keeps, per writer and run, the number up to which it took every
+    // letter and the numbers it took above it; a repeat is never fetched again, a hole is named at once in the cursor word (hw,
+    // wantHistory), and the writer lays the letters after that number again by the same roads. A number the writer no longer holds
+    // is named by its oldest («lo»). A book lost starts a new run, so no cursor skips its letters as old.
+    // The book: {run, next, laid: [{sn, at, road}], took: {writer/run: {c, above: [..], at}}, peers: {device: cursor on this run}}.
+    private const val MBOOK = "mt.twin.mirrorBook"   // iOS twin-mirror-book.json, sealed in the vault: it holds the letters' roads
+    private const val BOOK_KEPT = 1000
+    private const val BOOK_DAYS = 6 * 86_400.0
+    private val bookLock = Any()
+    private var book: JSONObject? = null   // under bookLock
+    @Volatile private var mirrorHole = false   // a hole stands, and the cursor word goes within twenty seconds
+
+    /** Under bookLock. */
+    private fun readBook(): JSONObject {
+        book?.let { return it }
+        val b = DeviceVault.get(MBOOK)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONObject()
+        if (b.optString("run").isEmpty()) b.put("run", Wire.hex(ByteArray(4).also { SecureRandom().nextBytes(it) }))
+        if (b.optInt("next", 0) < 1) b.put("next", 1)
+        if (b.optJSONArray("laid") == null) b.put("laid", JSONArray())
+        if (b.optJSONObject("took") == null) b.put("took", JSONObject())
+        if (b.optJSONObject("peers") == null) b.put("peers", JSONObject())
+        book = b
+        return b
+    }
+    /** Under bookLock. */
+    private fun keepBook(b: JSONObject) { book = b; DeviceVault.set(MBOOK, b.toString().toByteArray()) }
+    /** Under bookLock: a letter every other device heard within the month took, or older than its pieces, leaves the book. */
+    private fun trimBook(b: JSONObject, now: Double) {
+        val devices = twinsHeard(now).keys().asSequence().toList()
+        val peers = b.getJSONObject("peers")
+        val low = if (devices.isEmpty()) 0 else devices.minOf { peers.optInt(it, 0) }
+        val laid = b.getJSONArray("laid")
+        val keep = ArrayList<JSONObject>()
+        for (i in 0 until laid.length()) laid.optJSONObject(i)?.let { e -> if (e.optInt("sn") > low && now - e.optDouble("at", 0.0) <= BOOK_DAYS) keep.add(e) }
+        b.put("laid", JSONArray(keep.takeLast(BOOK_KEPT)))
+        val took = b.getJSONObject("took")
+        for (k in took.keys().asSequence().toList()) if (now - (took.optJSONObject(k)?.optDouble("at", 0.0) ?: 0.0) >= TWIN_HEARD_FOR) took.remove(k)
+    }
+    /** The next number of this device's run is written into the letter, and the letter's road into the book. */
+    private fun numberLetter(road: JSONObject) = synchronized(bookLock) {
+        val b = readBook()
+        val now = System.currentTimeMillis() / 1000.0
+        val n = b.optInt("next", 1)
+        road.put("sn", n).put("se", b.optString("run"))
+        b.getJSONArray("laid").put(JSONObject().put("sn", n).put("at", now).put("road", road.toString()))
+        b.put("next", n + 1)
+        trimBook(b, now)
+        keepBook(b)
+    }
+    /** The writer's run, when the writer's build numbers its letters. */
+    private fun runOf(o: JSONObject): String? {
+        val f = o.optString("f"); val se = o.optString("se")
+        return if (f.isEmpty() || se.isEmpty()) null else "$f/$se"
+    }
+    /** This device took that letter already. */
+    private fun tookLetter(run: String, sn: Int): Boolean = synchronized(bookLock) {
+        val t = readBook().getJSONObject("took").optJSONObject(run) ?: return@synchronized false
+        if (sn <= t.optInt("c")) return@synchronized true
+        val a = t.optJSONArray("above") ?: return@synchronized false
+        (0 until a.length()).any { a.optInt(it) == sn }
+    }
+    /** A letter taken (sn), or the writer's oldest held number (lo) closing what it can no longer give. The first letter of a run
+     *  starts its cursor there: what came before rides the history and the phone's copy. True while a hole of the last hour stands. */
+    private fun takeLetter(run: String, sn: Int?, lo: Int?): Boolean = synchronized(bookLock) {
+        val b = readBook()
+        val now = System.currentTimeMillis() / 1000.0
+        val took = b.getJSONObject("took")
+        val had = took.optJSONObject(run)
+        val start = had?.optInt("c") ?: sn?.let { it - 1 }
+        if (start != null) {
+            var c = start
+            val above = TreeSet<Int>()
+            had?.optJSONArray("above")?.let { a -> for (i in 0 until a.length()) above.add(a.optInt(i)) }
+            if (lo != null && c + 1 < lo) {
+                Log.d("Montana", "twin_mirror the writer holds no more " + (c + 1) + ".." + (lo - 1) + " run=" + run)
+                c = lo - 1
+            }
+            if (sn != null && c < sn) above.add(sn)
+            while (above.isNotEmpty() && above.first() <= c + 1) c = maxOf(c, above.pollFirst()!!)
+            took.put(run, JSONObject().put("c", c).put("above", JSONArray(above.toList())).put("at", now))
+            keepBook(b)
+        }
+        took.keys().asSequence().any { k -> took.optJSONObject(k)?.let { t -> (t.optJSONArray("above")?.length() ?: 0) > 0 && now - t.optDouble("at", 0.0) < 3600 } == true }
+    }
+    /** A hole stands: the cursor word names it within twenty seconds, and every pickup names it again until it closes. */
+    private fun noteHole(hole: Boolean) {
+        mirrorHole = hole
+        if (hole) wantHistory(soon = true)
+    }
+    /** The cursor word's part of the mirror: per writer and run, the number up to which every letter was taken. */
+    private fun mirrorCursors(): JSONObject = synchronized(bookLock) {
+        val took = readBook().getJSONObject("took")
+        JSONObject().also { r -> for (k in took.keys()) took.optJSONObject(k)?.let { r.put(k, it.optInt("c")) } }
+    }
+    /** Another device named its cursor on this device's run: the letters after it are laid again from the book, by their roads, 64 at
+     *  most a word; a cursor below the book's oldest is told that oldest. */
+    private fun giveMirror(o: JSONObject, f: String) {
+        val lc = o.optJSONObject("lc") ?: return
+        val secret = secret() ?: return
+        val me = deviceRef() ?: return
+        val mine = Archive.writerHex() ?: return
+        val again: List<JSONObject> = synchronized(bookLock) {
+            val b = readBook()
+            val key = mine + "/" + b.optString("run")
+            if (!lc.has(key)) return@synchronized emptyList()
+            val c = lc.optInt(key)
+            b.getJSONObject("peers").put(f, c)
+            trimBook(b, System.currentTimeMillis() / 1000.0)
+            keepBook(b)
+            val laid = b.getJSONArray("laid")
+            val lo = if (laid.length() > 0) laid.getJSONObject(0).optInt("sn") else b.optInt("next", 1)
+            val rows = ArrayList<JSONObject>()
+            for (i in 0 until laid.length()) {
+                if (rows.size >= 64) break
+                val e = laid.optJSONObject(i) ?: continue
+                if (e.optInt("sn") <= c) continue
+                runCatching { JSONObject(e.optString("road")) }.getOrNull()?.let { rows.add(it.put("lo", lo)) }
+            }
+            if (rows.isEmpty() && c + 1 < lo) listOf(JSONObject().put("w", "lt").put("f", mine).put("se", b.optString("run")).put("lo", lo))   // nothing to lay: the oldest, named
+            else rows
+        }
+        if (again.isEmpty()) return
+        var boxed = 0
+        for (r in again) if (Keeping.knock(secret, r, me)) boxed++
+        Log.d("Montana", "twin_mirror laid again letters=" + again.size + " boxed=" + boxed + " to=" + f.take(8))
     }
 
     /**
