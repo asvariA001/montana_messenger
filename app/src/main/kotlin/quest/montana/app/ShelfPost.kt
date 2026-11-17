@@ -23,6 +23,8 @@ object ShelfPost {
         val pipes: Map<String, ByteArray>,      // a correspondence's reference -> its pipe: their book and the pipes met on the shelf
         val invites: Map<String, ByteArray>,    // an invitation of their cards (base64url) -> the card's body (its first 1184 bytes: the root)
         val cardKeys: Map<String, ByteArray>,   // a card's root (base64url) -> its secret key
+        val outbox: List<JSONObject> = emptyList(),   // their own queue, parked with them (Post.OUTBOX items: to, m, t, q, qt, qm)
+        val firsts: Set<String> = emptySet(),         // their pipes nobody has answered yet: a letter on one goes from their own engine
     )
 
     private val lock = Any()
@@ -115,6 +117,50 @@ object ShelfPost {
             for (door in Doors.ordered("box")) Thread { bodies.forEach { Wire.post(door, "/box-del", it, 5000) } }.start()
         }
         Log.i("Montana", "shelf_post seat=" + p.id + " subs=" + road.size + " kept=" + kept)
+        carry(p)
+    }
+
+    private val carried = HashMap<String, Long>()   // a letter of a person on the shelf -> the moment it last rode from here
+    /**
+     * THEIR OWN LETTERS RIDE (iOS MTShelfPost.carry, MontanaSeats.swift 794-811): a letter the person wrote before they left the seat
+     * waits in their own queue on the shelf; it rides from here under their own reference on the rhythm of a letter that waits for its
+     * receipt (five minutes), and its receipt comes back to their inbox on the shelf, where the landing settles their queue at the lift
+     * (Post.markDelivered). A media or voice letter, a letter on a pipe nobody has answered yet and a letter too long for one envelope
+     * wait for the person's own engine.
+     */
+    private fun carry(p: Person) {
+        val now = System.currentTimeMillis()
+        for (o in p.outbox) {
+            val to = o.optString("to"); val mid = o.optString("m"); val text = o.optString("t")
+            if (to.isEmpty() || mid.isEmpty() || text.isEmpty() || to in p.firsts) continue
+            if (text.startsWith(Marks.MEDIA) || text.startsWith(Marks.VOICE)) continue
+            val secret = p.pipes[to] ?: continue
+            if (synchronized(lock) { now - (carried[mid] ?: 0L) < 300_000L }) continue
+            var head = mid.toByteArray() + byteArrayOf(0) + text.toByteArray() + byteArrayOf(0) + p.name.trim().toByteArray() + byteArrayOf(0, 0)
+            val qt = o.optString("qt")
+            if (qt.isNotEmpty()) {
+                val tail = qt.take(200).toByteArray() + byteArrayOf(0) + o.optString("qm").toByteArray() + byteArrayOf(0)
+                if (head.size + tail.size <= Wire.ENVELOPE) head += tail
+            }
+            if (head.size > Wire.ENVELOPE) continue
+            synchronized(lock) { carried[mid] = now }
+            val silent = Marks.isSilent(text) || o.optBoolean("q")
+            val boxed = knock(secret, p, mid, head + ByteArray(Wire.ENVELOPE - head.size), silent)
+            Log.i("Montana", "shelf_carry mid=" + mid.take(8) + " seat=" + p.id + " boxed=" + (if (boxed) 1 else 0) + " silent=" + (if (silent) 1 else 0))
+        }
+    }
+
+    /** One knock under the person's own reference: the body sealed afresh at every door, the first door that boxes it ends the walk. */
+    private fun knock(secret: ByteArray, p: Person, mid: String, plain: ByteArray, silent: Boolean): Boolean {
+        val cw = Wire.convW(secret, Wire.day())
+        for (door in Signal.writeOrder("box")) {
+            val env = Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain) ?: return false
+            val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, p.twin)).put("mid", mid)
+                .put("env", Base64.encodeToString(env, Base64.NO_WRAP)).apply { if (silent) put("silent", true) })
+            if (code == 200) { Signal.doorAnswered(door); return true }
+            Signal.doorFailed(door, code)
+        }
+        return false
     }
 
     /** A first letter to the person's card, opened with the card's own key and proven by its confirmation -- the pipe is kept on the
@@ -138,16 +184,7 @@ object ShelfPost {
         val head = rmid.toByteArray() + byteArrayOf(0) + (Marks.DELIVERED + mid).toByteArray() + byteArrayOf(0) +
             p.name.trim().toByteArray() + byteArrayOf(0, 0)
         if (head.size > Wire.ENVELOPE) return
-        val plain = head + ByteArray(Wire.ENVELOPE - head.size)
-        val cw = Wire.convW(secret, Wire.day())
-        var boxed = false
-        for (door in Signal.writeOrder("box")) {
-            val env = Wire.seal(Wire.bodyKey(secret, Wire.minute()), plain) ?: return
-            val (code, _) = Wire.post(door, "/wake", JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, p.twin)).put("mid", rmid)
-                .put("env", Base64.encodeToString(env, Base64.NO_WRAP)).put("silent", true))
-            if (code == 200) { Signal.doorAnswered(door); boxed = true; break }
-            Signal.doorFailed(door, code)
-        }
+        val boxed = knock(secret, p, rmid, head + ByteArray(Wire.ENVELOPE - head.size), true)
         Log.i("Montana", "shelf_receipt mid=" + mid.take(8) + " seat=" + p.id + " boxed=" + (if (boxed) 1 else 0))
     }
 }

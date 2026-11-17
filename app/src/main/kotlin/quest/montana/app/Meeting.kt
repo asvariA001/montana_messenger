@@ -25,7 +25,7 @@ object Meeting {
         else -> R.string.invite_refused
     }
 
-    private const val FIRSTS = "pipeFirst"     // ref → {ct, inv, cf}: the introduction still unanswered, cf its key confirmation
+    const val FIRSTS = "pipeFirst"     // ref → {ct, inv, cf}: the introduction still unanswered, cf its key confirmation
     private const val SCANS = "rdvScanned"     // invitation → ref (iOS scanBook)
     private const val CARDS = "cardMetByRoot"  // card root → ref (iOS cardBook)
     private val gate = Any()

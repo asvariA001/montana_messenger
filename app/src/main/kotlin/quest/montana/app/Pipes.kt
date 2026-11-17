@@ -2480,6 +2480,15 @@ object Post {
         }
     }
 
+    /** A receipt for a letter still in the queue: it is delivered, it leaves the queue (a letter the shelf carried for its person). */
+    private fun settle(mid: String) = synchronized(outLock) {
+        val a = outbox()
+        if ((0 until a.length()).none { a.getJSONObject(it).optString("m") == mid }) return@synchronized
+        val keep = JSONArray()
+        for (i in 0 until a.length()) a.getJSONObject(i).let { if (it.optString("m") != mid) keep.put(it) }
+        if (keepOutbox(keep)) Log.i("Montana", "queue_settled m=" + mid.take(8) + " — its receipt came")
+    }
+
     /** The names the queue holds (iOS queueMids): the letters and copies waiting in it, and the files whose intent waits for the drain. */
     fun queued(): Set<String> {
         val a = synchronized(outLock) { outbox() }
@@ -3590,6 +3599,7 @@ object Post {
 
     /** THE ONE DELIVERY DOOR (iOS markDelivered): a receipt, or a presence word naming the letter whole (HeldLetters, «by=word»). */
     fun markDelivered(ref: String, d: String) {
+        settle(d)   // a letter carried from the shelf (ShelfPost.carry) is still in its person's queue: its receipt settles it (iOS)
         announcedDelivered(ref, d)   // a receipt of my name or my face writes the mark (iOS recordDelivered)
         // a group's copy witnesses the group's row, never a row of the pipe (iOS markDelivered → MTGroup.copyDelivered)
         if (Groups.copyDelivered(d)) return

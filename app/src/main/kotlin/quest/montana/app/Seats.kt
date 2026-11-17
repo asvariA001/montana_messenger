@@ -303,6 +303,9 @@ object Seats {
         val o = vaultJson(MET + id) ?: return emptyMap()
         return o.keys().asSequence().mapNotNull { k -> runCatching { k to Base64.decode(o.getString(k), Base64.NO_WRAP) }.getOrNull() }.toMap()
     }
+    /** A vault value of a person's record, as the park kept it (base64 of its bytes), read as text. */
+    private fun unsealed(chain: JSONObject, name: String): String? = chain.optString(name).takeIf { it.isNotEmpty() }
+        ?.let { runCatching { String(Base64.decode(it, Base64.NO_WRAP), Charsets.UTF_8) }.getOrNull() }
     private fun waiting(b: Book, id: String) = b.step == null && b.active != id && b.seats.any { it.id == id }
 
     /** The persons waiting on the shelf, as their records keep them; none while a turn is under way (iOS shelfPeople / shelfPerson). */
@@ -318,7 +321,10 @@ object Seats {
             ShelfPost.Person(seat.id, seat.name, ShelfPost.twin(seat.id, kept, words),
                 pipes = b64map(chain.optString("pipeSecrets").ifEmpty { null }) + metPipes(seat.id),
                 invites = b64map(chain.optString("rdvCards").ifEmpty { null }) + b64map(chain.optString("rdvPermanent").ifEmpty { null }),
-                cardKeys = b64map(chain.optString("cardKeys").ifEmpty { null }))
+                cardKeys = b64map(chain.optString("cardKeys").ifEmpty { null }),
+                outbox = unsealed(chain, Post.OUTBOX)?.let { runCatching { JSONArray(it) }.getOrNull() }
+                    ?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } ?: emptyList(),
+                firsts = unsealed(chain, Meeting.FIRSTS)?.let { runCatching { JSONObject(it).keys().asSequence().toSet() }.getOrNull() } ?: emptySet())
         }
     }
 
