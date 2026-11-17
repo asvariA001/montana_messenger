@@ -402,10 +402,16 @@ object KeepCopy {
         var triedAt: Double? = null
         /** THE ASKING A NEW ATTACHMENT MADE DUE (iOS Owner.urgent, 11c34ed7 at 2389, decision 872 = v): its copy goes on the battery. */
         var urgent: Boolean? = null
-        var light = JSONObject()              // lightGen, lightAt, lightTriedAt, lightFace, lightName, lightPeople
+        var light = JSONObject()              // lightGen, lightAt, lightTriedAt, lightFace, lightName, lightPeople, lightLaid
+        /** THE ROADS THIS PERSON LAID ON THE NODES (iOS Owner.laid / lightLaid, c22a497d at 2418, OZ 1): every generation laid sixteen
+         *  shares anew and nobody took the older ones off -- Moscow held 22 GB of them. The roads (the list's piece and its key) of the
+         *  generation the keepers hold are kept here, those of the last two light copies under light's «lightLaid»; a newer one takes
+         *  the older off the nodes (Keeping.unlay). */
+        var laid: org.json.JSONArray? = null
+        val lightLaid: org.json.JSONArray? get() = light.optJSONArray("lightLaid")
         fun json(): JSONObject = JSONObject(light.toString()).put("generation", generation).put("askedAt", askedAt).put("yes", org.json.JSONArray(yes))
             .put("n", n).put("keepers", JSONObject().apply { keepers.forEach { (c, k) -> put(c, k.json()) } }).put("renewedAt", renewedAt).put("short", short)
-            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) }; urgent?.let { put("urgent", it) } }
+            .apply { asking?.let { put("asking", it) }; triedAt?.let { put("triedAt", it) }; urgent?.let { put("urgent", it) }; laid?.let { put("laid", it) } }
         companion object {
             fun of(o: JSONObject): Owner = Owner(o.optLong("generation")).apply {
                 asking = if (o.has("asking")) o.optLong("asking") else null
@@ -417,6 +423,7 @@ object KeepCopy {
                 short = o.optBoolean("short")
                 triedAt = if (o.has("triedAt")) o.optDouble("triedAt") else null
                 urgent = if (o.optBoolean("urgent")) true else null
+                laid = o.optJSONArray("laid")
                 light = JSONObject().also { l -> for (k in o.keys()) if (k.startsWith("light")) l.put(k, o.get(k)) }
             }
         }
@@ -442,12 +449,16 @@ object KeepCopy {
         Prefs.setBool(MINE, on)
         Prefs.setBool(TOLD, true)   // the switch stands under its own explanation
         ex.execute {
-            synchronized(lock) {
+            val gone = synchronized(lock) {
                 val o = owner()
-                if (on) { o.renewedAt = 0.0; o.triedAt = null; saveOwner() }
-                else { o.keepers.keys.forEach { say(it, JSONObject().put("w", "release")) }; ownerCache = Owner(o.generation); saveOwner() }
+                if (on) { o.renewedAt = 0.0; o.triedAt = null; saveOwner(); null }
+                else {
+                    o.keepers.keys.forEach { say(it, JSONObject().put("w", "release")) }
+                    val g = Keeping.roadsJoin(o.laid, o.lightLaid)
+                    ownerCache = Owner(o.generation); saveOwner(); g
+                }
             }
-            if (on) tick()
+            if (on) tick() else Keeping.unlay(gone)   // no copy kept: its pieces leave the nodes too (iOS 2418)
         }
     }
 
@@ -620,8 +631,9 @@ object KeepCopy {
         // the shares are a third more than the copy, and the pieces of one share are laid beside them
         if (dir.usableSpace < copy.length() / KeepCode.DATA * (KeepCode.GROUP + 1) + 64L * 1_048_576) return Unit.also { Log.i("Montana", "keep_cut refused: no room") }
         val cut = KeepCode.cut(copy, n, dir) ?: return Unit.also { Log.i("Montana", "keep_cut refused n=$n") }
+        val roads = HashMap<Int, JSONObject>()
+        var handed = false
         try {
-            val roads = HashMap<Int, JSONObject>()
             for (k in 0 until n) {
                 // the charger taken away (unless a new attachment made the copy due), the phone grown hot, a metered path: the rest
                 // of the copy waits for the next renewal
@@ -646,14 +658,23 @@ object KeepCopy {
                 slots.firstOrNull()?.let { sent[conv] = Keeper(it, false, slots, emptyList()) }
             }
             if (sent.isEmpty()) return Unit.also { Log.i("Montana", "keep_hand no part left the phone") }
-            synchronized(lock) {
+            val older = synchronized(lock) {
                 val o = owner()
                 for (conv in o.keepers.keys) if (conv !in sent) say(conv, JSONObject().put("w", "release"))
+                val before = o.laid
+                handed = true
                 o.keepers = sent; o.n = n; o.generation = g; o.yes.clear(); o.short = false; o.renewedAt = now()
+                o.laid = Keeping.roadsOf(roads.values)
                 saveOwner()
+                before
             }
             Log.i("Montana", "keep_hand g=$g keepers=${sent.size} parts=$parts laid=${roads.size} bytes=${cut.length}")
-        } finally { cut.shares.forEach { it.delete() } }
+            Keeping.unlay(older)   // the generation before leaves the nodes (iOS 2418)
+        } finally {
+            cut.shares.forEach { it.delete() }
+            // A ROUND THAT DID NOT END TAKES ITS SHARES BACK (iOS 2418): a share laid before the charger went away was nobody's road.
+            if (!handed && roads.isNotEmpty()) Keeping.unlay(Keeping.roadsOf(roads.values))
+        }
     }
 
     // ── the light copy (iOS MTKeeping 652-702, 0be1c720): «everything else back by the words» ──
@@ -720,11 +741,19 @@ object KeepCopy {
         // The sender of the pipe of light is named «light», never this person's own reference: a phone opening the same words reads
         // the box under that reference, and a letter of its own name the node would keep from it.
         if (!Keeping.knock(secret, road, LIGHT_NAME)) return Unit.also { Log.i("Montana", "keep_light no door boxed the road") }
-        synchronized(lock) {
-            owner().light.put("lightGen", g).put("lightAt", now()).put("lightFace", face).put("lightName", name)
+        val older = synchronized(lock) {
+            val o = owner()
+            o.light.put("lightGen", g).put("lightAt", now()).put("lightFace", face).put("lightName", name)
                 .put("lightPeople", people).put("lightEngine", Card.ENGINE)
+            // THE LAST TWO LIGHT COPIES STAY (iOS 2418): a device in the middle of taking the one before still finds it whole.
+            val lights = Keeping.roadsJoin(o.lightLaid, Keeping.roadsOf(listOf(road)))
+            val keep = org.json.JSONArray(); val gone = org.json.JSONArray()
+            for (i in 0 until lights.length()) (if (i < lights.length() - 2) gone else keep).put(lights.get(i))
+            o.light.put("lightLaid", keep)
             saveOwner()
+            gone
         }
+        Keeping.unlay(older)
         Log.i("Montana", "keep_light named g=$g bytes=${made.file.length()} chats=${made.tally.chats}")
     }
 
@@ -810,7 +839,9 @@ object KeepCopy {
         val t = now()
         if (t - h.answeredAt < 600) return   // a call repeats every two minutes; one answer serves ten
         val r = h.road; val at = h.roadAt
-        val road: JSONObject = if (r != null && at != null && t - at < 6 * 86_400 && r["z"]?.toLongOrNull() == h.bytes) {
+        // The owner's road is ridden while it stands (iOS 2418): a newer generation takes the older off the nodes (unlay), and a
+        // keeper that missed the newer part lays its own.
+        val road: JSONObject = if (r != null && at != null && t - at < 6 * 86_400 && r["z"]?.toLongOrNull() == h.bytes && Keeping.stands(r["mref"] ?: "")) {
             JSONObject().put("z", h.bytes).put("bk", r["bk"] ?: "").put("mref", r["mref"] ?: "").put("mk", r["mk"] ?: "")   // the owner's pieces, alive a week
         } else synchronized(lock) { roads[key]?.takeIf { t - it.first < 86_400 }?.second }?.let { JSONObject(it.toString()) } ?: run {
             val fresh = Keeping.lay(file) ?: return Unit.also { Log.d("Montana", "keep_answer the part did not reach the nodes") }

@@ -52,6 +52,51 @@ object Keeping {
         return dest.length() == size
     }
 
+    /** A road's name and key alone (iOS roadsOf, c22a497d at 2418): enough to find its pieces again and take them off the nodes. */
+    fun roadsOf(roads: Collection<JSONObject>): JSONArray = JSONArray().apply {
+        for (r in roads) {
+            val mref = r.optString("mref"); val mk = r.optString("mk")
+            if (mref.isNotEmpty() && mk.isNotEmpty()) put(JSONObject().put("mref", mref).put("mk", mk))
+        }
+    }
+    /** Two lists of roads as one (an absent list is empty). */
+    fun roadsJoin(a: JSONArray?, b: JSONArray?): JSONArray = JSONArray().apply {
+        for (l in listOfNotNull(a, b)) for (i in 0 until l.length()) l.optJSONObject(i)?.let { put(it) }
+    }
+
+    /**
+     * THE ROADS TAKEN OFF THE NODES (iOS unlay, c22a497d at 2418, OZ 1: «it cannot be that a week left so many pieces»): each list is
+     * read under its key, and its pieces and the list itself are dropped from every store, a slice the store takes at a time. A list
+     * already gone leaves only its own name to drop. Runs on the caller's thread: call it off the main one.
+     */
+    fun unlay(roads: JSONArray?) {
+        if (roads == null || roads.length() == 0) return
+        val bids = ArrayList<String>()
+        for (i in 0 until roads.length()) {
+            val r = roads.optJSONObject(i) ?: continue
+            val mref = r.optString("mref").takeIf { it.isNotEmpty() } ?: continue
+            val mk = runCatching { Base64.decode(r.optString("mk"), Base64.DEFAULT) }.getOrNull()
+            val list = if (mk == null || mk.isEmpty()) null else Wire.getBlob(mref)?.takeIf { Wire.hex(Wire.sha(it)) == mref }
+            val chunks = list?.let { Wire.open(mk!!, it) }?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() }
+            if (chunks != null) for (k in 0 until chunks.length()) chunks.optJSONObject(k)?.optString("bid")?.takeIf { it.isNotEmpty() }?.let { bids.add(it) }
+            bids.add(mref)
+        }
+        var landed = 0
+        for (start in bids.indices step UNLAY_SLICE) {
+            val slice = JSONArray(bids.subList(start, minOf(start + UNLAY_SLICE, bids.size)))
+            for (door in Doors.ordered("blob")) if (Wire.post(door, "/blob-drop", JSONObject().put("bids", slice), 15_000).first == 200) landed++   // every store (iOS 1638)
+        }
+        Log.i("Montana", "keep_unlay roads=${roads.length()} pieces=${bids.size} landed=$landed")
+    }
+    private const val UNLAY_SLICE = 4096   // the names one /blob-drop takes (the node store refuses more; iOS unlaySlice)
+
+    /** Whether a road still stands on the nodes (iOS stands): its list asked of every store. No answer is no verdict -- the road is used. */
+    fun stands(mref: String): Boolean {
+        if (mref.isEmpty()) return false
+        val have = Wire.blobsHave(listOf(mref), everyStore = true) ?: return true
+        return mref in have
+    }
+
     /**
      * ONE LETTER IN A PIPE OF ITS OWN (iOS knock 833-841, MTNodeWire.knockLetter): mid ‖ 0 ‖ «KP:» and the word ‖ 0 ‖ 0 ‖ 0, padded to
      * the envelope, sealed afresh at every door; the first door that boxes it ends the walk. `sender` -- the name the pipe hears it
