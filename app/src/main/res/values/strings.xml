@@ -820,7 +820,6 @@
     <string name="dv_link_warn">This device will get your whole identity: your words and your chats. Connect only your own device.</string>
     <string name="dv_link_connect">Connect</string>
     <string name="dv_link_giving">Connecting…</string>
-    <string name="dv_link_given">The device is connected.</string>
     <string name="dv_link_not_found">The device was not found. Show a new code on it and scan again.</string>
     <string name="dv_link_no_lock">Set a passcode on this phone — without it no device can be connected.</string>
     <string name="dv_link_failed">The device could not be connected. Check the network and try again.</string>

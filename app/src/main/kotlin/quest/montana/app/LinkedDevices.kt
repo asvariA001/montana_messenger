@@ -277,7 +277,8 @@ fun devicesPage(act: MainActivity, onBack: () -> Unit): View {
                 }, lp(WRAP, WRAP).apply { topMargin = dp(10) })
             } }
             LinkStage.GIVING -> busy(R.string.dv_link_giving)
-            LinkStage.GIVEN -> said(R.string.dv_link_given, MT.green)
+            // the device stands in the list below as soon as its first letter is heard: no green line above it (iOS 2418, the author's word 23250)
+            LinkStage.GIVEN -> null
             LinkStage.NOT_FOUND -> said(R.string.dv_link_not_found, MT.red)
             LinkStage.NO_LOCK -> said(R.string.dv_link_no_lock, MT.red)
             LinkStage.FAILED -> said(R.string.dv_link_failed, MT.red)
@@ -347,9 +348,20 @@ fun devicesPage(act: MainActivity, onBack: () -> Unit): View {
     redraw = { draw() }
     val page = settingsPage(act, c.getString(R.string.devices), onBack) { list = this; draw() }
     // the list is read again each time the page comes back on screen (iOS onAppear)
+    // A DEVICE JOINED OR HEARD STANDS IN THE LIST AT ONCE (iOS c22a497d, 2418, OZ 1 p.6, the author's word 23250): the book is read
+    // anew every two seconds while the page is shown, and the page is drawn again only when what it shows changed
+    fun shown() = LinkedDevices.list().joinToString("|") { it.id + "," + it.kind + "," + it.heard / 60_000L }
+    var drawn = ""
+    val tick = object : Runnable {
+        override fun run() {
+            val now = shown()
+            if (now != drawn) { drawn = now; draw() }
+            page.postDelayed(this, 2_000L)
+        }
+    }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { draw() }
-        override fun onViewDetachedFromWindow(v: View) {}
+        override fun onViewAttachedToWindow(v: View) { drawn = shown(); draw(); v.removeCallbacks(tick); v.postDelayed(tick, 2_000L) }
+        override fun onViewDetachedFromWindow(v: View) { v.removeCallbacks(tick) }
     })
     return page
 }

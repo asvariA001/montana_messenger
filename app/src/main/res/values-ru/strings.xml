@@ -815,7 +815,6 @@
     <string name="dv_link_warn">Это устройство получит всю вашу личность: слова и чаты. Подключайте только своё устройство.</string>
     <string name="dv_link_connect">Подключить</string>
     <string name="dv_link_giving">Соединение…</string>
-    <string name="dv_link_given">Устройство подключено.</string>
     <string name="dv_link_not_found">Устройство не найдено. Покажите на нём новый код и отсканируйте снова.</string>
     <string name="dv_link_no_lock">Установите код-пароль на этом телефоне — без него устройство не подключить.</string>
     <string name="dv_link_failed">Устройство не удалось подключить. Проверьте сеть и попробуйте снова.</string>

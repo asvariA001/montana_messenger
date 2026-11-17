@@ -815,7 +815,6 @@
     <string name="dv_link_warn">该设备将获得您的完整身份：助记词和聊天。请只连接您自己的设备。</string>
     <string name="dv_link_connect">连接</string>
     <string name="dv_link_giving">连接中…</string>
-    <string name="dv_link_given">设备已连接。</string>
     <string name="dv_link_not_found">未找到设备。请在其上显示新的二维码后重新扫描。</string>
     <string name="dv_link_no_lock">请为本手机设置密码——没有密码无法连接设备。</string>
     <string name="dv_link_failed">无法连接设备。请检查网络后重试。</string>
