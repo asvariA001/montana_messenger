@@ -58,7 +58,7 @@
 
     <string name="no_chats">No chats yet</string>
     <string name="saved_messages">Saved Messages</string>
-    <string name="forget_device">Forget this device</string>
+    <string name="forget_device">Delete account</string>
     <string name="chats">Chats</string>
     <string name="contacts">Contacts</string>
     <string name="settings">Settings</string>
@@ -171,11 +171,11 @@
     <string name="link_previews_sub">Your phone reads the page of a link you send, so that site sees this phone.</string>
     <string name="filter_objectionable">Filter objectionable content</string>
     <string name="seed_phrase">Seed phrase</string>
-    <string name="forget_q">Forget this device?</string>
+    <string name="forget_q">Delete account?</string>
     <string name="show_seed">Show seed phrase</string>
     <string name="forget">Forget</string>
     <string name="cancel">Cancel</string>
-    <string name="forget_msg">This device erases the seed and the identity. Your history stays here sealed and opens again only from the same 24 words — on this device, or on another one that already holds a copy. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. Deleting the app erases the history as well.</string>
+    <string name="forget_msg">Your account is deleted: this device erases your 24-word identity. Your history stays here sealed and opens again only from the same 24 words — on this device, or on another one that already holds a copy. Nobody keeps the words for you: write them down first: Settings → Privacy → Seed phrase. Deleting the app erases the history as well.</string>
     <string name="media_autodownload">Media auto-download</string>
     <string name="over_mobile">Over mobile network</string>
     <string name="over_wifi">Over Wi-Fi</string>
@@ -828,4 +828,7 @@
     <string name="dv_end_words">The device leaves this list. A device that signed in with your seed phrase keeps it and your chats; to remove them, delete the account on that device.</string>
     <string name="dv_end_all_q">End all other sessions?</string>
     <string name="dv_end_all_msg">Every device leaves this list. A connected Mac erases your identity from itself as soon as it hears this phone; a device that signed in with your seed phrase keeps it and your chats.</string>
+    <string name="save_words">Save 24 words</string>
+    <string name="save_words_footer">Write the 24 words down and keep them: on a new phone your identity and your saved history open only from them.</string>
+    <string name="privacy_policy">Privacy Policy</string>
 </resources>

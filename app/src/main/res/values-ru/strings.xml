@@ -57,7 +57,7 @@
 
     <string name="no_chats">Пока нет чатов</string>
     <string name="saved_messages">Избранное</string>
-    <string name="forget_device">Забыть это устройство</string>
+    <string name="forget_device">Удалить аккаунт</string>
     <string name="chats">Чаты</string>
     <string name="contacts">Контакты</string>
     <string name="settings">Настройки</string>
@@ -170,11 +170,11 @@
     <string name="link_previews_sub">Твой телефон читает страницу ссылки, которую ты отправляешь, — сайт видит этот телефон.</string>
     <string name="filter_objectionable">Фильтр неприемлемого содержимого</string>
     <string name="seed_phrase">Сид-фраза</string>
-    <string name="forget_q">Забыть это устройство?</string>
+    <string name="forget_q">Удалить аккаунт?</string>
     <string name="show_seed">Показать сид-фразу</string>
     <string name="forget">Забыть</string>
     <string name="cancel">Отмена</string>
-    <string name="forget_msg">Устройство сотрёт семя и личность. Ваша история останется здесь запечатанной и откроется снова только по тем же двадцати четырём словам — на этом устройстве или на другом, где уже есть копия. Слова за вас никто не хранит: сначала выпишите их: Настройки → Приватность → Сид-фраза. Удаление приложения стирает и историю.</string>
+    <string name="forget_msg">Ваш аккаунт удаляется: это устройство стирает вашу личность из 24 слов. История остаётся здесь запечатанной и открывается снова только теми же 24 словами — на этом устройстве или на другом, где уже есть копия. Никто не хранит слова за вас: сначала запишите их: Настройки → Приватность → Сид-фраза. Удаление приложения стирает и историю.</string>
     <string name="media_autodownload">Автозагрузка медиа</string>
     <string name="over_mobile">Через мобильную сеть</string>
     <string name="over_wifi">Через Wi-Fi</string>
@@ -823,4 +823,7 @@
     <string name="dv_end_words">Устройство уйдёт из списка. Устройство, вошедшее по вашей сид-фразе, сохраняет её и чаты; чтобы убрать их, удалите аккаунт на самом устройстве.</string>
     <string name="dv_end_all_q">Завершить все другие сеансы?</string>
     <string name="dv_end_all_msg">Все устройства уйдут из списка. Подключённый Mac сотрёт вашу личность, как только услышит этот телефон; устройство, вошедшее по вашей сид-фразе, сохраняет её и чаты.</string>
+    <string name="save_words">Сохранить 24 слова</string>
+    <string name="save_words_footer">Запишите 24 слова и храните их: на новом телефоне ваша личность и сохранённая история открываются только из них.</string>
+    <string name="privacy_policy">Политика конфиденциальности</string>
 </resources>

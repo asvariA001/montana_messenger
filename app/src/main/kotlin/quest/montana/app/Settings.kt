@@ -144,6 +144,10 @@ fun View.standAboveKeys() = setOnApplyWindowInsetsListener { v, insets ->
 fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): View {
     val c: Context = act
     return settingsPage(act, c.getString(R.string.settings), onClose, cross = true) {
+        // THE 24 WORDS AT THE HEAD (iOS MontanaSettings 119-128, the author's word 08.10.2026: «bring the seed up to the top of
+        // Settings»): the one thing nobody can give back stands first; Privacy keeps its own row beside the account's deletion
+        section(null, c.getString(R.string.save_words_footer),
+            c.settingsRow(R.drawable.ic_key, SysColor.gray, c.getString(R.string.save_words)) { act.push { seedPage(act, it) } })
         section(null, null,
             c.settingsRow(R.drawable.ic_set_bell, SysColor.red, c.getString(R.string.notif_sounds)) { act.push { notificationsPage(act, it) } },
             c.settingsRow(R.drawable.ic_arrow_circle_down, SysColor.indigo, c.getString(R.string.data_storage)) { act.push { dataStoragePage(act, it) } },
@@ -154,7 +158,11 @@ fun settingsRoot(act: MainActivity, onForget: () -> Unit, onClose: () -> Unit): 
             c.settingsRow(R.drawable.ic_language, SysColor.cyan, c.getString(R.string.language)) { act.push { languagePage(act, it) } })
         section(null, null,
             c.settingsRow(R.drawable.ic_set_help, SysColor.blue, c.getString(R.string.ask_question)) { act.push { supportPage(act, it) } },
-            c.settingsRow(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.terms_of_use)) { act.push { termsGate(act, onAgree = null, onClose = it) } })
+            c.settingsRow(R.drawable.ic_set_doc, SysColor.gray, c.getString(R.string.terms_of_use)) { act.push { termsGate(act, onAgree = null, onClose = it) } },
+            // THE POLICY STANDS WHERE THE TERMS STAND (iOS 153-155, App Review 5.1.1(i)): reachable from inside the app, on the site
+            c.settingsRow(R.drawable.ic_hand, SysColor.blue, c.getString(R.string.privacy_policy)) {
+                runCatching { act.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(PRIVACY_URL))) }
+            })
     }
 }
 
@@ -372,10 +380,11 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
         section(null, null, c.text(c.getString(R.string.forget_device), 16f, MT.red, center = true).apply {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             pressable {
-                // The words come first: a person without the phrase leaves here toward it, not past the edge.
+                // DELETE ACCOUNT (iOS MontanaSettings 2287-2310, decision 974): the words come first -- a person without the phrase
+                // leaves here toward it, not past the edge.
                 AlertDialog.Builder(act).setTitle(R.string.forget_q).setMessage(R.string.forget_msg)
                     .setNeutralButton(R.string.show_seed) { _, _ -> act.push { seedPage(act, it) } }
-                    .setPositiveButton(R.string.forget) { _, _ -> onForget() }
+                    .setPositiveButton(R.string.forget_device) { _, _ -> onForget() }   // «Delete account», iOS decision 974
                     .setNegativeButton(R.string.cancel, null).show()
             }
         })

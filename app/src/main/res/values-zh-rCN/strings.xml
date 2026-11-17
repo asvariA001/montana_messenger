@@ -57,7 +57,7 @@
 
     <string name="no_chats">暂无聊天</string>
     <string name="saved_messages">收藏</string>
-    <string name="forget_device">忘记此设备</string>
+    <string name="forget_device">删除账户</string>
     <string name="chats">聊天</string>
     <string name="contacts">联系人</string>
     <string name="settings">设置</string>
@@ -170,11 +170,11 @@
     <string name="link_previews_sub">你发送链接时，本机会读取该网页，因此该网站会看到这台手机。</string>
     <string name="filter_objectionable">过滤不当内容</string>
     <string name="seed_phrase">助记词</string>
-    <string name="forget_q">忘记此设备？</string>
+    <string name="forget_q">删除账户？</string>
     <string name="show_seed">显示助记词</string>
     <string name="forget">忘记</string>
     <string name="cancel">取消</string>
-    <string name="forget_msg">本设备将抹除种子和身份。您的历史记录会密封保留在此，只能凭同样的二十四个词重新打开——在本设备上，或在已持有副本的另一台设备上。无人替您保管这些词：请先抄下它们：设置 → 隐私 → 助记词。删除应用也会抹除历史记录。</string>
+    <string name="forget_msg">你的账户将被删除：此设备会抹去你的 24 词身份。你的历史记录会加密留在这里，只有用同样的 24 个词才能再次打开——在此设备上，或在已持有副本的另一台设备上。没有人替你保管这些词：请先写下来：设置 → 隐私 → 助记词。删除应用也会抹去历史记录。</string>
     <string name="media_autodownload">媒体自动下载</string>
     <string name="over_mobile">通过移动网络</string>
     <string name="over_wifi">通过 Wi-Fi</string>
@@ -823,4 +823,7 @@
     <string name="dv_end_words">该设备将从此列表中移除。用您的助记词登录的设备仍保留助记词和聊天；如需移除，请在该设备上删除账户。</string>
     <string name="dv_end_all_q">结束所有其他会话？</string>
     <string name="dv_end_all_msg">所有设备都将从此列表中移除。已连接的 Mac 一收到本手机的消息就会删除您的身份；用您的助记词登录的设备仍保留助记词和聊天。</string>
+    <string name="save_words">保存 24 个词</string>
+    <string name="save_words_footer">请写下并保管好这 24 个词：在新手机上，你的身份和已保存的历史记录只能凭它们打开。</string>
+    <string name="privacy_policy">隐私政策</string>
 </resources>
