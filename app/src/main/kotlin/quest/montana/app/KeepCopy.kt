@@ -706,31 +706,41 @@ object KeepCopy {
      * one the doors may have let go.
      */
     fun lightForLink() {
-        if (!agrees || !MontanaSeed.hasSeed || lighting) return
-        val (face, name) = profileTags()
-        layLight(face, name, peopleTag())
+        if (!agrees || !MontanaSeed.hasSeed) return
+        // a copy already on its way holds for the joining too (iOS 84b18c6e lightJoining, OZ 1 p.6)
+        if (lighting) lightJoining = true else { val (face, name) = profileTags(); layLight(face, name, peopleTag(), joining = true) }
         Log.i("Montana", "keep_light for a joining")
     }
-    private fun layLight(face: String, name: String, people: String) {
+    @Volatile private var lightJoining = false   // a phone gave its words while a light copy was on its way: that copy holds for the joining
+    /** THE COPY IS A PICTURE ON THE MIRROR'S CURSOR (iOS 84b18c6e, OZ 1 p.6): the cursors are read before the copy is gathered, so a
+     *  word after them rides the mirror again and none falls between. */
+    private fun layLight(face: String, name: String, people: String, joining: Boolean = false) {
         if (lighting) return
         lighting = true
         val g = synchronized(lock) { owner().let { o -> o.light.put("lightTriedAt", now()); saveOwner(); o.light.optLong("lightGen", 0L) + 1 } }
         bulk.execute {
+            var lc: JSONObject? = null
             try {
                 val c = Book.ctx
                 val busy = MontanaBackup.shelf(c)?.listFiles { f -> f.name.endsWith(".part") && System.currentTimeMillis() - f.lastModified() < 600_000 }
                 if (!busy.isNullOrEmpty()) { Log.i("Montana", "keep_light waits: another copy is being made"); return@execute }
+                lc = Twin.copyCursors(joining).also { if (joining) Twin.tellJoining(it) }
                 val s = CopyInventory.gather(c).scope(CopyPlan.load())
                 // every letter, no attachment: the attachments come from the keepers
                 val scope = CopyScope(s.skipConvs, CopyKind.values().toSet(), s.skipFiles, s.owner, s.skipPeople, s.skipFaces)
                 val made = MontanaBackup.create(c, scope) {}
                 if (made !is CopyResult.Made) Log.i("Montana", "keep_light refused " + ((made as? CopyResult.Refused)?.why?.javaClass?.simpleName ?: "?"))
-                else try { nameLight(made, g, face, name, people) } finally { made.file.delete() }
+                else try { nameLight(made, g, face, name, people, lc) } finally { made.file.delete() }
             } catch (e: Throwable) { Log.w("Montana", "keep_light " + e.javaClass.simpleName) }
-            finally { lighting = false }
+            finally {
+                lighting = false
+                // a joining that came while this copy was on its way
+                if (lightJoining && !joining) lc?.let { Twin.tellJoining(it, here = true) }
+                if (lc != null) lightJoining = false
+            }
         }
     }
-    private fun nameLight(made: CopyResult.Made, g: Long, face: String, name: String, people: String) {
+    private fun nameLight(made: CopyResult.Made, g: Long, face: String, name: String, people: String, lc: JSONObject?) {
         val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }
         val secret = master?.let { KeepDerive.lightSecret(it) }
         val digest = shaHex(made.file)
@@ -738,6 +748,7 @@ object KeepCopy {
         if (secret == null || road == null) return Unit.also { Log.i("Montana", "keep_light the light copy did not reach the nodes") }
         road.put("w", "light").put("g", g).put("d", digest).put("v", Archive.writerHex() ?: "")   // the device that laid it
             .put("a", Book.ctx.packageName)   // and the app on it: two apps of one phone are two writers of the same words
+        lc?.takeIf { it.length() > 0 }?.let { road.put("lc", it) }   // the mirror's cursors the copy stands on: the joined device goes on from them (OZ 1 p.6)
         // The sender of the pipe of light is named «light», never this person's own reference: a phone opening the same words reads
         // the box under that reference, and a letter of its own name the node would keep from it.
         if (!Keeping.knock(secret, road, LIGHT_NAME)) return Unit.also { Log.i("Montana", "keep_light no door boxed the road") }
@@ -910,7 +921,10 @@ object KeepCopy {
                 Log.i("Montana", "keep_light laid=" + r.javaClass.simpleName + " devices=" + roads.size + " own=" + own + " a=" + road.optString("a"))
                 if (r !is CopyResult.Taken) continue
                 laid++
-                if (laid == 1) { val letIn = onLight; onLight = null; letIn?.invoke() }
+                if (laid == 1) {
+                    val letIn = onLight; onLight = null; letIn?.invoke()
+                    if (!own) road.optJSONObject("lc")?.let { Twin.cursorsFromCopy(it) }   // the same book from here (iOS 84b18c6e, OZ 1 p.6)
+                }
             } finally { f.delete() }
         }
         return laid > 0

@@ -40,7 +40,30 @@ object LinkedDevices {
         set(v) { if (v in CHOICES) Prefs.setInt(DAYS, v) }
 
     /** THE ONE STAMP OF A LETTER IN THE SEED'S PIPE (iOS stamp, constitution 15): its kind and, on the phone, the term of its joined devices. */
-    fun stamp(o: JSONObject) { o.put("d", KIND).put("e", days) }
+    fun stamp(o: JSONObject) {
+        o.put("d", KIND).put("e", days)
+        val now = System.currentTimeMillis() / 1000.0
+        val e = ended(); val ed = JSONObject()
+        for (k in e.keys()) e.optDouble(k, 0.0).takeIf { now - it < ENDS_RIDE }?.let { ed.put(k, it) }
+        if (ed.length() > 0) o.put("ed", ed)   // the sessions this device ended: part of the history, on every letter (iOS 08cce7f3, OZ 1 p.7)
+    }
+    /**
+     * THE SESSIONS ENDED ARE PART OF THE HISTORY (iOS 08cce7f3 heardEnds, 2419, OZ 1 p.7; the author's words 23250, 23276): the word end
+     * was boxed once, a box keeps a day, and a device away longer heard of its end only when its own next letter made the phone tell it
+     * again; the seed's other devices kept an ended Mac in their lists. Every letter of the seed's pipe carries the ends its device said
+     * within a month, and every device's list loses an ended Mac. Only a joined kind leaves a list by a word; this phone never ends.
+     */
+    private const val ENDS_RIDE = 30 * 86_400.0
+    fun heardEnds(ed: JSONObject) {
+        val mine = Archive.writerHex().orEmpty()
+        val e = ended(); val n = map(NAMES)
+        var added = 0
+        for (t in ed.keys()) {
+            if (t == mine || e.has(t) || n.optString(t) != JOINED_KIND) continue
+            e.put(t, ed.optDouble(t, 0.0)); added++
+        }
+        if (added > 0) { Prefs.setStr(ENDED, e.toString()); Log.d("Montana", "link_end heard ended=$added") }
+    }
 
     private fun map(key: String): JSONObject = runCatching { JSONObject(Prefs.str(key, "{}")) }.getOrNull() ?: JSONObject()
     private fun ended(): JSONObject = map(ENDED)

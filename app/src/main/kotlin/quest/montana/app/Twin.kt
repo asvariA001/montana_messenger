@@ -313,6 +313,12 @@ object Twin {
             // another device names its cursor of history (iOS 2403 giveHistory; an older build takes it unread)
             "hw" -> ex.execute { runCatching { giveHistory(o) }.onFailure { Log.w("Montana", "twin_want " + it.javaClass.simpleName) } }
             // a row of Saved Messages told at its birth (iOS 5474fbcf takeSaved, 2419; an older build takes it unread, the mirror brings the row)
+            // a device joined by QR: its copy's cursors held here a day (iOS 84b18c6e heardJoining, 2419; an older build takes it unread)
+            // another device's end, naming a device not this one: an ended Mac leaves this list too (iOS 08cce7f3, OZ 1 p.7)
+            "end" -> o.optString("t").takeIf { it.isNotEmpty() && it != Archive.writerHex() && o.has("at") }?.let { t ->
+                LinkedDevices.heardEnds(JSONObject().put(t, o.optDouble("at")))
+            }
+            "jn" -> ex.execute { runCatching { heardJoining(o) }.onFailure { Log.w("Montana", "twin_join " + it.javaClass.simpleName) } }
             "sv" -> ex.execute { runCatching { takeSaved(o) }.onFailure { Log.w("Montana", "twin_saved " + it.javaClass.simpleName) } }
         }
     }
@@ -574,6 +580,7 @@ object Twin {
     private const val MBOOK = "mt.twin.mirrorBook"   // iOS twin-mirror-book.json, sealed in the vault: it holds the letters' roads
     private const val BOOK_KEPT = 1000
     private const val BOOK_DAYS = 6 * 86_400.0
+    private const val HOLD_FOR = 86_400.0   // a joining's cursor holds this device's letters after it a day (iOS holdFor, 2419)
     private val bookLock = Any()
     private var book: JSONObject? = null   // under bookLock
     @Volatile private var mirrorHole = false   // a hole stands, and the cursor word goes within twenty seconds
@@ -596,7 +603,12 @@ object Twin {
     private fun trimBook(b: JSONObject, now: Double) {
         val devices = twinsHeard(now).keys().asSequence().toList()
         val peers = b.getJSONObject("peers")
-        val low = if (devices.isEmpty()) 0 else devices.minOf { peers.optInt(it, 0) }
+        // a joining's cursor on this device's run: the letters after it stay a day (iOS 84b18c6e holds, OZ 1 p.6)
+        val holds = b.optJSONArray("holds")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
+            .filter { now - it.optDouble("at", 0.0) < HOLD_FOR }.takeLast(8)
+        if (holds.isEmpty()) b.remove("holds") else b.put("holds", JSONArray(holds))
+        val held = holds.minOfOrNull { it.optInt("c") } ?: Int.MAX_VALUE   // a joining's device is heard only after the copy lies
+        val low = minOf(held, if (devices.isEmpty()) 0 else devices.minOf { peers.optInt(it, 0) })
         val laid = b.getJSONArray("laid")
         val keep = ArrayList<JSONObject>()
         for (i in 0 until laid.length()) laid.optJSONObject(i)?.let { e -> if (e.optInt("sn") > low && now - e.optDouble("at", 0.0) <= BOOK_DAYS) keep.add(e) }
@@ -645,10 +657,86 @@ object Twin {
             }
             if (sn != null && c < sn) above.add(sn)
             while (above.isNotEmpty() && above.first() <= c + 1) c = maxOf(c, above.pollFirst()!!)
-            took.put(run, JSONObject().put("c", c).put("above", JSONArray(above.toList())).put("at", now))
+            val t = JSONObject().put("c", c).put("above", JSONArray(above.toList())).put("at", now)
+            // the letter that started this cursor: a joined device's copy may name a lower one (iOS MirrorCursor.first, OZ 1 p.6)
+            (if (had != null) had.optInt("first", 0).takeIf { it > 0 } else sn)?.let { t.put("first", it) }
+            took.put(run, t)
             keepBook(b)
         }
         took.keys().asSequence().any { k -> took.optJSONObject(k)?.let { t -> (t.optJSONArray("above")?.length() ?: 0) > 0 && now - t.optDouble("at", 0.0) < 3600 } == true }
+    }
+    // ── A JOINING BY QR READS THE SAME BOOK (iOS 84b18c6e, 2419, OZ 1 p.6; the author's words 23183, 23239, 23260; decision 989 = a) ──
+    // The phone's light copy is a picture of the history at one moment. The joined device started its cursor on the phone's run at the
+    // first letter it heard, so the letters laid between the picture and that letter were taken by nobody. Now the copy names the
+    // mirror's cursors as they stood when it was gathered (copyCursors); every writer holds its letters after that cursor a day for the
+    // joining (the phone at once, the others on the word jn); and the joined device takes the copy's cursors as its own the moment
+    // the copy lies (cursorsFromCopy): what came after the picture is laid again from the books, what the copy holds is a repeat.
+    /** The mirror's cursors as a copy gathered now stands; for a joining this device's letters after it are held a day. */
+    fun copyCursors(holding: Boolean): JSONObject = synchronized(bookLock) {
+        val b = readBook()
+        val took = b.getJSONObject("took")
+        val lc = JSONObject()
+        for (k in took.keys()) took.optJSONObject(k)?.let { lc.put(k, it.optInt("c")) }
+        val mine = Archive.writerHex().orEmpty()
+        if (mine.isNotEmpty()) lc.put(mine + "/" + b.optString("run"), b.optInt("next", 1) - 1)
+        if (holding) hold(b, b.optInt("next", 1) - 1)
+        lc
+    }
+    /** Under bookLock: this device's letters after `c` stay in its book a day, whatever cursors it heard. */
+    private fun hold(b: JSONObject, c: Int) {
+        val now = System.currentTimeMillis() / 1000.0
+        b.put("holds", (b.optJSONArray("holds") ?: JSONArray()).put(JSONObject().put("c", c).put("at", now)))
+        trimBook(b, now)
+        keepBook(b)
+        Log.d("Montana", "twin_mirror held for a joining from sn=" + (c + 1))
+    }
+    /** The phone gave its words: the seed's other devices hold their letters after the copy's cursors a day too, and this one
+     *  (`here`) when its copy was gathered before the joining. */
+    fun tellJoining(lc: JSONObject, here: Boolean = false) {
+        val mine = Archive.writerHex().orEmpty()
+        if (here) synchronized(bookLock) { val b = readBook(); if (lc.has(mine + "/" + b.optString("run"))) hold(b, lc.optInt(mine + "/" + b.optString("run"))) }
+        ex.execute {
+            val secret = secret() ?: return@execute
+            val me = deviceRef() ?: return@execute
+            val told = Keeping.knock(secret, JSONObject().put("w", "jn").put("f", mine).put("lc", lc), me)
+            Log.d("Montana", "twin_mirror a joining told runs=" + lc.length() + " boxed=" + (if (told) 1 else 0))
+        }
+    }
+    /** Another device of the seed gave its words to a new one: this device's letters after the cursor its copy names stay a day. */
+    private fun heardJoining(o: JSONObject) {
+        val mine = Archive.writerHex().orEmpty()
+        val lc = o.optJSONObject("lc") ?: return
+        if (mine.isEmpty() || o.optString("f") == mine) return
+        synchronized(bookLock) { val b = readBook(); val k = mine + "/" + b.optString("run"); if (lc.has(k)) hold(b, lc.optInt(k)) }
+    }
+    /** On a device joined by QR the phone's copy lies: its cursors are this device's own. A cursor started at a letter heard before the
+     *  copy lay goes back to the copy's -- the letters between are asked, the ones taken stay taken -- and the cursor is named at once. */
+    fun cursorsFromCopy(lc: JSONObject) {
+        val mine = Archive.writerHex().orEmpty() + "/"
+        var back = 0
+        synchronized(bookLock) {
+            val b = readBook()
+            val took = b.getJSONObject("took")
+            val now = System.currentTimeMillis() / 1000.0
+            for (r in lc.keys().asSequence().toList()) {
+                if (r.startsWith(mine)) continue
+                val c = lc.optInt(r)
+                val t = took.optJSONObject(r)
+                if (t == null) { took.put(r, JSONObject().put("c", c).put("above", JSONArray()).put("at", now)); continue }
+                val first = t.optInt("first", 0); val tc = t.optInt("c")
+                if (first <= 0 || c + 1 >= first || first > tc) continue
+                val above = TreeSet<Int>()
+                t.optJSONArray("above")?.let { a -> for (i in 0 until a.length()) above.add(a.optInt(i)) }
+                for (n in first..tc) above.add(n)
+                took.put(r, JSONObject().put("c", c).put("above", JSONArray(above.toList())).put("at", now))
+                back++
+            }
+            keepBook(b)
+        }
+        Log.d("Montana", "twin_mirror cursors from the phone's copy runs=" + lc.length() + " back=" + back)
+        synchronized(lock) { wantedAt = 0L }
+        if (back > 0) mirrorHole = true
+        wantHistory(soon = true)
     }
     /** A hole stands: the cursor word names it within twenty seconds, and every pickup names it again until it closes. */
     private fun noteHole(hole: Boolean) {
@@ -781,6 +869,7 @@ object Twin {
         val m = twinsHeard(now, maxOf(TWIN_HEARD_FOR, LinkedDevices.days * 86_400.0))   // the book keeps a device the phone's term long (OZ 1 p.4)
         m.put(f, JSONArray().put(now).put(if (o.optInt("rq") == 1) 1 else 0))
         Prefs.setStr(TWINS, m.toString())
+        o.optJSONObject("ed")?.let { LinkedDevices.heardEnds(it) }   // the sessions ended ride every letter (iOS 08cce7f3, OZ 1 p.7)
         LinkedDevices.heard(f, o.optString("d").ifEmpty { null })
     }
 
