@@ -1476,8 +1476,14 @@ object Book {
             val ref = idx.getString(i)
             HistoryFile.get(ref)?.let { raw -> runCatching { Chat.of(JSONObject(String(raw, Charsets.UTF_8))) }.getOrNull() }?.let { chats[ref] = it }
         }
+        // A SHELF THAT DOES NOT READ SAYS SO (iOS chatsShelf → nil, the critic 24.09): the index unread, or a chat it names that did not
+        // open, is no empty shelf -- the archive's orphan pass waits for a whole one (Archive.eraseOrphans)
+        whole = (DeviceVault.get(INDEX) != null || !DeviceVault.has(INDEX)) && chats.size == idx.length()
         Log.d("Montana", "book_read chats=" + chats.size + " of=" + idx.length() + " moved=" + HistoryFile.moved)
     }
+    private var whole = false
+    /** The book read whole: its index and every chat it names (iOS rowsRead != nil). */
+    fun readWhole(): Boolean = synchronized(lock) { ensure(); whole }
     private fun saveIndex() { DeviceVault.set(INDEX, JSONArray(chats.keys.toList()).toString().toByteArray()) }
     // one conversation, one sealed file: a letter writes its own conversation, never the whole book (iOS MTHistoryFile, P-6)
     private fun save(c: Chat) { HistoryFile.put(c.ref, c.json().toString().toByteArray()) }

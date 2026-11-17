@@ -307,12 +307,16 @@ object Archive {
         val k = keys() ?: return
         val chatsDir = File(root() ?: return, "Chats")
         if (only == null) twins(k, chatsDir)
-        val folders = only ?: chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name } ?: return
+        val folders = only ?: chatFolders(chatsDir).ifEmpty { if (chatsDir.isDirectory) emptyList() else return }
         // THE SAME ARCHIVE IS NOT READ TWICE (iOS MontanaArchive.face, ae663723, link 14244): a cold start whose archive, feed, pipe book
         // and asked rows stand as at the last whole reading would find the same gaps and build nothing, so it reads no log; any change
         // (a block written, a chat born or emptied, a pipe, a row unasked) changes the face, and the archive is read
         val face = if (only == null) face(chatsDir, folders) else null
-        if (face != null && face == Prefs.str(FACE_KEY, "")) { Log.d("Montana", "archive_same chats=" + Book.held().size); Post.adoptRestored(); return }
+        if (face != null && face == Prefs.str(FACE_KEY, "")) {
+            Log.d("Montana", "archive_same chats=" + Book.held().size); Post.adoptRestored()
+            if (eraseOrphans(k, chatsDir, folders) > 0) Prefs.setStr(FACE_KEY, face(chatsDir, chatFolders(chatsDir)))
+            return
+        }
         val book = convBook()
         val pipesBefore = Book.refs().size
         var chats = 0; var added = 0; var headed = 0; var hs = 0; var ha = 0; var hn = 0; var faces = 0; var gapChats = 0; var gapRows = 0; var retired = 0
@@ -425,7 +429,64 @@ object Archive {
         Post.adoptRestored()   // the pipes stand: a laid copy's letters join the queue only now (iOS afterPipes → adoptRestored, cc147308)
         if (Book.refs().size > pipesBefore) Presence.peersGrew()   // the grown book is greeted and asked for its faces at once (iOS 3ed661fa)
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
-        if (face != null) Prefs.setStr(FACE_KEY, face)
+        if (face != null) Prefs.setStr(FACE_KEY, if (eraseOrphans(k, chatsDir, folders) > 0) face(chatsDir, chatFolders(chatsDir)) else face)
+    }
+
+    private fun chatFolders(chatsDir: File): List<String> = chatsDir.listFiles()?.filter { it.isDirectory && !it.name.startsWith(".") }?.map { it.name }.orEmpty()
+
+    /** A folder's name as the archive gives it: 32 lowercase hex digits (iOS MontanaArchive.isLabel). */
+    private fun isLabel(n: String) = n.length == 32 && n.all { it in '0'..'9' || it in 'a'..'f' }
+
+    /**
+     * NO FOLDER OUTLIVES ITS CONVERSATION (iOS MontanaArchive.eraseOrphanFolders + the list audit's orphans, 74c5d1fd, 2440; OZ 1 p.1.1,
+     * the author's word 24228, 17.11.2026): a folder under Chats that no conversation of this phone answers for -- a chat of the book,
+     * a pipe, a group, a recovered transcript, Saved Messages -- is erased with its marks at the whole reading of the archive, so the
+     * other devices' blocks are never filed into it again and no light copy carries it on. Only with the keys warm and both shelves
+     * read whole: a chat that did not open would name its live folder an orphan. A folder whose log was written in the last ten
+     * minutes is spared -- a first letter's row, or a copy being laid, may be on its way; the next pass takes it. Sealed labels only.
+     * Runs on the archive's queue (restore).
+     */
+    private fun eraseOrphans(k: Keys, chatsDir: File, folders: List<String>): Int {
+        val labels = folders.filter { isLabel(it) }
+        if (labels.isEmpty() || !Book.readWhole() || !Groups.readWhole()) return 0
+        val keysNamed = LinkedHashSet<String>()
+        keysNamed.addAll(Book.held()); keysNamed.addAll(Book.refs()); keysNamed.addAll(Groups.keys()); keysNamed.add(Book.SAVED)
+        for (r in keysNamed.toList()) keysNamed.addAll(SamePair.folded(r))
+        val m = map(FOLDERS)
+        val named = HashSet<String>()
+        for (c in keysNamed) {
+            if (c.isEmpty()) continue
+            if (isTranscript(c)) { named.add(c.removePrefix(TRANSCRIPT_HEAD)); continue }
+            named.add(label(k, c)); m.optString(Wire.hex(conv(c))).takeIf { it.isNotEmpty() }?.let(named::add)
+        }
+        val now = System.currentTimeMillis()
+        var gone = 0; var spared = 0
+        for (f in labels.sorted()) {
+            if (f in named) continue
+            val dir = File(chatsDir, f)
+            val log = File(dir, "conversation.mtlog")
+            if (log.isFile && now - log.lastModified() < 600_000L) { spared++; continue }
+            if (!dir.deleteRecursively()) continue
+            forgetFolderMarks(null, f)
+            gone++
+        }
+        if (0 < gone + spared) Log.i("Montana", "archive_orphans erased=$gone spared=$spared")
+        return gone
+    }
+
+    /**
+     * THE FOLDER'S MARKS GO WITH THE FOLDER (iOS forgetFolderMarks, the critic B-3 11.10.2026; 2440: an orphan is known by its folder
+     * alone): the head, name-head, folder-map and cursor marks say «this folder already holds it», and outliving the directory a folder
+     * born again for the same conversation never got its head again. Queue-only, beside the removal.
+     */
+    private fun forgetFolderMarks(ref: String?, folder: String) {
+        for (n in listOf(HEADS, NAMES, PUSHED, BOXED)) { val o = map(n); if (o.has(folder)) { o.remove(folder); keep(n, o) } }
+        val m = map(FOLDERS)
+        val drop = ArrayList<String>()
+        ref?.let { drop.add(Wire.hex(conv(it))) }
+        m.keys().forEach { c -> if (m.optString(c) == folder) drop.add(c) }
+        if (drop.count { m.remove(it) != null } > 0) keep(FOLDERS, m)
+        Log.d("Montana", "archive_forget folder=" + folder.take(8) + " marks cleared")
     }
 
     /**
@@ -744,8 +805,9 @@ object Archive {
     /** No conversation, no trace of it on disk (iOS deleteChatFolder 706-712). */
     fun drop(ref: String) = q.execute {
         val k = keys() ?: return@execute
-        val dir = File(File(root() ?: return@execute, "Chats"), label(k, ref))
-        dir.deleteRecursively()
+        val folder = map(FOLDERS).optString(Wire.hex(conv(ref))).ifEmpty { label(k, ref) }
+        File(File(root() ?: return@execute, "Chats"), folder).deleteRecursively()
+        forgetFolderMarks(ref, folder)
     }
 
     /**
