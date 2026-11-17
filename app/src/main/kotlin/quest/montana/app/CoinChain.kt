@@ -344,6 +344,7 @@ object CoinTx {
 
     const val REF_PREFIX = "tx:"       // NOT-UI: the book's name of a transfer's moves (iOS refPrefix)
     const val BACK_PREFIX = "txback:"  // NOT-UI: the book's name of a debit no node took (iOS backPrefix)
+    const val LINK = "https://montana.xxx/explorer/#tx="   // NOT-UI: the transfer's confirmation link (iOS MTCoinTx.link, the Explorer)
     const val NO_RECEIVER_KEY = "no receiver key"   // NOT-UI: the trace's reason, and the one the send page names
     /** What a v3 send came to (iOS Send3); PACED: the key's node took its thirty records this minute and the next. */
     sealed class Send3 {

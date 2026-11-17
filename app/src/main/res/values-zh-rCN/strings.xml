@@ -437,6 +437,12 @@
     <string name="coin_not_enough_sub">您的硬币余额不足。</string>
     <string name="coin_not_sent">金币未发送</string>
     <string name="coin_not_sent_sub">余额未扣除任何金币。请稍后再试。</string>
+    <string name="coin_pending">正在确认转账</string>
+    <string name="coin_pending_sub">可用余额充足。该转账已有一条待确认记录，请勿重复发送。</string>
+    <string name="coin_no_key_sub">对方的 Montana 尚未提供其金币密钥。余额未扣除任何金币。请在对方更新并打开 Montana 后再试。</string>
+    <string name="coin_paced_sub">您的密钥节点每分钟接受三十条记录，这一分钟已满。余额未扣除任何金币。请一分钟后再试。</string>
+    <string name="coin_time_epochs">%1$d纪元</string>
+    <string name="coin_time_centuries">%1$d世纪</string>
     <string name="coin_you">您</string>
     <string name="coin_letter_sent">已发送的硬币</string>
     <string name="coin_letter_received">收到的硬币</string>

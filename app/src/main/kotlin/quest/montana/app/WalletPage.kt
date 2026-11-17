@@ -349,7 +349,8 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
     })
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
-    Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() } }.start()
+    // then the transfers' records of every pipe, whatever build sent them (iOS .task, MTWalletScreen.swift 322: MTCoinTx.scan «wallet»)
+    Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() }; if (GooglePlay.COINS) CoinTx.scan("wallet") }.start()
     return holder
 }
 
@@ -473,26 +474,36 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
     if (group != null) body.addView(c.text(c.getString(R.string.coin_group_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
     drawTotal()
     lateinit var close: () -> Unit
+    var sending = false
     val go = c.icon(R.drawable.ic_paperplane, MT.blue).apply {
         setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.coin_send)
         pressable {
             val to = picked.filter { 0L < coinsOf(it.value) }
             var sum = 0L
             for (f in to.values) sum += coinsOf(f)
-            if (to.isEmpty() || CoinBook.balance < sum) {
+            // the sum weighed against the available, the one number every transfer page shows (iOS send, MTWalletScreen.swift 2192)
+            if (to.isEmpty() || CoinSplit.available < sum) {
                 AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
                 return@pressable
             }
-            val went = to.keys.filter { ref -> CoinSend.transfer(ref, coinsOf(to.getValue(ref))) }
-            if (went.isEmpty()) {
-                AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
-                return@pressable
-            }
-            Log.i("Montana", "coin_send_many chats=" + to.size + " total=" + sum + " went=" + went.size)
-            if (group != null) { Groups.tellCoins(c, went.size, group); sent() }
-            close()
-            // one recipient's chat opens at once (iOS MontanaOutsideOpen.chat); many close the page; from a group it closes back into the group
-            if (group == null && went.size == 1) act.push { back -> conversationPage(act, went[0], back) }
+            if (sending) return@pressable
+            sending = true
+            // each pick by the pair's own SEND, off the main thread: the nodes are asked (iOS send's Task, 2196-2234)
+            Thread {
+                val went = to.keys.filter { ref -> CoinSend.transfer(ref, coinsOf(to.getValue(ref))) }
+                Log.i("Montana", "coin_send_many chats=" + to.size + " total=" + sum + " went=" + went.size)
+                MainThread.post {
+                    sending = false
+                    if (went.isEmpty()) {
+                        AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+                        return@post
+                    }
+                    if (group != null) { Groups.tellCoins(c, went.size, group); sent() }
+                    close()
+                    // one recipient's chat opens at once (iOS MontanaOutsideOpen.chat); many close the page; from a group it closes back into the group
+                    if (group == null && went.size == 1) act.push { back -> conversationPage(act, went[0], back) }
+                }
+            }.start()
         }
     }
     close = onClose

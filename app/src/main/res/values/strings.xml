@@ -443,6 +443,12 @@
     <string name="coin_not_enough_sub">Your coin balance is lower than this.</string>
     <string name="coin_not_sent">Coins were not sent</string>
     <string name="coin_not_sent_sub">Nothing left your balance. Try again in a moment.</string>
+    <string name="coin_pending">Transfer is being confirmed</string>
+    <string name="coin_pending_sub">The available balance was sufficient. The transfer has one pending record and must not be sent again.</string>
+    <string name="coin_no_key_sub">This person\'s Montana has not shared its coin key yet. Nothing left your balance. Try again after they update and open Montana.</string>
+    <string name="coin_paced_sub">Your key\'s node takes thirty records a minute, and this minute was full. Nothing left your balance. Try again in a minute.</string>
+    <string name="coin_time_epochs">%1$d ep.</string>
+    <string name="coin_time_centuries">%1$d cent.</string>
     <string name="coin_you">You</string>
     <string name="coin_letter_sent">Coins sent</string>
     <string name="coin_letter_received">Coins received</string>
