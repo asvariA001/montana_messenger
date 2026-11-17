@@ -932,8 +932,8 @@ private class GridFloor(c: Context) : View(c) {
  * when the person comes back within a minute (Calls.rejoinHeldCall). A road whose own words already say it passes callWarned.
  */
 object SystemSettings {
-    fun open(act: MainActivity, callWarned: Boolean = false) {
-        val go = { runCatching { act.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", act.packageName, null))) } }
+    fun open(act: MainActivity, callWarned: Boolean = false, page: Intent? = null) {
+        val go = { runCatching { act.startActivity(page ?: Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.fromParts("package", act.packageName, null))) } }
         if (callWarned || Calls.held() == null) { go(); return }
         val goesOn = CallLine.peerRebuilds && CallLine.connectedAt > 0L
         Log.d("Montana", "privacy_access call warned before settings goes_on=" + (if (goesOn) 1 else 0))

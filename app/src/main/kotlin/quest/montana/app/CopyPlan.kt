@@ -165,18 +165,19 @@ class CopyInventory {
  * weighs 20 GB and I cannot see what weighs so much nor how to clean it; Data and Storage shows other numbers, the backup's»). One
  * walk over the app's own folders off the main thread: every file counted once by its identity (a hard link names the bytes it
  * links, never a second copy) and by the disk it takes, each under the one place it belongs to; a link to a folder is not walked.
- * Android has no keepers' shares and hands a viewer the file itself (MediaProvider), so iOS's «Kept for the people who write to
- * you» and «Opened files» have nothing to count here.
+ * The shares this phone keeps for the people who write to it stand on their own row (iOS use.kept, MTKeeping.folder); Android hands
+ * a viewer the file itself (MediaProvider), so iOS's «Opened files» has nothing to count here.
  */
 class DiskUse {
     var chats = 0L      // attachments the letters name
     var unnamed = 0L    // files of the store no letter names: a letter deleted elsewhere, a file laid by a copy
     var walls = 0L      // the walls' pictures brought to be seen (Board.lookIn)
-    var shelf = 0L      // copies waiting on the shelf (MontanaBackup.shelf)
+    var shelf = 0L      // copies and their shares waiting on the shelf (MontanaBackup.shelf, KeepCopy's cut)
+    var kept = 0L       // the shares this phone keeps for the people who write to it (KeepCopy, iOS MTKeeping.folder)
     var history = 0L    // the letters, the chats' logs and the chains of time
     var faces = 0L      // the faces of the people and of the groups
     var other = 0L      // the caches, the pieces in flight and the rest the system keeps
-    val total get() = chats + unnamed + walls + shelf + history + faces + other
+    val total get() = chats + unnamed + walls + shelf + kept + history + faces + other
 
     companion object {
         fun measure(c: Context, named: Set<String>): DiskUse {
@@ -193,6 +194,8 @@ class DiskUse {
             walk(Media.dir(c)) { f, b -> if (f.name in named) use.chats += b else use.unnamed += b }
             walk(Board.lookIn(c)) { _, b -> use.walls += b }
             walk(File(c.noBackupFilesDir, "MontanaBackup")) { _, b -> use.shelf += b }
+            walk(File(c.noBackupFilesDir, "MontanaKeepCut")) { _, b -> use.shelf += b }
+            walk(File(c.noBackupFilesDir, "MontanaKeeping")) { _, b -> use.kept += b }
             for (f in listOf(File(c.filesDir, "faces"), MontanaPaths.places(c)["avatars"], SelfFace.file(c))) walk(f) { _, b -> use.faces += b }
             // the pieces in flight, the book of the node and the diary lie under the archive's root but are not its history
             for (f in listOf("Blobs", "HomeBook", "Diagnostics")) walk(File(MontanaPaths.archive(c), f)) { _, b -> use.other += b }
