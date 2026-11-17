@@ -106,6 +106,28 @@ object DeviceVault {
     fun delete(name: String) { prefs.edit().remove(name).commit(); runCatching { loadFile(name).delete() } }
     /** Whether a value is stored at all, opened or not: a store that would not open is not an empty one (Groups). */
     fun has(name: String): Boolean = prefs.contains(name)
+    /**
+     * A VALUE SEALED UNDER A KEY THAT IS GONE (iOS MontanaLocalVault.lost, 4b559de0 2416, OZ 1 p.11): the device key is at hand and
+     * the value is a sealed box it does not open (its tag refuses). The key is drawn anew only when the Keystore holds no such alias
+     * (data carried to a new phone, a Keystore wiped), so the key that sealed the value never comes back: the value is lost, not
+     * waiting. A key not at hand (the Keystore refusing for a moment) is never «lost»; this door never draws a key itself.
+     */
+    fun lost(name: String): Boolean = try {
+        val sealed = sealedOf(name)
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        val k = ks.getKey(KEY_ALIAS, null) as? SecretKey
+        if (sealed == null || sealed.size < 12 + 16 || k == null) false
+        else {
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.DECRYPT_MODE, k, GCMParameterSpec(128, sealed, 0, 12))
+            c.doFinal(sealed, 12, sealed.size - 12)
+            false
+        }
+    } catch (e: javax.crypto.AEADBadTagException) {
+        true
+    } catch (e: Exception) {
+        false
+    }
     /** Every name the vault holds, opened or not (Seats: the person's values beside the phone's). */
     fun names(): Set<String> = prefs.all.keys.toSet()
 

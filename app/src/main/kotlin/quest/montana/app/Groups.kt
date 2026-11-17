@@ -211,7 +211,12 @@ object Groups {
         groups.clear(); gone.clear(); copies.clear()
         val raw = DeviceVault.get(STORE)
         val kept = DeviceVault.get(COPIES)
-        unread = (raw == null && DeviceVault.has(STORE)) || (kept == null && DeviceVault.has(COPIES))
+        // A STORE SEALED UNDER A KEY THAT IS GONE IS AN EMPTY ONE (iOS MTGroup 4b559de0 2416, OZ 1 p.11): it never opens, every read
+        // named the store unread and nothing was written again, so the groups a copy laid stood without a row. The next write lays
+        // the store anew under the key at hand.
+        val lost = listOf(STORE, COPIES).filter { n -> (if (n == STORE) raw else kept) == null && DeviceVault.has(n) && DeviceVault.lost(n) }
+        unread = (raw == null && DeviceVault.has(STORE) && STORE !in lost) || (kept == null && DeviceVault.has(COPIES) && COPIES !in lost)
+        if (lost.isNotEmpty()) Log.i("Montana", "group_lost keys=" + lost.joinToString(","))
         if (raw != null) runCatching {
             val o = JSONObject(String(raw, Charsets.UTF_8))
             o.optJSONObject("g")?.let { g -> g.keys().forEach { k -> groups[k] = State.of(g.getJSONObject(k)) } }
