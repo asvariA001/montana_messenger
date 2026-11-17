@@ -898,17 +898,18 @@ object KeepCopy {
      * first laid. The box keeps the letters: the next phone of the same words reads them too.
      */
     /**
-     * THE WORDS OPENED ON A NEW DEVICE TAKE ONE PICTURE, AS A JOINING BY QR DOES (iOS 2599c6db takeLight(since:), 2430, the author's
-     * words 23891 and 23893: «in Bob's chat the texts doubled and the group's old face stayed»; «it must sync as the sign-in by QR
-     * does»). A device laid another device's copy and then its own copy of an earlier life over it: rows of that life came back.
-     * Now `since` is the asking (Twin.askLight): only another device's copy named after it is taken, and it alone is the history.
-     * When none comes, the newest copy by its moment is the history, alone. No older picture is laid over the owner's -- it would
-     * bring back what the person deleted since. The owner's cursors are this device's own (Twin.cursorsFromCopy).
+     * THE WORDS OPENED ON A NEW DEVICE TAKE ONE PICTURE, AS A JOINING BY QR DOES (iOS 2599c6db, 2430, the author's words 23891 and
+     * 23893: «in Bob's chat the texts doubled and the group's old face stayed»; «it must sync as the sign-in by QR does»). A device
+     * laid another device's copy and then its own copy of an earlier life over it: rows of that life came back. NOTHING IS AWAITED
+     * (iOS 0b74596b, 2432, OZ 1 p.2-p.3, the author's words 23957, 23959: «nothing is awaited, it all happens at once»): the newest
+     * copy ANOTHER device named is the history, alone, taken at once -- this device's own copy of an earlier life stands only where
+     * no other device named one (2431: the iPad laid its own copy of the life before, Alice's chat old, five chats missing). No older
+     * picture is laid over the owner's -- it would bring back what the person deleted since. The owner's cursors are this device's
+     * own (Twin.cursorsFromCopy), so every letter after the picture comes from the books, as on a joined device.
      */
     private val lightSeen = HashSet<String>()
-    private fun takeLight(secret: ByteArray, dir: File, since: Double? = null): Boolean {
+    private fun takeLight(secret: ByteArray, dir: File): Boolean {
         val mine = Archive.writerHex() ?: ""
-        fun fresh(o: JSONObject): Boolean = since == null || (o.optString("v") != mine && since - 120 <= o.optLong("at", 0L))
         val newest = HashMap<String, JSONObject>()
         for ((_, text) in Post.pickup(mapOf(LIGHT_NAME to secret), take = false)) {
             val o = Keeping.word(text)?.takeIf { it.optString("w") == "light" } ?: continue
@@ -917,9 +918,11 @@ object KeepCopy {
             val v = o.optString("v") + "/" + o.optString("a")
             if (o.optLong("g", 0L) >= (newest[v]?.optLong("g", -1L) ?: -1L)) newest[v] = o
         }
-        val roads = newest.values.filter { o -> o.optString("d") !in lightSeen && fresh(o) }   // words opened here wait for the picture of now
-            .sortedByDescending { if (since == null) it.optLong("at", 0L) else it.optLong("z", 0L) }   // the newest picture first
-        if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road" + (if (since != null) " named after the asking" else "")) }
+        val others = newest.values.any { it.optString("v") != mine }   // another device of these words named a copy
+        val roads = newest.values.filter { o ->
+            o.optString("d") !in lightSeen && !(others && o.optString("v") == mine)   // an earlier life's own copy is never the history
+        }.sortedByDescending { it.optLong("at", 0L) }   // the newest picture first
+        if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road") }
         var laid = 0
         for (road in roads) {
             val d = road.optString("d").ifEmpty { null } ?: continue
@@ -927,7 +930,7 @@ object KeepCopy {
             try {
                 taking = Taking.Fetching(0.0)
                 if (!Keeping.fetch(road, f) || shaHex(f) != d) {
-                    if (since == null) lightSeen.add(d)   // the fresh copy awaited is fetched again
+                    lightSeen.add(d)
                     Log.i("Montana", "keep_light a light copy did not come whole"); continue
                 }
                 taking = Taking.Laying(0.0)
@@ -947,15 +950,11 @@ object KeepCopy {
         return laid > 0
     }
 
-    /** The words opened here (iOS takeOpened, 2430, the author's words 23891, 23893): the seed's other devices are asked for a picture
-     *  of now, and it is awaited ninety seconds -- a device whose app sleeps hears the asking only when it wakes; then the newest copy
-     *  there stands for it. */
-    private fun takeOpened(ls: ByteArray, dir: File, began: Double): Boolean {
+    /** The words opened here (iOS takeOpened, 2430, 2432, the author's words 23891, 23893, 23957, 23959): the seed's other devices
+     *  are asked to name a picture of now, and nothing is awaited -- the newest copy another device named stands at once, and every
+     *  letter after it comes from the books by its cursors, as on a device joined by QR. */
+    private fun takeOpened(ls: ByteArray, dir: File): Boolean {
         Twin.askLight()
-        while (!Thread.currentThread().isInterrupted && now() - began < 90) {
-            try { Thread.sleep(15_000) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); return false }
-            if (takeLight(ls, dir, since = began)) return true
-        }
         return takeLight(ls, dir)
     }
 
@@ -998,7 +997,7 @@ object KeepCopy {
         taking = Taking.Fetching(0.0)
         // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
         // the pipes it named are asked to give back
-        KeepDerive.lightSecret(master)?.let { ls -> if (takeOpened(ls, dir, began)) askBack() }
+        KeepDerive.lightSecret(master)?.let { ls -> if (takeOpened(ls, dir)) askBack() }
         taking = Taking.Calling(0, 0)
         try {
             while (!Thread.currentThread().isInterrupted) {

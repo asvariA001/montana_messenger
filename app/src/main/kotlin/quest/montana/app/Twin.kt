@@ -765,7 +765,9 @@ object Twin {
         val mine = Archive.writerHex() ?: ""
         ex.execute {
             runCatching {
-                val secret = secret() ?: return@runCatching
+                // THE ASKING NEVER LEAVES SILENT (iOS 0b74596b, 2432, OZ 1 p.1, the author's words 23923, 23957): the history key is
+                // derived here off the main thread if it is not yet (Archive.keys); a seed that gives none is said
+                val secret = secret() ?: run { Log.i("Montana", "keep_light words opened: no history key -- nobody asked"); return@runCatching }
                 val me = deviceRef() ?: return@runCatching
                 val told = Keeping.knock(secret, JSONObject().put("w", "lw").put("f", mine).put("at", System.currentTimeMillis() / 1000), me)
                 Log.i("Montana", "keep_light words opened: the seed's devices asked boxed=" + (if (told) 1 else 0))
