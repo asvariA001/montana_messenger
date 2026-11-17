@@ -220,12 +220,17 @@ object MontanaCard {
             val root = payload.copyOf(1184)
             root to (map(KEYS)[b64url(root)] ?: return null)
         }
+        return acceptBy(ct, root, sk, conf)?.let { it to root }
+    }
+    /** A first letter's pipe by a card given whole -- its root and its secret key -- proven by the letter's confirmation: the card's
+     *  own door above, and the shelf's for a person who waits there with their cards (iOS MTShelfPost.meet, ShelfPost). */
+    fun acceptBy(ct: ByteArray, root: ByteArray, sk: ByteArray, conf: String): ByteArray? {
         val ss = MtBindings.nativeMlkemDecaps(sk, ct) ?: return null
         val secret = MtBindings.nativeFirstSecret(ss, root, ct) ?: return null
         ss.fill(0)
         val want = b64url(MessageDigest.getInstance("SHA-256").digest("mt-first-conf".toByteArray() + byteArrayOf(0) + secret + ct).copyOf(16))
         if (!MessageDigest.isEqual(want.toByteArray(), conf.toByteArray())) return null
-        return secret to root
+        return secret
     }
 
     // ── THE SEED'S OTHER DEVICES' CARDS (iOS MontanaCard twinLiveCards / takeTwin, MontanaFirstContact.swift 725-784; the author's word

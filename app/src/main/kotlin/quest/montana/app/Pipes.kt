@@ -2934,6 +2934,10 @@ object Post {
         if (!Wire.agreesWithCanon()) { Log.e("Montana", "box: the wire disagrees with the canon — nothing is read"); return }
         val twin = MontanaSeed.twin ?: return
         LetterAuthor.await()   // the author's key stands before a letter is told mine or theirs (iOS MontanaWakePush.swift:861)
+        // THE SHELF'S POST (iOS MTSeats.landShelf, MTShelfPost.soon at every pickup of the person seated): what the shelf received for
+        // the one seated lands first; the persons still waiting are read on the shelf's own thread
+        Seats.landShelf()
+        ShelfPost.soon()
         val secretOf = HashMap<String, ByteArray>()
         val invOf = HashMap<String, String>()
         val chatOf = HashMap<String, String>()
@@ -3169,6 +3173,19 @@ object Post {
 
     /** A letter off one of the phone's own channels lands where the box's letters land (iOS: one door, MontanaDeliveryEngine.receive). */
     fun fromChannel(ref: String, plain: ByteArray) { letter(ref, plain) }
+    /** A row the shelf received for the person now seated lands where the box's letters land (iOS MTSeats.landShelf ->
+     *  MontanaWakePush.stashFromShelf); false -- later (a long letter's cargo not yet at hand), the row stays on the shelf. */
+    fun fromShelf(ref: String, plain: ByteArray): Boolean = letter(ref, plain)
+    /** A first letter the shelf opened by the person's card: its pipe is born here from the secret the shelf met, as first() gives
+     *  it birth (iOS: the landing door at the lift, MTPipeBook.establish). */
+    fun firstFromShelf(plain: ByteArray, secret: ByteArray, root: ByteArray): Boolean {
+        if (plain.size <= 1092) return true
+        val f = Wire.fields(plain, 1088)
+        var text = f[1]
+        if (f[0].isEmpty() || text.isEmpty()) return true   // nothing to land: the row leaves
+        if (text.startsWith(Marks.LONG)) text = fetchLong(text)?.ifEmpty { text } ?: return false
+        return land(secret, root, f[0], text, f[2])
+    }
 
     /** A letter under a pipe's label: a person's word becomes a row, a word of the wire changes the feed. */
     private fun letter(ref: String, plain: ByteArray): Boolean {

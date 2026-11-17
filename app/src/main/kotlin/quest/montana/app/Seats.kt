@@ -139,7 +139,7 @@ object Seats {
         b.seats.removeAll { it.id == gone }
         b.active = ""
         if (b.last == gone) b.last = ""
-        DeviceVault.delete(RECORD + gone)
+        DeviceVault.delete(RECORD + gone); DeviceVault.delete(INBOX + gone); DeviceVault.delete(MET + gone)
         shelf(ctx, gone).takeIf { it.exists() }?.renameTo(File(root(ctx), "left-${System.currentTimeMillis()}"))
         write(b)
         Log.i(TAG, "seats: forgotten $gone, ${b.seats.size} left on the shelf")
@@ -283,6 +283,98 @@ object Seats {
     private fun recordWords(id: String): String =
         DeviceVault.get(RECORD + id)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)).optString("words") }.getOrNull() }
             ?.trim()?.split(Regex("\\s+"))?.joinToString(" ") ?: ""
+
+    // ───────────────────────── the shelf's post (iOS MontanaSeats.swift 366-510; session 4) ─────────────────────────
+    // Beside a person's record the shelf keeps, in the phone's own vault values (`mt.seat.` names are never parked nor cleared):
+    // their INBOX (the rows the shelf received for them while they waited) and the pipes their cards were MET by. Nothing here
+    // runs while a turn is under way, nor for the person seated (iOS shelfIO + the book's step).
+    private const val INBOX = RECORD + "inbox."
+    private const val MET = RECORD + "met."
+    private const val INBOX_CAP = 400                 // rows kept for one person; the oldest leave first
+    private const val INBOX_LIFE = 14 * 86_400_000L   // a row that would not land in two weeks is let go
+
+    private fun vaultJson(name: String): JSONObject? = DeviceVault.get(name)?.let { runCatching { JSONObject(String(it, Charsets.UTF_8)) }.getOrNull() }
+    private fun b64map(raw: String?): Map<String, ByteArray> {
+        val o = raw?.let { runCatching { JSONObject(String(Base64.decode(it, Base64.NO_WRAP), Charsets.UTF_8)) }.getOrNull() } ?: return emptyMap()
+        return o.keys().asSequence().mapNotNull { k -> runCatching { k to Base64.decode(o.getString(k), Base64.NO_WRAP) }.getOrNull() }.toMap()
+    }
+    private fun inbox(id: String): JSONArray = DeviceVault.get(INBOX + id)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
+    private fun metPipes(id: String): Map<String, ByteArray> {
+        val o = vaultJson(MET + id) ?: return emptyMap()
+        return o.keys().asSequence().mapNotNull { k -> runCatching { k to Base64.decode(o.getString(k), Base64.NO_WRAP) }.getOrNull() }.toMap()
+    }
+    private fun waiting(b: Book, id: String) = b.step == null && b.active != id && b.seats.any { it.id == id }
+
+    /** The persons waiting on the shelf, as their records keep them; none while a turn is under way (iOS shelfPeople / shelfPerson). */
+    fun shelfPeople(): List<ShelfPost.Person> = synchronized(lock) {
+        val b = read()
+        if (b.step != null) return@synchronized emptyList()
+        b.seats.filter { it.id != b.active }.mapNotNull { seat ->
+            val rec = vaultJson(RECORD + seat.id) ?: return@mapNotNull null
+            val words = rec.optString("words").ifEmpty { return@mapNotNull null }
+            val chain = rec.optJSONObject("chain") ?: JSONObject()
+            val kept = chain.optString("mt.twin.ref").takeIf { it.isNotEmpty() }
+                ?.let { runCatching { String(Base64.decode(it, Base64.NO_WRAP), Charsets.UTF_8) }.getOrNull() } ?: ""
+            ShelfPost.Person(seat.id, seat.name, ShelfPost.twin(seat.id, kept, words),
+                pipes = b64map(chain.optString("pipeSecrets").ifEmpty { null }) + metPipes(seat.id),
+                invites = b64map(chain.optString("rdvCards").ifEmpty { null }) + b64map(chain.optString("rdvPermanent").ifEmpty { null }),
+                cardKeys = b64map(chain.optString("cardKeys").ifEmpty { null }))
+        }
+    }
+
+    /** A row a person on the shelf received goes into their inbox on the shelf. Refused while a turn runs or once the person is
+     *  seated: the row then stays on the node for the next pickup (iOS fileShelf). */
+    fun fileShelf(id: String, row: JSONObject): Boolean = synchronized(lock) {
+        if (!waiting(read(), id)) return@synchronized false
+        val arr = inbox(id)
+        val m = row.optString("m")
+        for (i in 0 until arr.length()) if (arr.optJSONObject(i)?.optString("m") == m) return@synchronized true
+        arr.put(row.put("at", System.currentTimeMillis()))
+        while (arr.length() > INBOX_CAP) arr.remove(0)
+        DeviceVault.set(INBOX + id, arr.toString().toByteArray(Charsets.UTF_8))
+    }
+
+    /** A pipe a person on the shelf was met by, kept beside their record until their lift (iOS meetOnShelf). */
+    fun meetOnShelf(id: String, ref: String, secret: ByteArray): Boolean = synchronized(lock) {
+        if (!waiting(read(), id)) return@synchronized false
+        val o = vaultJson(MET + id) ?: JSONObject()
+        o.optString(ref).takeIf { it.isNotEmpty() }?.let { return@synchronized Base64.decode(it, Base64.NO_WRAP).contentEquals(secret) }
+        o.put(ref, Base64.encodeToString(secret, Base64.NO_WRAP))
+        DeviceVault.set(MET + id, o.toString().toByteArray(Charsets.UTF_8))
+    }
+
+    /**
+     * THE PERSON SEATED TAKES WHAT THE SHELF RECEIVED FOR THEM (iOS landShelf): the rows land as a pickup's rows -- the first letters
+     * first, so the pipes they bear are born before a letter on them lands -- and only then leave the shelf. Asked at every pickup of
+     * the person seated (Post.fetchOnce), on the pickup's own thread. The pipes met while waiting leave once each stands in the book.
+     */
+    fun landShelf() {
+        val id = synchronized(lock) { read().let { b -> b.active.takeIf { it.isNotEmpty() && b.step == null } } } ?: return
+        val rows = inbox(id)
+        val met = metPipes(id)
+        if (rows.length() == 0 && met.isEmpty()) return
+        val landed = HashSet<String>()
+        val now = System.currentTimeMillis()
+        val all = (0 until rows.length()).mapNotNull { rows.optJSONObject(it) }.sortedBy { if (it.has("i")) 0 else 1 }
+        for (r in all) {
+            val m = r.optString("m")
+            val ok = runCatching {
+                val plain = Base64.decode(r.optString("p"), Base64.NO_WRAP)
+                if (r.has("i")) Post.firstFromShelf(plain, Base64.decode(r.optString("s"), Base64.NO_WRAP), Base64.decode(r.optString("o"), Base64.NO_WRAP))
+                else Post.fromShelf(r.optString("r"), plain)
+            }.getOrDefault(true)   // a row that cannot be read leaves
+            if (ok || now - r.optLong("at", now) > INBOX_LIFE) landed.add(m)
+        }
+        val held = Book.refs().toSet()
+        val born = met.keys.count { it in held }
+        synchronized(lock) {
+            if (read().active != id) return
+            val rest = inbox(id).let { a -> JSONArray((0 until a.length()).mapNotNull { a.optJSONObject(it) }.filter { it.optString("m") !in landed }) }
+            if (rest.length() == 0) DeviceVault.delete(INBOX + id) else DeviceVault.set(INBOX + id, rest.toString().toByteArray(Charsets.UTF_8))
+            if (met.isNotEmpty() && born == met.size) DeviceVault.delete(MET + id)
+        }
+        Log.i(TAG, "shelf_land seat=$id rows=${landed.size} of ${all.size} met=$born of ${met.size}")
+    }
 
     // ───────────────────────── the shelf ─────────────────────────
 
