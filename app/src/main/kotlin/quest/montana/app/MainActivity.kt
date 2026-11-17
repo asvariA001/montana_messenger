@@ -58,6 +58,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         DeviceVault.init(this)
         Prefs.init(this)
+        Seats.launch(this)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         forgetContactCard()
         window.setDecorFitsSystemWindows(false)
@@ -272,6 +273,7 @@ class MainActivity : Activity() {
                 Archive.sealForForget {
                     ShareSuggest.forgetAll(this)   // the share sheet's suggestions of the departed person go with them
                     MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
+                    Seats.leaveForgotten(this)   // the seat of the one forgotten leaves the book; others on the shelf stay (iOS leaveForgotten)
                     MontanaHomeNode.forget(this); MontanaBackup.forget(this); MontanaCard.forget(); Book.wipe()
                     MontanaBackupID.withdraw(this)   // a record a build before wrote leaves the account
                     hasSeed = false; termsAccepted = false

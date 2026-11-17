@@ -55,6 +55,7 @@ class EarService : Service() {
         // the app may have been started by this service alone: what the first screen sets up, set up here (as BoxJob)
         DeviceVault.init(applicationContext)
         Prefs.init(applicationContext)
+        Seats.launch(applicationContext)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         Diary.start(applicationContext)   // the ear may stand before any page: its lines are the diary's too
         wake = getSystemService(PowerManager::class.java)?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "montana:ear")?.apply { setReferenceCounted(false) }
@@ -104,6 +105,7 @@ class EarStart : BroadcastReceiver() {
         val app = c.applicationContext
         DeviceVault.init(app)
         Prefs.init(app)
+        Seats.launch(app)   // a turn of the seats goes before anything reads the person
         Book.ctx = app
         EarService.start(app)
     }

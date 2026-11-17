@@ -349,6 +349,7 @@ class CallsService : ConnectionService() {
         super.onCreate()
         DeviceVault.init(applicationContext)
         Prefs.init(applicationContext)
+        Seats.launch(applicationContext)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
     }
     override fun onCreateIncomingConnection(account: PhoneAccountHandle?, request: ConnectionRequest?) = SystemCall.created(request, incoming = true)
