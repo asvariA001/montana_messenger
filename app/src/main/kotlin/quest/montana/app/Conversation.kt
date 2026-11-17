@@ -349,16 +349,21 @@ object Notify {
             (c.packageManager.getLaunchIntentForPackage(c.packageName) ?: Intent()).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP).putExtra(EXTRA_CHAT, sys),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
+    /**
+     * NO BANNER WHILE A PERSON PLAYS (iOS MTPlayQuiet.held, ContentView.swift:3262-3273, the author's words 03.10: «notifications
+     * during the games and the minting fully off; only in the ordinary mode»): a game is what the screen of the app in front shows --
+     * the open chat's own Money Flow, or a chess board -- and it says no letter of anyone; a phone in the background or locked rings
+     * every letter (the app in front alone is asked, never a fact kept for days: iOS 04.10, 4 479 banners held).
+     */
+    fun playQuiet(): Boolean =
+        CallScreen.front != null && (ChessSend.shownGame != null || MoneyFlow.on(Book.openChat ?: ""))
     private const val LETTER = 1   // a letter's banner: one a chat, under the chat's alias as its tag
     private const val QUIET = "letters_quiet"
     fun letter(ref: String, text: String, who: String? = null, mid: String? = null, mentioned: Boolean = false, action: Notification.Action? = null) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
         if (!Prefs.bool("notifMessages", true)) return
-        // NO BANNER WHILE A PERSON PLAYS (iOS MTPlayQuiet.held, ContentView.swift:3232-3240, the author's words 03.10, atom
-        // 9aa1fe955129): a chess board on the screen of the app in front says no letter of anyone; a phone in the background or
-        // locked rings every letter. The Money Flow half of the rule waits for the flow, which Android has not.
-        if (ChessSend.shownGame != null && CallScreen.front != null) return
+        if (playQuiet()) return
         // A MUTED OR ARCHIVED CHAT SAYS NOTHING (iOS MTQuietChats, MontanaNotify 190-193; build 2083): no banner, no sound, no count --
         // but A MENTION RINGS THROUGH THE MUTE (iOS presentGroup mentioned, stage R): the person was named in a group
         if (!mentioned && (ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref))) return
@@ -452,7 +457,7 @@ object Notify {
     fun pinned(ref: String, sid: String, m: Msg) {
         val c = Book.ctx
         val nm = c.getSystemService(NotificationManager::class.java) ?: return
-        if (!Prefs.bool("notifMessages", true) || ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref) || Book.openChat == ref) return
+        if (!Prefs.bool("notifMessages", true) || ChatMarks.isMuted(ref) || ChatMarks.isArchived(ref) || Book.openChat == ref || playQuiet()) return
         val sound = Prefs.bool("notifSound", true)
         val channel = if (sound) CHANNEL else QUIET
         nm.createNotificationChannel(NotificationChannel(channel, c.getString(if (sound) R.string.channel_letters else R.string.channel_letters_quiet), NotificationManager.IMPORTANCE_HIGH).apply {
@@ -738,6 +743,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     var turned = !group && MoneyFlow.on(ref)
     var turning = false   // the pass of the turn itself: the rows change places, nobody is born (iOS: the turn pins, never animates a birth)
     var turnPage: () -> Unit = {}   // the page laid again for the turn (the feed, the field, the way to the newest), born with the page
+    var flowBegins: () -> Unit = {}   // the coin's one turn in the middle of the chat as the flow comes on (MTMoneyFlowBegins), born with the page
     val feedStack = c.vstack(Gravity.NO_GRAVITY)
     // THE FEED BEHIND A TAPE IS BLURRED (iOS MontanaConversation.swift:1446-1452 at 2155: «.blur(radius: holding ? 10 : 0)» while a
     // voice or a note records; the open note's cloud blurs it on its own): radius 10, off again where every tape ends (onRecIdle).
@@ -1125,7 +1131,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val m = row[0]
             val s = ArrayList<Any?>(11 * row.size + 12)
             for (x in row) { s.add(x.mid); s.add(x.text); s.add(x.state); s.add(x.edited); s.add(x.heard); s.add(x.reactions.toList()); s.add(x.myReact); s.add(x.file); s.add(x.meta); s.add(x.lp); s.add(x.file == null && x.text.startsWith(Marks.MEDIA) && Media.cargoGone(x.mid)) }
-            s.add(skin); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
+            s.add(skin); s.add(turned); s.add(canPull); s.add(m.mine && played); s.add(selecting); s.add(selecting && m.mid in picked)
             s.add(if (talks) ChannelComments.count(m.mid, ref) else -1)
             s.add(if (channel) ChannelViews.views(m, ref) else -1)
             if (m.qt != null && !isForwardQuote(m.qt)) {
@@ -1168,7 +1174,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }
         }
         fun letterRow(m: Msg, row: List<Msg>, head: Boolean = true, tail: Boolean = true): View {
-            val b = letterBubble(c, m, feedChat, row, head)
+            val b = letterBubble(c, m, feedChat, row, head, ribbon = turned)
             if (selecting) {
                 // WHILE THE CHAT SELECTS a letter is a choice: a circle on the left, a tap chooses (iOS the selection rows); a plate whole
                 val chosen = m.mid in picked
@@ -2392,6 +2398,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         // its row in the chat (iOS appendMoneyFlow), and THE FLOW STANDS READY AT ONCE (iOS 2182-2191, the author's word
                         // 05.10.2026): the panel of buttons unfolded, the feed at its newest end, the field taking the keys
                         FlowRow.lay(ref)
+                        flowBegins()
                         bar.unfold()
                         field.postDelayed({ toBottom(); showKeys() }, 350)
                     }
@@ -2602,6 +2609,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // otherwise, MontanaConversation.swift:3758-3765): the bar and the plates of the reply, the coin, the link, the «@» and the
         // pasted pictures go up under the header for the turn and come home over the keys without it
         fun placeCompose() {
+            bar.flowing(turned)   // the flow's ring on the field and the keys, its send plate at the finger's size (iOS .flowing(ribbon), 3872)
             val ups = listOf(strip, coinPlate, linkPlate, mentionPlate, stagedStrip)
             for (v in ups + bar) (v.parent as? android.view.ViewGroup)?.removeView(v)
             fun plateLp(side: Int) = lp().apply { marginStart = dp(side); marginEnd = dp(side); if (turned) { topMargin = dp(4) } else { bottomMargin = dp(4) } }
@@ -2721,6 +2729,26 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // THE FIELD TAKEN IS THE NEWEST LETTER SEEN (iOS onChange(of: inputFocused) with newestFirst → stickBottom, 1977): on top, the
         // field and the newest letter stand together
         field.setOnFocusChangeListener { _, on -> if (on && turned) toBottom() }
+        // THE MONEY FLOW BEGINS (iOS MTMoneyFlowBegins, MTWalletScreen.swift:3005-3029; the author's word 03.10.2026: «when it is
+        // switched on, an active animation»): our coin, large, makes one turn in the middle of the chat under its name on the glass,
+        // and leaves -- springing in for 0.35 s, gone from 1.4 s; the row of the chat stays (FlowRow). It takes no touch.
+        flowBegins = {
+            val coin = MintCoin(c, 120)
+            val plate = c.vstack(Gravity.CENTER_HORIZONTAL) {
+                background = c.glassPlate().apply { cornerRadius = dp(28).toFloat() }
+                setPadding(dp(28), dp(28), dp(28), dp(28))
+                addView(coin, lp(dp(120), dp(120)))
+                addView(c.text(c.getString(R.string.money_flow), 22f, Color.WHITE, bold = true), lp(WRAP, WRAP).apply { topMargin = dp(12) })
+                alpha = 0f; scaleX = 0.6f; scaleY = 0.6f
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            }
+            addView(plate, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER))
+            coin.post { coin.turnOnce() }
+            plate.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(350).setInterpolator(android.view.animation.OvershootInterpolator(1.1f)).withEndAction {
+                plate.animate().alpha(0f).scaleX(0.9f).scaleY(0.9f).setStartDelay(1050).setDuration(350)
+                    .setInterpolator(android.view.animation.AccelerateInterpolator()).withEndAction { removeView(plate) }.start()
+            }.start()
+        }
         turnPage = {
             stackFeed()
             placeCompose()
@@ -3062,7 +3090,7 @@ private fun TextView.takesSelection(words: String) {
     }
 }
 
-private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true, selectable: Boolean = false): ReplySwipe = ReplySwipe(c).apply {
+private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = listOf(m), head: Boolean = true, selectable: Boolean = false, ribbon: Boolean = false): ReplySwipe = ReplySwipe(c).apply {
     mine = m.mine
     val mine = m.mine
     val wordsMax = bubbleCeiling(c, chat.ref) - c.dp(24)   // the words' measure inside the bubble's padding of 12 on each side
@@ -3288,9 +3316,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
                         if (mine && m.state == -1) addView(c.failedMark(), lp(dp(12), dp(12)).apply { marginStart = gap })
                     }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))
                     // the letter's gematria after the clock, the same number on both phones (iOS metaLine's seal, MTLetterSeal.mark);
-                    // the seal's head beside it waits for the ribbon of time (iOS newestFirst && coinStands), which Android has not got
+                    // THE RIBBON OF TIME (iOS mtTimeRibbon, MontanaBubble.swift:214-219, 2101-2112; the author's words 02.10: «the fabric of
+                    // time unfolds in the chat with the peer»): this chat's flow on, the stamp wears the head of its letter's seal beside
+                    // the gematria -- each bubble a link of the chain with its own seal
                     LetterSeal.gematria(m.mid)?.let { g ->
                         addView(c.text("· $g", 11f, metaInk).apply { fontFeatureSettings = "tnum" }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's gematria
+                        if (ribbon) LetterSeal.head(m.mid)?.let { h ->
+                            addView(c.text(" · $h", 11f, metaInk).apply { typeface = android.graphics.Typeface.MONOSPACE; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO }, android.view.ViewGroup.LayoutParams(WRAP, WRAP))   // USER-DATA: the letter's seal
+                        }
                     }
                 }
                 // UNDER THE ROUND NOTE THE STAMP WEARS THE PICTURE'S PLATE (iOS videoNoteBubble 1285-1288): white on black 0.45, the

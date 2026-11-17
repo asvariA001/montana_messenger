@@ -2,6 +2,7 @@ package quest.montana.app
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.graphics.Outline
 import android.graphics.Rect
 import android.text.Editable
@@ -111,6 +112,8 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         sendColumn.addView(record, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
         sendColumn.addView(coinKey, FrameLayout.LayoutParams(dp(TIER), dp(TIER), Gravity.CENTER))
 
+        // the flow's send plate swells past its slot (iOS «the swell overflows it»): no row cuts it
+        clipChildren = false; fieldRow.clipChildren = false; actionRow.clipChildren = false
         addView(fieldRow, lp())
         addView(actionRow, lp().apply { topMargin = dp(TIER_GAP) })
 
@@ -180,6 +183,30 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         widenTouchTarget()
         if (panelOn) panelShown(true)   // the row's keys are made anew: the emoji key keeps the keyboard's glyph while the panel stands
         syncHost()
+        wearMint()   // the row's keys are made anew: they wear the flow's ring again
+    }
+
+    /**
+     * THE MONEY FLOW IS ON IN THIS CHAT (iOS ChatInputBar.minting / flowing, MontanaConversation.swift:576, 646-690, 777, 882, 907,
+     * 1041, 1123, 1147; the author's words 03.10.2026: «in minting mode make the send button a little bigger, the finger's size, like
+     * the call button»; «the field with the system's highlight, and below all the buttons in the system's blue circle»): the send
+     * plate -- the send, the recording key, the coin -- stands at the marks' 44 instead of the tier's 36, overflowing its slot, and
+     * the field and every glass key of the bar wear the platform's thin blue ring (MTMiniFace.playingRing).
+     */
+    private var minting = false
+    fun flowing(on: Boolean) { if (minting != on) { minting = on; wearMint() } }
+    private fun wearMint() {
+        val ring = Math.round(1.5f * resources.displayMetrics.density)
+        val keys = listOf(unfoldKey) + (0 until actionRow.childCount).map { actionRow.getChildAt(it) }
+        for (k in keys) (k.background as? GradientDrawable)?.let { if (minting) it.setStroke(ring, MT.blue) else it.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255)) }
+        val s = if (minting) MINT_SCALE else 1f
+        sendColumn.scaleX = s; sendColumn.scaleY = s
+        plateRing()
+    }
+    /** The field's ring: the flow's, or the coin's while it takes a number (iOS 907: minting || coinMode). */
+    private fun plateRing() {
+        if (minting || coinHint) plateGlass.setStroke(Math.round(1.5f * resources.displayMetrics.density), MT.blue)
+        else plateGlass.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
     }
 
     /**
@@ -252,8 +279,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         // and the field wears the thin blue ring while it takes a number (iOS 915: MTMiniFace.playingRing, 1.5 around the plate)
         if (coinMode != coinHint) {
             coinHint = coinMode; field.hint = restHint()
-            if (coinHint) plateGlass.setStroke(Math.round(1.5f * resources.displayMetrics.density), MT.blue)
-            else plateGlass.setStroke(dp(1).coerceAtMost(3), Color.argb(46, 255, 255, 255))
+            plateRing()
             onCoinMode?.invoke(coinHint)
         }
     }
@@ -638,6 +664,7 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         const val FLICK = 400f                             // iOS flick, points a second
         // THE ONE OWNER OF THE COMPOSE TIER (iOS MTInputField 2499-2543): every number of the row lives here and nowhere else
         const val TIER = 36                                // iOS MontanaOctagon.composeHeight
+        const val MINT_SCALE = 44f / TIER                  // iOS mintScale: montanaTouchTarget / composeHeight, the flow's send plate
         const val FONT = 17f                               // iOS MTInputField.fontSize
         const val LINE = 21f                               // iOS MTInputField.minH: one line of words
         const val LINES = 13                               // iOS MTInputField.lines: the field grows to thirteen, then scrolls inside
