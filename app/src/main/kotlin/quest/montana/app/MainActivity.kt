@@ -555,7 +555,7 @@ class MainActivity : Activity() {
         }
     }
     override fun onResume() {
-        super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
+        super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; CoinTx.onScreen = true; CoinTx.beHere(); Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
         sweepCallRecordings(hasSeed && termsAccepted)   // NO CALL IS RECORDED (iOS 214dc096, the author's word 16428): what an earlier build left leaves this phone
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
@@ -572,6 +572,8 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { MyWall.roadBack("active") }.start()   // a post on its way goes on by itself (iOS roadBack 1922)   // every coin letter the chats hold stands in the book (iOS MTCoinSend.settle)
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
+    /** The app left the screen (iOS didEnterBackground): the person's stay ends at once (MTPresenceWait.watch). */
+    override fun onStop() { super.onStop(); CoinTx.left() }
     override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the

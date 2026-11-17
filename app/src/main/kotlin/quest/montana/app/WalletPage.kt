@@ -171,6 +171,9 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     val toLevel = c.text("", 13f, MT.gray, center = true)
     val balance = c.text("", 44f, Color.WHITE, bold = true, center = true).apply { maxLines = 1; setAutoSizeTextTypeUniformWithConfiguration(20, 44, 1, android.util.TypedValue.COMPLEX_UNIT_SP) }
     val inMontana = c.text("", 15f, MT.gray, center = true)
+    // THE AVAILABLE, AND NOTHING MORE BENEATH (iOS MTWalletScreen.swift 170-174): what the person's chain holds for its one owner,
+    // once the chain has spoken; the Time Balance above it rises with the seconds on their way (CoinSplit.growing)
+    val availableLine = c.text("", 15f, MT.gray, center = true)
     val pi = c.text("", 13f, MT.gray, center = true)
     val rows = c.vstack(Gravity.NO_GRAVITY)
     // THE TIMECHAINS (iOS MTTimeChainRows): each source's chain, its length, the first letters of its head and its seal, every chain read
@@ -191,9 +194,16 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     }
     val send = capsule(R.string.coin_send, R.drawable.ic_paperplane, true) { act.push { sendCoinsPage(act, it) } }
 
-    fun draw() {
-        val b = CoinBook.balance
-        val place = PiLevels.place(b)
+    // THE TOP OF THE PAGE, ALONE ONCE A SECOND (the beat): the balance, its level and the available; the rows below at a real change
+    fun drawTop() {
+        // THE PERSON'S COINS ARE THE CHAIN'S (iOS total, MTWalletScreen.swift 34-46): once the chain has spoken the Time Balance is
+        // its available and the seconds the person is here (growing); before it ever spoke, every coin the book holds
+        val spoke = CoinSplit.spoke
+        val b = if (spoke) CoinSplit.growing else CoinBook.balance
+        val spendable = if (spoke) CoinSplit.available else b
+        availableLine.visibility = if (spoke) View.VISIBLE else View.GONE
+        if (spoke) availableLine.text = c.getString(R.string.coin_available_n, CoinText.count(spendable))   // USER-DATA: the coins the chain holds
+        val place = PiLevels.place(spendable)
         val lit = Pantheon.lit
         fire.visibility = if (lit) View.VISIBLE else View.INVISIBLE
         speed.visibility = fire.visibility
@@ -206,13 +216,17 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         if (place < PiLevels.all.size) {
             val low = if (0 < place) PiLevels.all[place - 1] else 0L
             val high = PiLevels.all[place]
-            bar.progress = (((b - low).toDouble() / maxOf(1L, high - low)) * 1000).toInt()
-            toLevel.text = c.getString(R.string.coin_to_level, CoinText.count(high - b), place + 1)
+            bar.progress = (((spendable - low).toDouble() / maxOf(1L, high - low)) * 1000).toInt()
+            toLevel.text = c.getString(R.string.coin_to_level, CoinText.count(high - spendable), place + 1)
         }
         balance.text = CoinText.count(b) + " " + CoinBook.TICKER   // USER-DATA: the balance and the ticker
         inMontana.text = CoinText.montana(b) + " Ɱ"   // USER-DATA: the balance in Montana
         pi.text = "π " + PiLevels.revealed(place) + " · " + place   // USER-DATA: the level of π and π revealed to it
-        send.isEnabled = 0 < b; send.alpha = if (0 < b) 1f else 0.4f
+        send.isEnabled = 0 < spendable; send.alpha = if (0 < spendable) 1f else 0.4f
+    }
+    fun draw() {
+        drawTop()
+        val b = if (CoinSplit.spoke) CoinSplit.available else CoinBook.balance
         rows.removeAllViews()
         val chains = TimeChain.SOURCES.mapNotNull { s ->
             heads[s]?.takeIf { 0 < it.n }?.let { h -> c.settingsRow(null, 0, c.chainName(s), value = c.chainHead(h, 8)) { act.push { back -> timeChainPage(act, s, back) } } }
@@ -274,6 +288,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         gap(10)
         addView(balance, lp(MATCH, WRAP))
         addView(inMontana, lp(WRAP, WRAP))
+        addView(availableLine, lp(WRAP, WRAP))
         gap(4)
         addView(pi, lp(WRAP, WRAP))
         gap(16)
@@ -307,11 +322,15 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     holder = object : FrameLayout(c) {
         override fun onWindowVisibilityChanged(visibility: Int) {
             super.onWindowVisibilityChanged(visibility)
-            if (visibility == View.VISIBLE) { readWindows(); askNodes(++asking) }
+            if (visibility == View.VISIBLE) { readWindows(); askNodes(++asking); if (!Pantheon.lit) WalletPull.fire() }
             else if (windowVisibility != View.VISIBLE) { asking++; WalletPull.stop("background") }
         }
     }.apply { addView(page, FrameLayout.LayoutParams(MATCH, MATCH)) }
     val again: () -> Unit = { draw() }
+    val top: () -> Unit = { drawTop() }
+    // THE PAGE'S OWN BEAT (iOS .onReceive(Timer 1 s) coinSplit.beat, MTWalletScreen.swift:344-345): the seconds on their way rise once a second
+    lateinit var beat: Runnable
+    beat = Runnable { CoinSplit.beat(); if (holder.isAttachedToWindow) MainThread.later(1000, beat) }
     fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
     val moved: () -> Unit = {
         if (!headsDue && CoinBook.size() != headsAt) {
@@ -320,9 +339,14 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         }
     }
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
-        override fun onViewAttachedToWindow(v: View) { CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); WalletPull.listen(again); draw(); coin.turnOnce() }
+        override fun onViewAttachedToWindow(v: View) {
+            CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); WalletPull.listen(again); CoinSplit.listen(top); draw(); coin.turnOnce()
+            if (!Pantheon.lit) WalletPull.fire()   // the wallet opened: the auto minting on (iOS .onAppear, MTWalletScreen.swift:314)
+            CoinTx.beHere()   // the chain hears the person (iOS .task MTVPNWallMint.count, MTWalletScreen.swift:310)
+            MainThread.later(1000, beat)
+        }
         // the page left: the auto minting stops with it and the nodes are asked no more (iOS .onDisappear, MTWalletScreen.swift:387)
-        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
     })
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() } }.start()

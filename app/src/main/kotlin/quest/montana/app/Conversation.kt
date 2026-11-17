@@ -1861,7 +1861,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             pressable { bar.toMic() }
         }, lp(dp(36), dp(36)))
     }
-    val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinBook.balance) }
+    val coinListener: () -> Unit = { coinCount.text = CoinText.count(CoinSplit.available) }   // the chain's available (iOS MTCoinSplit.available)
     bar.onCoinMode = { on -> coinPlate.visibility = if (on) View.VISIBLE else View.GONE; if (on) coinListener() }
     // A CHANNEL'S FIELD (iOS channel/silent/onSilent, 3806-3808): «Broadcast...» and the bell that turns the sound of the next posts
     if (group && Groups.isChannel(ref)) {
@@ -2230,7 +2230,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     fun playedGame(): String? = ChessGame.current(ChessSend.entries(ref))?.takeIf { ChessSend.state(ref, it)?.status?.finished == false }
     fun drawMarks() {
         if (!coinStands) return
-        val bal = CoinBook.balance
+        val bal = CoinSplit.available
         walletBadge.text = if (0L < bal) PiLevels.short(c, bal) else ""   // USER-DATA: the balance, short
         walletBadge.visibility = if (0L < bal) View.VISIBLE else View.GONE
         chessRing.visibility = if (playedGame() != null) View.VISIBLE else View.GONE

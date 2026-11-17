@@ -431,6 +431,7 @@
     <string name="coin_send_coins">Отправить монеты</string>
     <string name="coin_key">Монета</string>
     <string name="coin_available">Доступно</string>
+    <string name="coin_available_n">Доступно %s</string>
     <string name="close">Закрыть</string>
     <string name="yt_full_screen">Во весь экран</string>
     <string name="yt_small_screen">Выйти из полноэкранного режима</string>

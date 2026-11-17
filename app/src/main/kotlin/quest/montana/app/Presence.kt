@@ -611,7 +611,11 @@ object Presence {
      * digits — the lane hands it over at once and the node keeps it as my last word, which an open wallet asks for every few seconds.
      * Nothing before the book is read, nothing when the owner hid the coins (CoinShow); Android's balance rode no word at all.
      */
-    private fun coinTail(): String { val coins = CoinBook.said ?: return ""; return if (CoinShow.on) "C" + coins else "" }
+    private fun coinTail(): String {
+        val book = CoinBook.said ?: return ""
+        val coins = if (CoinSplit.spoke) CoinSplit.available else book   // the chain's available once it spoke (iOS MTCoinBalance.set(available))
+        return if (CoinShow.on) "C" + coins else ""
+    }
     /** App-level presence for one correspondence (iOS appBeacon 731-738): the word, my moment, what I hold of them, their letters I hold whole. */
     private fun appBeacon(ref: String, open: Boolean) {
         if (!sharing || PeerSafety.isBlocked(ref)) return
