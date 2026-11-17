@@ -42,6 +42,7 @@ fun letterWords(c: Context, t: String, meta: String? = null): String = when {
     // a group's event row speaks the group's names (iOS MTRowLetter.eventWords, stage R)
     Groups.isEvent(t) -> Groups.eventWords(c, t) ?: ""
     // a post's card: «Wall post» and the post's words (iOS MTRowLetter.preview, MTRowLetter.swift:143 at 2155)
+    t.startsWith(FlowRow.MARK) -> c.getString(R.string.money_flow_begun)   // iOS MTRowLetter.preview 88: «Money flow has begun»
     t.startsWith(WallCard.MARK) -> WallCard.of(t)?.let { k -> c.getString(R.string.wall_post) + WallCard.words(c, k).let { w -> if (w.isEmpty()) "" else " · " + w } } ?: ""
     t.startsWith(Marks.VOICE) -> c.getString(R.string.voice_message)
     t.startsWith(Marks.MEDIA) -> mediaWords(c, meta?.let { runCatching { JSONObject(it) }.getOrNull() } ?: Media.inline(t))
@@ -1178,7 +1179,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             // the plate's last letter, «Read» while a video of the same pick still rode
             // a post's card is this phone's own row, not a letter: no rung under it (iOS MTRowLetter.ownRow, MTRowLetter.swift:60-63 at 2155)
             // nor a channel's post: it goes out to every subscriber, no one rung speaks for it (iOS ladder !isChannel, MontanaConversation 2967)
-            val laddered = m.mine && !local && !channel && WallCard.of(m.text) == null
+            val laddered = m.mine && !local && !channel && WallCard.of(m.text) == null && !FlowRow.of(m.text)
             if (laddered) (b.getChildAt(0) as LinearLayout).addView(c.deliveryLine(ref, row.minWithOrNull(compareBy<Msg>({ it.state }, { -it.statusMoment })) ?: row.last()),
                 LinearLayout.LayoutParams(WRAP, WRAP).apply { topMargin = c.dp(3); marginEnd = c.dp(4) })
             // ANY FAILED BUBBLE: A TAP SENDS IT AGAIN (iOS primaryTap → onResend → resendAny, the author's invariant 24.08): a plate's
@@ -2153,6 +2154,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     }
     val ringInk = GradientDrawable().apply { shape = GradientDrawable.OVAL; setStroke(Math.round(1.5f * c.resources.displayMetrics.density), MT.blue) }
     val chessRing = View(c).apply { background = ringInk; visibility = View.GONE }   // iOS MTMiniFace.playingRing, 1.5 inside the plate
+    // THE MONEY FLOW'S COIN (iOS flipMark, MontanaConversation.swift:2164-2210): our coin on the marks' round, standing on its face while
+    // the flow is off; on, it spins inside the platform's ring -- the sign that holds when motion is reduced too. Open without coins
+    // (the author's word 17.11.2026 «Поток без монет»): the turn mints nothing, and the hold's auto-reactions (coins) are not here.
+    val flowCoin = MintCoin(c, 22)
+    val flowRing = View(c).apply { background = ringInk; visibility = View.GONE }
+    fun drawFlow() {
+        val on = MoneyFlow.on(ref)
+        flowRing.visibility = if (on) View.VISIBLE else View.GONE
+        flowCoin.spinAt(if (on) 1 else 0)
+    }
     fun playedGame(): String? = ChessGame.current(ChessSend.entries(ref))?.takeIf { ChessSend.state(ref, it)?.status?.finished == false }
     fun drawMarks() {
         if (!coinStands) return
@@ -2303,12 +2314,36 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }, lp(dp(44), dp(44)))
         }
         if (coinStands) {
+            // THE FEED'S TURN IS OUR COIN (iOS flipMark): a tap turns this chat's flow alone (04.10); live chat lives in it alone
+            addView(FrameLayout(c).apply {
+                background = c.glassPlate(oval = true)
+                contentDescription = c.getString(R.string.money_flow)
+                addView(flowCoin, FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER))
+                addView(flowRing, FrameLayout.LayoutParams(MATCH, MATCH))
+                pressable {
+                    // the keys go down first: the field is reborn with the turn (iOS 2175-2176)
+                    hideKeys()
+                    val on = !MoneyFlow.on(ref)
+                    MoneyFlow.set(ref, on)
+                    LiveDraft.flowSwitched(ref, on)
+                    drawFlow()
+                    if (on) {
+                        // its row in the chat (iOS appendMoneyFlow), and THE FLOW STANDS READY AT ONCE (iOS 2182-2191, the author's word
+                        // 05.10.2026): the panel of buttons unfolded, the feed at its newest end, the field taking the keys
+                        FlowRow.lay(ref)
+                        bar.unfold()
+                        field.postDelayed({ toBottom(); showKeys() }, 350)
+                    }
+                    android.util.Log.d("Montana", "feed_turn flow=" + (if (on) 1 else 0) + " peer=" + ref.take(10))
+                }
+            }.also { rounds.add(it); if (walletStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (walletStands) marginStart = dp(6) })
+            drawFlow()
             // THE CHESS MARK (iOS chessMark): the game's knight on the marks' round, the platform's blue ring while the game is played
             addView(FrameLayout(c).apply {
                 addView(roundMark(R.drawable.chess_knight, R.string.app_chess) { hideKeys(); chessTap() }.also { rounds.add(it) },
                     FrameLayout.LayoutParams(MATCH, MATCH))
                 addView(chessRing, FrameLayout.LayoutParams(MATCH, MATCH))
-            }.also { if (walletStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (walletStands) marginStart = dp(6) })
+            }.also { gapped.add(it) }, lp(dp(44), dp(44)).apply { marginStart = dp(6) })
         }
         // THE HANDSET AS IT WAS (iOS handsetMark, a pair's chat): the calls' menu behind the one bar glyph — a voice call or a video call
         if (!group && !local) addView(roundMark(R.drawable.ic_bar_calls, R.string.pi_voice_call) { v ->
@@ -2333,6 +2368,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         val inset = if (wide) 0 else c.dp(2)
         for (r in rounds) r.background = android.graphics.drawable.InsetDrawable(c.glassPlate(oval = true), inset)
         chessRing.background = android.graphics.drawable.InsetDrawable(ringInk, inset)
+        flowRing.background = android.graphics.drawable.InsetDrawable(ringInk, inset)
         for (v in gapped) (v.layoutParams as LinearLayout.LayoutParams).marginStart = if (wide) c.dp(6) else 0
         (nameBubble?.layoutParams as? LinearLayout.LayoutParams)?.apply {
             marginStart = if (wide) c.dp(6) else c.dp(2)
@@ -3009,6 +3045,14 @@ private fun letterBubble(c: Context, m: Msg, chat: Chat, members: List<Msg> = li
             else if (Release.of(m.text) != null) Release.body(c, m, this)
             // A POST ON A WALL OF THE PAIR (iOS wallCardBubble, MontanaBubble.swift:694-695 and 903-920 at 2155): the wall's glyph, «Wall
             // post» and the post's first lines; the touch opens the wall the post stands on (wallCardPlate)
+            // THE MONEY FLOW BEGAN (iOS letterKinds MTMoneyFlowRow, MontanaBubble.swift:863-877): our coin turning once as the row
+            // appears, «Money flow has begun» as the headline -- no letter mints (the author's word 02.11.2026)
+            else if (FlowRow.of(m.text)) addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                addView(MintCoin(c, 40).also { coin -> coin.post { coin.turnOnce() } }, lp(dp(40), dp(40)))
+                gap(10)
+                addView(c.text(c.getString(R.string.money_flow_begun), 17f, BubbleStyle.text(mine), bold = true), lp(WRAP, WRAP))
+            }, lp(WRAP, WRAP))
             else if (WallCard.of(m.text) != null) addView(wallCardPlate(c, c as? MainActivity, chat.ref, WallCard.of(m.text)!!, mine), lp(WRAP, WRAP))
             // A GAME'S INVITATION (iOS the chess letter's bubble): the knight, the seat and the clock; Accept and Decline while it waits for me
             else if (ChessSend.letterOf(m)?.kind == ChessLetter.INVITE) addView(c.chessPlate(c as? MainActivity, chat.ref, m, ChessSend.letterOf(m)!!, mine), lp(WRAP, WRAP))
@@ -3285,7 +3329,7 @@ private const val SPEAKER_INSIDE = 2
  */
 private fun speakerPlace(c: Context, m: Msg, members: List<Msg>): Int = when {
     1 < members.size || edgePlate(m) -> SPEAKER_NONE
-    m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null
+    m.text.startsWith(Marks.MEDIA) || Stickers.bare(m) || Calls.info(m.text) != null || WallCard.of(m.text) != null || FlowRow.of(m.text)
         || ChessSend.letterOf(m) != null || CoinSend.coinOf(m) != null -> SPEAKER_ABOVE
     m.qt == null && PlaceLetter.parse(c, m.text) != null -> SPEAKER_NONE
     else -> SPEAKER_INSIDE

@@ -164,7 +164,8 @@
     <string name="online_status">在线状态</string>
     <string name="online_status_sub">仅决定他人是否能看到你在线。其他内容的往来不受影响。</string>
     <string name="read_receipts">已读回执</string>
-    <string name="live_chat">实时聊天</string>
+    <string name="money_flow">资金流</string>
+    <string name="money_flow_begun">资金流已开始</string>
     <string name="sync_contacts">同步联系人</string>
     <string name="link_previews">链接预览</string>
     <string name="link_previews_sub">你发送链接时，本机会读取该网页，因此该网站会看到这台手机。</string>

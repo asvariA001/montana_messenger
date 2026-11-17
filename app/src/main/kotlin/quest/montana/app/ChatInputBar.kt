@@ -137,6 +137,9 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         shape()
     }
 
+    /** The Money Flow switched on unfolds the panel (iOS flipMark composeOpen = true, the author's word 05.10.2026). */
+    fun unfold() { if (!open) setOpen(true) }
+
     private fun shape() {
         (sendColumn.parent as? LinearLayout)?.removeView(sendColumn)
         (unfoldKey.parent as? LinearLayout)?.removeView(unfoldKey)

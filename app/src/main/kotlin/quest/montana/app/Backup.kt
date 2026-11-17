@@ -623,7 +623,7 @@ object Card {
         // 310-313), the terms (MontanaSafety.swift 22-25)
         "notifSound" to Form.SWITCH, "notifPreview" to Form.SWITCH, "notifSender" to Form.SWITCH, "notifLockName" to Form.SWITCH,
         "autoDownloadCellular" to Form.SWITCH, "autoDownloadWiFi" to Form.SWITCH,
-        "presenceSharing" to Form.SWITCH, "readReceiptsEnabled" to Form.SWITCH, "liveTypingEnabled" to Form.SWITCH,
+        "presenceSharing" to Form.SWITCH, "readReceiptsEnabled" to Form.SWITCH,
         "linkPreviewsEnabled" to Form.SWITCH, "objectionableFilterOn" to Form.SWITCH, "termsAcceptedVersion" to Form.WHOLE,
         // the bubbles (MontanaSettings.swift 951-967, BT ContentView.swift 74-75): the colours words, the rest fractions; the classic
         // bubble's colour a whole number there (MontanaBubble.swift 277), a fraction in this phone's store

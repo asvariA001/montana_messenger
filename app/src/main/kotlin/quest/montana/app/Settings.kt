@@ -362,7 +362,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
             // the switch speaks: hidden, one farewell word; shown, «here» at once (iOS MontanaPresencePrivacy.setSharing)
             c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub)) { Presence.setSharing(it) },
             sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled", R.string.read_receipts_sub),
-            sw(R.drawable.ic_set_keyboard, SysColor.indigo, R.string.live_chat, "liveTypingEnabled"),
+            // «Live chat» is not a switch of Privacy: it lives inside a chat's Money Flow alone (iOS MontanaSettings, 03.10; MoneyFlow)
             // «Sync contacts» (iOS ContactsTabView.upsertSystemCard 2463-2476) writes a person's Montana name into the phone's
             // book; Android has no names yet, so the switch would claim what nothing does — it stands again with the names
             sw(R.drawable.ic_set_link, SysColor.blue, R.string.link_previews, "linkPreviewsEnabled", R.string.link_previews_sub),

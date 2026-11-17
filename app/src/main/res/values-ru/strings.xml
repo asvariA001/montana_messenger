@@ -164,7 +164,8 @@
     <string name="online_status">Статус «Онлайн»</string>
     <string name="online_status_sub">Только видят ли вас другие в сети. Всё остальное приходит и уходит независимо от этого.</string>
     <string name="read_receipts">Отчёты о прочтении</string>
-    <string name="live_chat">Живой чат</string>
+    <string name="money_flow">Денежный поток</string>
+    <string name="money_flow_begun">Денежный поток начался</string>
     <string name="sync_contacts">Синхронизировать контакты</string>
     <string name="link_previews">Предпросмотр ссылок</string>
     <string name="link_previews_sub">Твой телефон читает страницу ссылки, которую ты отправляешь, — сайт видит этот телефон.</string>

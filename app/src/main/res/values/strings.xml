@@ -165,7 +165,8 @@
     <string name="online_status">Online status</string>
     <string name="online_status_sub">Only whether others see you online. Everything else comes and goes regardless.</string>
     <string name="read_receipts">Read receipts</string>
-    <string name="live_chat">Live chat</string>
+    <string name="money_flow">Money Flow</string>
+    <string name="money_flow_begun">Money flow has begun</string>
     <string name="sync_contacts">Sync contacts</string>
     <string name="link_previews">Link previews</string>
     <string name="link_previews_sub">Your phone reads the page of a link you send, so that site sees this phone.</string>
