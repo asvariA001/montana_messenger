@@ -231,19 +231,10 @@ object Twin {
                 LinkedDevices.stamp(o)   // the cursor word is the device's sign of life on every rise: its kind, and the phone's term (OZ 1 p.4)
                 val lc = mirrorCursors()
                 if (lc.length() > 0) o.put("lc", lc)   // the mirror's cursor rides the same word (iOS 2417, OZ 1 p.2)
-                // iOS says 2000 bytes; here the word must fit one envelope with its name and mark (Keeping.knockText), so the word
-                // itself is measured, and a longer one rides the cargo road
-                val inline = JSONObject(o.toString()).put("c", body)
-                if ((Keeping.MARK + inline).toByteArray().size + 48 <= Wire.ENVELOPE) o.put("c", body) else {
-                    val f = scratch()
-                    try {
-                        f.writeText(body)
-                        val road = Keeping.lay(f) ?: return@runCatching Unit.also { Log.d("Montana", "twin_want the cursor did not reach the nodes") }
-                        for (k in road.keys()) o.put(k, road.get(k))
-                    } finally { f.delete() }
-                }
+                if (!wordRoad(o, body, "c")) return@runCatching Unit.also { Log.d("Montana", "twin_want the cursor did not reach the nodes") }
                 val boxed = Keeping.knock(secret, o, me)
                 Log.d("Montana", "twin_want folders=" + held.length() + " bytes=" + body.length + " boxed=" + (if (boxed) 1 else 0))
+                tellPrints(secret, me, mine)   // the prints of the chats ride beside the cursor word (iOS 5021b111, OZ 1 p.8)
             }.onFailure { Log.w("Montana", "twin_want " + it.javaClass.simpleName) }
         }
     }
@@ -255,11 +246,7 @@ object Twin {
         heardTwin(o)   // a device that only reads is heard too: the phone lists it (iOS giveHistory, OZ 1 p.4)
         if (LinkedDevices.isEnded(f0)) return   // an ended device is told again (heardTwin), never given history
         giveMirror(o, f0)   // the mirror's letters it lacks, from this device's book (iOS 2417, OZ 1 p.1-2)
-        var body = o.optString("c").ifEmpty { null }
-        if (body == null && o.has("mref")) {
-            val f = scratch()
-            try { if (Keeping.fetch(o, f)) body = f.readText() } finally { f.delete() }
-        }
+        val body = wordBody(o, "c")
         val held = body?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return Unit.also { Log.d("Montana", "twin_want the cursor did not come whole") }
         val want = Archive.folders().associateWith { c -> held.optJSONObject(c)?.optLong(mine, 0L) ?: 0L }
         layHist(want)
@@ -318,6 +305,9 @@ object Twin {
             "end" -> o.optString("t").takeIf { it.isNotEmpty() && it != Archive.writerHex() && o.has("at") }?.let { t ->
                 LinkedDevices.heardEnds(JSONObject().put(t, o.optDouble("at")))
             }
+            // the prints of the chats, and a chat's keys whose print differs (iOS 5021b111, 2419, OZ 1 p.8; an older build takes them unread)
+            "pr" -> ex.execute { runCatching { comparePrints(o) }.onFailure { Log.w("Montana", "twin_print " + it.javaClass.simpleName) } }
+            "ck" -> ex.execute { runCatching { takeKeys(o) }.onFailure { Log.w("Montana", "twin_print " + it.javaClass.simpleName) } }
             "jn" -> ex.execute { runCatching { heardJoining(o) }.onFailure { Log.w("Montana", "twin_join " + it.javaClass.simpleName) } }
             "sv" -> ex.execute { runCatching { takeSaved(o) }.onFailure { Log.w("Montana", "twin_saved " + it.javaClass.simpleName) } }
         }
@@ -738,6 +728,130 @@ object Twin {
         if (back > 0) mirrorHole = true
         wantHistory(soon = true)
     }
+    /**
+     * THE ONE DOOR OF A WORD'S BODY (iOS 5021b111 wordRoad / wordBody): inline under `key` while the word fits one envelope with its
+     * name and mark (Keeping.knockText) -- the word itself is measured -- or laid on the nodes and named by its road. False: not laid.
+     */
+    private fun wordRoad(o: JSONObject, body: String, key: String): Boolean {
+        val inline = JSONObject(o.toString()).put(key, body)
+        if ((Keeping.MARK + inline).toByteArray().size + 48 <= Wire.ENVELOPE) { o.put(key, body); return true }
+        val f = scratch()
+        try {
+            f.writeText(body)
+            val road = Keeping.lay(f) ?: return false
+            for (k in road.keys()) o.put(k, road.get(k))
+            return true
+        } finally { f.delete() }
+    }
+    /** The body a word of the seed carries: inline under `key`, or fetched by its road. */
+    private fun wordBody(o: JSONObject, key: String): String? {
+        o.optString(key).takeIf { it.isNotEmpty() }?.let { return it }
+        if (!o.has("mref")) return null
+        val f = scratch()
+        try { return if (Keeping.fetch(o, f)) f.readText() else null } finally { f.delete() }
+    }
+
+    // ── THE PRINT OF EVERY CHAT (iOS 5021b111, 2419, OZ 1 p.8; the author's words 23282, 23284: «build the sync properly») ──
+    // The book's numbers say what a device took of the others' letters, never what its chats hold: a row no letter carried, a letter
+    // of a book lost, a copy laid around a hole stayed a silent difference. Each device names, in a word of its own (pr), the print of
+    // every chat it holds -- the count of its rows and a hash of their archive keys, the same on every device holding the same rows;
+    // the last two minutes are left out, they are on their way. A device that hears a print unlike its own names that chat's keys to
+    // it (ck); that one gives back each row the keys lack and asks each key it lacks (heal). Every comparison is said in the diary.
+    private var printedAt = 0L   // under lock
+    private val healedPrints = HashMap<String, Pair<String, Long>>()   // under lock: device/chat -- its last heal
+    private class ChatPrint(val chat: String, val print: String, val keys: List<String>)
+    /** This device's chats as the seed's devices compare them: a chat's tag (a hash of its key) -- its key, its print, its keys. */
+    private fun chatPrints(): Map<String, ChatPrint> {
+        val settled = System.currentTimeMillis() - 120_000L
+        val out = HashMap<String, ChatPrint>()
+        for (ch in Book.rooms()) {
+            val rows = ch.msgs.toList()
+            if (rows.isEmpty()) continue
+            val keys = Archive.archiveKeys(rows.filter { it.at < settled })
+            out[Archive.rowHash("chat/" + ch.ref)] = ChatPrint(ch.ref, keys.size.toString() + "." + Archive.rowHash(keys.joinToString("\n")), keys)
+        }
+        return out
+    }
+    /** The word pr: this device's print of every chat it holds, beside the cursor word, at most once in five minutes. */
+    private fun tellPrints(secret: ByteArray, me: String, mine: String) {
+        val t = System.currentTimeMillis()
+        synchronized(lock) { if (t - printedAt <= 300_000L) return; printedAt = t }
+        val prints = JSONObject().also { p -> for ((tag, c) in chatPrints()) p.put(tag, c.print) }
+        if (prints.length() == 0) return
+        val body = prints.toString()
+        val o = JSONObject().put("w", "pr").put("f", mine)
+        if (!wordRoad(o, body, "p")) return Unit.also { Log.d("Montana", "twin_print the prints did not reach the nodes") }
+        val boxed = Keeping.knock(secret, o, me)
+        Log.d("Montana", "twin_print told chats=" + prints.length() + " bytes=" + body.length + " boxed=" + (if (boxed) 1 else 0))
+    }
+    /** Another device's prints: every chat both hold is compared and the count said; a chat that differs names its keys to that device,
+     *  once in half an hour for the same two prints. */
+    private fun comparePrints(o: JSONObject) {
+        val f = o.optString("f")
+        if (f.isEmpty() || f == Archive.writerHex() || LinkedDevices.isEnded(f)) return
+        val theirs = wordBody(o, "p")?.let { runCatching { JSONObject(it) }.getOrNull() }
+            ?: return Unit.also { Log.d("Montana", "twin_print the prints did not come whole") }
+        val mine = chatPrints()
+        var same = 0
+        val differ = ArrayList<String>()
+        for (tag in theirs.keys()) {
+            val m = mine[tag] ?: continue   // a chat this device does not hold: the history and the copy bring it
+            if (m.print == theirs.optString(tag)) same++ else differ.add(tag)
+        }
+        Log.d("Montana", "twin_print from=" + f.take(8) + " theirs=" + theirs.length() + " mine=" + mine.size + " same=$same differ=" + differ.size)
+        val now = System.currentTimeMillis()
+        for (tag in differ) {
+            val m = mine[tag] ?: continue
+            val p = theirs.optString(tag)
+            val pair = m.print + "/" + p; val slot = "$f/$tag"
+            val due = synchronized(lock) {
+                val h = healedPrints[slot]
+                if (h != null && h.first == pair && now - h.second < 1_800_000L) false else { healedPrints[slot] = pair to now; true }
+            }
+            if (!due) continue
+            Log.d("Montana", "twin_print chat=" + m.chat.take(10) + " mine=" + m.print + " theirs=" + p + " -- its keys go")
+            tellKeys(m.chat, m.keys, f)
+        }
+    }
+    /** The word ck: a chat's archive keys, to the one device whose print of it differed. */
+    private fun tellKeys(chat: String, keys: List<String>, to: String) {
+        val secret = secret() ?: return
+        val me = deviceRef() ?: return
+        val o = JSONObject().put("w", "ck").put("f", Archive.writerHex() ?: "").put("to", to).put("ch", chat)
+        if (!wordRoad(o, keys.joinToString("\n"), "k")) return Unit.also { Log.d("Montana", "twin_print the keys did not reach the nodes") }
+        val boxed = Keeping.knock(secret, o, me)
+        Log.d("Montana", "twin_print keys told chat=" + chat.take(10) + " n=" + keys.size + " boxed=" + (if (boxed) 1 else 0))
+    }
+    /** A chat's keys named to this device: it heals the chat by them. */
+    private fun takeKeys(o: JSONObject) {
+        val mine = Archive.writerHex() ?: return
+        val f = o.optString("f"); val chat = o.optString("ch")
+        if (f.isEmpty() || f == mine || o.optString("to") != mine || LinkedDevices.isEnded(f) || chat.isEmpty()) return
+        val body = wordBody(o, "k") ?: return Unit.also { Log.d("Montana", "twin_print the keys did not come whole") }
+        heal(chat, body.split('\n').filter { it.isNotEmpty() }.toHashSet())
+    }
+    /**
+     * A CHAT WHOSE PRINT DIFFERED ON THE SEED'S OTHER DEVICE (iOS ChatStore.healTwin): it named the keys of its rows. Each row held here
+     * under a key it lacks is given back by its name, each key it holds that this device lacks is asked -- the roads of the archive's
+     * gap; a row buried there is never laid over its tombstone.
+     */
+    private fun heal(chat: String, theirs: Set<String>) {
+        val mine = HashSet<String>()
+        var given = 0
+        for (m in Book.chat(chat)?.msgs?.toList().orEmpty()) {
+            val k = Archive.archiveKey(m) ?: continue
+            mine.add(k)
+            if (k !in theirs && given < 200) { give(chat, m, born = false); given++ }
+        }
+        val lack = (theirs - mine).mapNotNull { k ->
+            val p = k.split('|')
+            val s = p.getOrNull(0)?.toLongOrNull()
+            if (p.size != 3 || s == null) null else Triple(s, p[1] == "1", p[2])
+        }
+        if (lack.isNotEmpty()) ask(chat, lack)
+        Log.d("Montana", "twin_heal chat=" + chat.take(10) + " mine=" + mine.size + " theirs=" + theirs.size + " gave=$given asked=" + lack.size)
+    }
+
     /** A hole stands: the cursor word names it within twenty seconds, and every pickup names it again until it closes. */
     private fun noteHole(hole: Boolean) {
         mirrorHole = hole
@@ -917,9 +1031,7 @@ object Twin {
         // EVERY ROW ASKED IS GIVEN BACK BY ITS NAME (iOS 4bff00b3, 2402, the critic of 22541): the asker asks only what its feed lacks,
         // and takeRow lays no second row of a name or archive key
         for (m in rows) {
-            if (m.at <= 0) continue
-            val t = Archive.archivedText(m) ?: continue
-            if (Archive.rowSig(m.at / 1000, m.mine, Archive.rowHash(t)) !in want) continue
+            if (Archive.archiveKey(m) !in want) continue   // one owner of a row's archive key (iOS 5021b111)
             give(chat, m, born = false)   // an answer rides the mirror alone: two hundred rows never ride as two hundred letters
             n++
         }

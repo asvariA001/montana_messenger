@@ -43,6 +43,11 @@ object Archive {
      *  measured against them and the letters a correspondent gave back are known by it. An «arc:» name hashes these bytes: they
      *  never change. */
     fun rowSig(atSec: Long, mine: Boolean, text: String) = atSec.toString() + "|" + (if (mine) 1 else 0) + "|" + text
+    /** THE ARCHIVE KEY OF A ROW, ONE OWNER (iOS 5021b111 archiveKey, OZ 1 p.8): its second, its side, the hash of its words as the
+     *  archive writes them -- what the twin's ask is answered by and a chat's print is made of. */
+    fun archiveKey(m: Msg): String? = if (m.at <= 0) null else archivedText(m)?.let { rowSig(m.at / 1000, m.mine, rowHash(it)) }
+    /** A chat's keys, each once, in order: what its print hashes and what the word ck names. */
+    fun archiveKeys(rows: List<Msg>): List<String> = rows.mapNotNull { archiveKey(it) }.toSortedSet().toList()
     private val q = Executors.newSingleThreadExecutor { r -> Thread(r, "archive").apply { isDaemon = true } }
     @Volatile private var keys: Keys? = null
 
