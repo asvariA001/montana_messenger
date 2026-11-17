@@ -732,6 +732,13 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val column = c.vstack(Gravity.NO_GRAVITY) { setPadding(dp(10), dp(8), dp(10), dp(8)) }
     val draftRow = FrameLayout(c).apply { setPadding(c.dp(10), 0, c.dp(10), c.dp(8)); visibility = View.GONE }
     val feedFrame = FrameLayout(c)
+    // THE FEED'S TURN (iOS newestFirst = MTApps.flowOn(chat.name), MontanaConversation.swift:1410; the author's word 02.10 14:03):
+    // with this chat's Money Flow on, the newest letters stand on top, the field under the header, and the peer's live words over
+    // the newest letter; off, the feed stands as every chat's, the newest at the foot over the field
+    var turned = !group && MoneyFlow.on(ref)
+    var turning = false   // the pass of the turn itself: the rows change places, nobody is born (iOS: the turn pins, never animates a birth)
+    var turnPage: () -> Unit = {}   // the page laid again for the turn (the feed, the field, the way to the newest), born with the page
+    val feedStack = c.vstack(Gravity.NO_GRAVITY)
     // THE FEED BEHIND A TAPE IS BLURRED (iOS MontanaConversation.swift:1446-1452 at 2155: «.blur(radius: holding ? 10 : 0)» while a
     // voice or a note records; the open note's cloud blurs it on its own): radius 10, off again where every tape ends (onRecIdle).
     // WHAT STANDS BEHIND THE BLUR TAKES NO TOUCHES (iOS .allowsHitTesting(!recorder.isRecording), MontanaConversation.swift:1420 at
@@ -790,9 +797,21 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         isVerticalScrollBarEnabled = false
         isFillViewport = true
         // the feed, and under it their live draft (iOS LiveDraftBubble at the feed's foot)
-        addView(feedFrame.apply { addView(c.vstack(Gravity.NO_GRAVITY) { addView(column, lp()); addView(draftRow, lp()) }, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
+        addView(feedFrame.apply { addView(feedStack, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM)) })
     }
-    fun toBottom() = scroll.post { scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0) }
+    // the feed's order of parts for the turn: the live words at the newest end -- the foot over the field, or the top under it
+    // (iOS snap.appendItems: the draft beside the newest letter, MontanaMessageFeed.swift:981-984); the turned feed starts at the top
+    fun stackFeed() {
+        feedStack.removeAllViews()
+        if (turned) { feedStack.addView(draftRow, lp()); feedStack.addView(column, lp()) }
+        else { feedStack.addView(column, lp()); feedStack.addView(draftRow, lp()) }
+        draftRow.setPadding(c.dp(10), if (turned) c.dp(8) else 0, c.dp(10), if (turned) 0 else c.dp(8))
+        (feedStack.layoutParams as FrameLayout.LayoutParams).gravity = if (turned) Gravity.TOP else Gravity.BOTTOM
+        feedStack.requestLayout()
+    }
+    stackFeed()
+    // «TO THE NEWEST» GOES UP IN THE TURNED FEED (iOS scrollToBottom: newestOnTop → scrollToTop, MontanaMessageFeed.swift:216-221)
+    fun toBottom() = scroll.post { scroll.scrollTo(0, if (turned) 0 else scroll.getChildAt(0)?.height ?: 0) }
 
     var replyTo: Msg? = null
     var editing: Msg? = null
@@ -1047,7 +1066,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             var up = column.parent as? android.view.ViewGroup
             while (up != null) { up.clipChildren = false; if (up === scroll) break; up = up.parent as? android.view.ViewGroup }
         }
-        for (v in births) { v.translationY = v.height * LetterMotion.RISE; ways.add(v to v.translationY); fadeIn(v) }
+        // turned, the newborn comes down from under the field on top (iOS animateBirth fromTop, MontanaMessageFeed.swift:1056)
+        for (v in births) { v.translationY = v.height * LetterMotion.RISE * (if (turned) -1 else 1); ways.add(v to v.translationY); fadeIn(v) }
         newborn.clear(); stood.clear(); flying.clear()
         if (ways.isEmpty()) return
         val d = LetterMotion.duration
@@ -1266,8 +1286,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             return group && !x.mine && !y.mine && x.from != null && x.from == y.from && b[0].at - a.last().at < 600_000
                 && dayOf(a.last().at) == dayOf(y.at) && Groups.eventWords(c, x.text) == null && Groups.eventWords(c, y.text) == null
         }
+        // each row of the book is one unit of the column -- its day, its «unread» line and its own row -- so the turn moves it whole
+        val unitAt = ArrayList<Int>(rows.size)
         for ((at, row) in rows.withIndex()) {
             val m = row[0]
+            unitAt.add(want.size)
             val head = !group || at == 0 || !sameRun(rows[at - 1], row)
             val tail = !group || at == rows.size - 1 || !sameRun(row, rows[at + 1])
             val cal = java.util.Calendar.getInstance().apply { timeInMillis = m.at }
@@ -1304,6 +1327,38 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 letterRow(m, row, head, tail).let { if (asked.isEmpty()) it else searchHit(it, m.mid) }
             }
         }
+        // THE FEED'S TURN IS THE ONE OWNER OF THE ORDER (iOS rows, MontanaConversation.swift:2663-2683): turned, the units stand newest
+        // first, each with its day and «unread» line above its own row as in every chat. A LONG TEXT READS DOWNWARD IN THE TURNED FEED
+        // TOO (the author's word 25.10.2026 11:23 UTC): the pieces of one text cut at its sending (Groups.pieces) -- one side, plain
+        // letters, born under two seconds apart, the earlier as long as a cut piece is -- hand their letters over reversed, the
+        // places' days and lines staying where they stand.
+        if (turned && unitAt.size > 1) {
+            val n = unitAt.size
+            fun end(u: Int) = if (u + 1 < n) unitAt[u + 1] else want.size
+            fun piece(u: Int) = rows[u].size == 1 && want[end(u) - 1].letter
+            fun continues(a: Int, b: Int): Boolean {
+                val x = rows[a][0]; val y = rows[b][0]
+                return piece(a) && piece(b) && x.mine == y.mine && x.from == y.from && y.at - x.at < 2000 && x.text.length * 2 >= Groups.PIECE_CHARS
+            }
+            val order = IntArray(n) { n - 1 - it }   // the place → the unit standing there
+            val letterOf = order.copyOf()   // the place → whose row stands there (a run of pieces read downward)
+            var a = 0
+            while (a < n) {
+                var b = a
+                while (b + 1 < n && continues(b, b + 1)) b++
+                if (b > a) for (k in 0..(b - a)) letterOf[n - 1 - b + k] = a + k
+                a = b + 1
+            }
+            val w2 = ArrayList<FeedRow>(want.size)
+            val m2 = ArrayList<() -> View>(want.size)
+            for (place in 0 until n) {
+                val u = order[place]
+                for (i in unitAt[u] until end(u) - 1) { w2.add(want[i]); m2.add(makers[i]) }
+                val l = letterOf[place]
+                w2.add(want[end(l) - 1]); m2.add(makers[end(l) - 1])
+            }
+            want.clear(); want.addAll(w2); makers.clear(); makers.addAll(m2)
+        }
         // A WHOLE PASS DURING THE PARTS KEEPS TO WHAT THEY LAID (iOS 77ff8b0d, OZ 1 p.1): an arrival or a change while the rest still
         // comes lays only the newest rows the parts have laid, and the parts go on -- it no longer lays the whole feed in one frame
         // (on T1 a chat of 87 letters: one frame of 571-637 ms, three passes of 141 ms).
@@ -1313,7 +1368,8 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         restPending = false
         if (jump == null && !searching && limit < want.size) {
             val cut = want.size - limit
-            want.subList(0, cut).clear(); makers.subList(0, cut).clear()
+            if (turned) { want.subList(limit, want.size).clear(); makers.subList(limit, makers.size).clear() }   // the oldest stand below
+            else { want.subList(0, cut).clear(); makers.subList(0, cut).clear() }
             restPending = true
         }
         if (want.size != feed.size || want.indices.any { want[it].key != feed[it].key || want[it].sig != feed[it].sig }) {
@@ -1322,10 +1378,11 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             for (r in feed) old[r.key] = r
             // THE BIRTH FOLLOWS THE NEWEST END (iOS grewNewest, MontanaMessageFeed 846-848 and 911): the newest letter before the pass
             // still stands and a letter now stands after it; the rows laid on opening, or older ones read in, are born still
-            val prevLast = feed.lastOrNull { it.letter }?.key
+            // (turned, the newest end is the top: the newborns stand above the newest letter kept -- iOS grewNewest with newestOnTop)
+            val prevLast = (if (turned) feed.firstOrNull { it.letter } else feed.lastOrNull { it.letter })?.key
             val lastKept = if (prevLast == null) -1 else want.indexOfFirst { it.key == prevLast }
-            val motion = laid && LetterMotion.on
-            val grew = motion && 0 <= lastKept && (lastKept + 1 until want.size).any { want[it].letter }
+            val motion = laid && LetterMotion.on && !turning
+            val grew = motion && 0 <= lastKept && (if (turned) 0 until lastKept else lastKept + 1 until want.size).any { want[it].letter }
             if (motion && !landing && (grew || flight?.isRunning == true)) {
                 // where every row on the screen stands before the pass, its flight included (iOS before, 868-875)
                 flight?.cancel()
@@ -1364,7 +1421,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     v.translationY = prior.translationY; v.alpha = prior.alpha
                     if (newborn.remove(prior)) newborn.add(v)
                     column.removeView(prior)
-                } else if (prior == null && grew && lastKept < i) { v.alpha = 0f; newborn.add(v); born++ }   // unseen until it rises
+                } else if (prior == null && grew && (if (turned) i < lastKept else lastKept < i)) { v.alpha = 0f; newborn.add(v); born++ }   // unseen until it rises
                 if (column.getChildAt(i) !== v) { if (v.parent === column) column.removeView(v); column.addView(v, i) }
             }
             feed.clear(); feed.addAll(want)
@@ -1382,7 +1439,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 if (sliding() && restWaits < 40) { restWaits++; partQueued = true; scroll.postOnAnimation { restPart() }; return }
                 restLaid += firstScreenRows * 2
                 val before = column.height
-                column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {
+                if (!turned) column.addOnLayoutChangeListener(object : View.OnLayoutChangeListener {   // turned, they come in below
                     override fun onLayoutChange(v: View, l: Int, t: Int, r: Int, b: Int, ol: Int, ot: Int, or2: Int, ob: Int) {
                         v.removeOnLayoutChangeListener(this)
                         scroll.scrollTo(0, scroll.scrollY + (b - t) - before)
@@ -2327,6 +2384,10 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                     MoneyFlow.set(ref, on)
                     LiveDraft.flowSwitched(ref, on)
                     drawFlow()
+                    // THE FEED TURNS WITH THE FLOW (iOS flows.flowWatch → newestFirst): on, the newest on top under the field; off, the
+                    // turn back lands at the foot, where the newest letter then stands (MontanaMessageFeed.swift:1003-1009)
+                    turned = !group && on
+                    turnPage()
                     if (on) {
                         // its row in the chat (iOS appendMoneyFlow), and THE FLOW STANDS READY AT ONCE (iOS 2182-2191, the author's word
                         // 05.10.2026): the panel of buttons unfolded, the feed at its newest end, the field taking the keys
@@ -2506,10 +2567,17 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         // the letters scroll on under them and show between the plates; the plates alone carry the glass. The feed's own room above
         // and below is the bars' height as drawn, so the first and the last letter rest clear of them, and a feed at its end stays
         // at its end when the panel grows (a reply line, a recording, the keyboard).
+        val topCompose = c.vstack(Gravity.NO_GRAVITY)
+        val rowSlot = c.vstack(Gravity.NO_GRAVITY).apply {
+            setPadding(dp(16), dp(ChatInputBar.BAR_PAD), dp(16), dp(ChatInputBar.BAR_PAD)); visibility = View.GONE
+        }
         val head = c.vstack(Gravity.NO_GRAVITY) {
             addView(top)
             addView(searchBar, lp(MATCH, WRAP))
             addView(selTop, lp(MATCH, WRAP))
+            // THE FIELD ON TOP (iOS MTKeyboardRider onKeys: false over the turned feed, MontanaConversation.swift:1476-1488): with the
+            // Money Flow on, the line of words and its previews stand here, under the header, over the newest letter
+            addView(topCompose, lp())
             // THE PINNED PLATE under the header (iOS the pinned bar): shown while a letter of this chat is pinned
             addView(pinnedPlate(act, ref) { mid -> jumpTo(mid) }, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(4) })
             // THE ROOM'S BAR (iOS MTRoomBar): a group's living voice or video chat, or its stream
@@ -2524,11 +2592,31 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             addView(liveBar(act), lp().apply { bottomMargin = dp(2) })   // the one player bar above the field (iOS MontanaPlayerBar in the chat)
             addView(recStrip, lp().apply { marginStart = dp(10); marginEnd = dp(10) })   // the seats' row is 56 tall: the capsule keeps 10 below
             addView(bar.apply { if ((group && !Groups.fieldOpen(ref)) || Post.closed(ref)) visibility = View.GONE }, lp())
+            addView(rowSlot, lp())   // the open bar's buttons in the turned feed, riding the keys (ChatInputBar.rowTo)
             addView(panel.host, lp(MATCH, dp(300)))
             addView(closedNote, lp().apply { marginStart = dp(10); marginEnd = dp(10); bottomMargin = dp(6) })
             addView(foot, lp())
             addView(groupFoot, lp())
         }
+        // THE COMPOSE NODE'S PLACE (iOS bottomGroup: composeSlot then composePreviews when turned, the previews then the slot
+        // otherwise, MontanaConversation.swift:3758-3765): the bar and the plates of the reply, the coin, the link, the «@» and the
+        // pasted pictures go up under the header for the turn and come home over the keys without it
+        fun placeCompose() {
+            val ups = listOf(strip, coinPlate, linkPlate, mentionPlate, stagedStrip)
+            for (v in ups + bar) (v.parent as? android.view.ViewGroup)?.removeView(v)
+            fun plateLp(side: Int) = lp().apply { marginStart = dp(side); marginEnd = dp(side); if (turned) { topMargin = dp(4) } else { bottomMargin = dp(4) } }
+            val lps = listOf(plateLp(10), plateLp(10), plateLp(10), plateLp(8), lp())
+            if (turned) {
+                topCompose.addView(bar, lp())
+                ups.forEachIndexed { i, v -> topCompose.addView(v, lps[i]) }
+                bar.rowTo(rowSlot)
+            } else {
+                ups.forEachIndexed { i, v -> under.addView(v, i, lps[i]) }
+                under.addView(bar, under.indexOfChild(recStrip) + 1, lp())
+                bar.rowTo(null)
+            }
+        }
+        placeCompose()
         scroll.clipToPadding = false
         // THE FEED SINKS INTO THE GROUND PAST THE HEADER AND THE BAR (iOS MTEdgeWash, ContentView.swift:1182-1207 at 2155,
         // read 21.09 in WallpaperEdgeEffectNodeImpl; atoms d4817f6e3b72/39b5b03396cb/331a040adb4e/df3a6b50be61 -- the ground
@@ -2546,22 +2634,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             val t = head.height
             val b = under.height + lifted
             if (scroll.paddingTop == t && scroll.paddingBottom == b) return
-            val atEnd = !scroll.canScrollVertically(1)
+            val atEnd = !scroll.canScrollVertically(if (turned) -1 else 1)   // the newest end: the top of the turned feed
             scroll.setPadding(0, t, 0, b)
             if (!atEnd || ride?.dragging == true) return
-            if (keys) scroll.scrollTo(0, scroll.getChildAt(0)?.height ?: 0)   // this frame, not the next: the letters ride with the bar
+            if (keys) scroll.scrollTo(0, if (turned) 0 else scroll.getChildAt(0)?.height ?: 0)   // this frame, not the next: the letters ride with the bar
             else toBottom()
         }
         // THE WAY TO THE NEWEST (iOS ScrollDownButton 384-399, MontanaConversation 2928-2940): the chevron in the compose tier's glass,
         // on the microphone's own vertical line, ten points above the panel; on past 260 points from the newest, off under 60
+        // turned, it stands at the top under the field with its chevron up (iOS ScrollDownButton top:, MontanaConversation.swift:3210-3213)
+        val downGlyph = c.icon(if (turned) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down, Color.rgb(204, 204, 204))
         val downKey = FrameLayout(c).apply {
             addView(FrameLayout(c).apply {
                 background = c.glassPlate(oval = true)
-                addView(c.icon(R.drawable.ic_chevron_down, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+                addView(downGlyph, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
             }, FrameLayout.LayoutParams(dp(36), dp(36), Gravity.CENTER))
             contentDescription = c.getString(R.string.to_newest)
             visibility = View.GONE
-            pressable { scroll.smoothScrollTo(0, (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
+            pressable { scroll.smoothScrollTo(0, if (turned) 0 else (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
         }
         addView(downKey, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(12) })
         // THE DAY THE FINGER IS READING (iOS MTDayHeader 359-372, stage 13.1): the pill of the topmost row's day under the header while
@@ -2578,7 +2668,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
         Motion.watch(scroll) { _, _, y, _, _ ->
             val d = resources.displayMetrics.density
             val content = scroll.getChildAt(0) ?: return@watch
-            val fromEnd = (content.height + scroll.paddingTop + scroll.paddingBottom - scroll.height - y) / d
+            val fromEnd = (if (turned) y else content.height + scroll.paddingTop + scroll.paddingBottom - scroll.height - y) / d
             if (!downOn && 260 < fromEnd) { downOn = true; downKey.visibility = View.VISIBLE; downKey.alpha = 0f; downKey.animate().alpha(1f).setDuration(180).start() }
             else if (downOn && fromEnd < 60) { downOn = false; downKey.animate().alpha(0f).setDuration(180).withEndAction { if (!downOn) downKey.visibility = View.GONE }.start() }
             // the topmost row under the header: its letter's day
@@ -2599,7 +2689,12 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             }
         }
         fun lift() {
-            (downKey.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = under.height + dp(10); if (lp.bottomMargin != want) { lp.bottomMargin = want; downKey.layoutParams = lp } }
+            (downKey.layoutParams as FrameLayout.LayoutParams).let { lp ->
+                val g = (if (turned) Gravity.TOP else Gravity.BOTTOM) or Gravity.END
+                val top = if (turned) head.height + dp(10) else 0
+                val bottom = if (turned) 0 else under.height + dp(10)
+                if (lp.gravity != g || lp.topMargin != top || lp.bottomMargin != bottom) { lp.gravity = g; lp.topMargin = top; lp.bottomMargin = bottom; downKey.layoutParams = lp }
+            }
             (dayPill.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = head.height + dp(6); if (lp.topMargin != want) { lp.topMargin = want; dayPill.layoutParams = lp } }
         }
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
@@ -2616,10 +2711,26 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             if (want == lifted && under.translationY == -want.toFloat()) return
             lifted = want
             under.translationY = -want.toFloat()
-            downKey.translationY = -want.toFloat()
+            downKey.translationY = if (turned) 0f else -want.toFloat()   // turned, the way to the newest stands under the field, off the keys
             room(keys = true)
         }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> ridePlace() }
+        // the keys' own drag begins at their top: the row at the keys when the field stands on top (iOS MTInputField: the accessory
+        // holds no room), the bar otherwise
+        barTop = { IntArray(2).also { (if (turned) under else bar).getLocationOnScreen(it) }[1] }
+        // THE FIELD TAKEN IS THE NEWEST LETTER SEEN (iOS onChange(of: inputFocused) with newestFirst → stickBottom, 1977): on top, the
+        // field and the newest letter stand together
+        field.setOnFocusChangeListener { _, on -> if (on && turned) toBottom() }
+        turnPage = {
+            stackFeed()
+            placeCompose()
+            downGlyph.setImageResource(if (turned) R.drawable.ic_chevron_up else R.drawable.ic_chevron_down)
+            downKey.translationY = if (turned) 0f else -lifted.toFloat()
+            lift(); room()
+            turning = true
+            try { redraw() } finally { turning = false }
+            toBottom()
+        }
         // the keyboard key on the panel puts the panel away itself before the keys rise: its room is held for them from that tap
         val unhold = Runnable { hold = 0; ridePlace() }
         val emojiKey = bar.onEmojiKey

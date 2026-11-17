@@ -11,6 +11,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.TouchDelegate
 import android.view.View
+import android.view.ViewGroup
 import android.view.VelocityTracker
 import android.view.ViewOutlineProvider
 import android.view.inputmethod.InputMethodManager
@@ -178,7 +179,26 @@ class ChatInputBar(private val act: MainActivity, val field: EditText, private v
         syncSend()
         widenTouchTarget()
         if (panelOn) panelShown(true)   // the row's keys are made anew: the emoji key keeps the keyboard's glyph while the panel stands
+        syncHost()
     }
+
+    /**
+     * THE BUTTONS STAY ON THE KEYS (iOS inputBar(.row) with rowGroup, MontanaConversation.swift:1563-1569, 3829; the author's word
+     * 03.10 13:35 and his drawing): in the turned feed of a Money Flow only the line of words goes up under the header; the open bar's
+     * row of buttons stands where it stands in a plain chat, in [host] at the keys. Null brings the row home under the words.
+     */
+    private var rowHost: ViewGroup? = null
+    fun rowTo(host: ViewGroup?) {
+        if (rowHost === host && actionRow.parent != null) return
+        (actionRow.parent as? ViewGroup)?.removeView(actionRow)
+        rowHost?.visibility = View.GONE
+        rowHost = host
+        if (host == null) addView(actionRow, 1, lp().apply { topMargin = dp(TIER_GAP) }) else host.addView(actionRow, lp())
+        syncHost()
+    }
+    /** The host shows while the row would: the bar open and standing (iOS composeOpen && barWrites). */
+    private fun syncHost() { rowHost?.visibility = if (open && visibility == View.VISIBLE) View.VISIBLE else View.GONE }
+    override fun setVisibility(v: Int) { super.setVisibility(v); syncHost() }
 
     /** A CHANNEL'S OWNER'S FIELD (iOS channel): it says «Broadcast...» while empty and holds the bell. */
     var channel = false

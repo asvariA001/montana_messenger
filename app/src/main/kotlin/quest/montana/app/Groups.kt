@@ -49,7 +49,7 @@ object Groups {
     private const val PEOPLE_LIMIT = 200
     /** [I-14]: the posts one word of a channel's views names (iOS viewsBatch). */
     const val VIEWS_BATCH = 200
-    private const val PIECE_CHARS = 4500   // iOS ChatStore.sendPieceChars
+    const val PIECE_CHARS = 4500   // iOS ChatStore.sendPieceChars
     private const val HEARD_LIMIT = 512
     private val CROWNS = setOf(0x1F451, 0x2654, 0x2655, 0x265A, 0x265B)   // iOS MTCrown: only the Montana room wears a crown
 
