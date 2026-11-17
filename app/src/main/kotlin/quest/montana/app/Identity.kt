@@ -203,6 +203,7 @@ object MontanaSeed {
         // every road parks them first (Seats.makeRoom); a call that reaches here with another person seated is refused, and says so.
         val held = mnemonic
         if (held != null && held != keys.mnemonic) { Log.i("Montana", "seed_enter REFUSED another person is seated"); return false }
+        NothingLeft.lift()   // a seed came: no erase is owed any more (iOS MontanaSeed.setActive, MTNothingLeft)
         clear()
         val stored = DeviceVault.set(MN, keys.mnemonic.toByteArray(Charsets.UTF_8))
         Log.i("Montana", "seed write: words=${keys.mnemonic.split(' ').size} stored=$stored (value not logged)")
@@ -382,7 +383,8 @@ object Prefs {
      * The list errs small: a value not named here leaves with the person, as every value did before seats.
      */
     private val SHARED = setOf("mt.notify.asked", "bubbleColorIndex", "bubbleStyle", "noteQuality", "voiceOrb.look", "voiceRate",
-        "diagGen", "diagId", "diagWm", "locAsked", "exitSeen")
+        "diagGen", "diagId", "diagWm", "locAsked", "exitSeen",
+        NothingLeft.ERASED)   // the whole erase still owed on this phone (iOS SeedScope.deviceKeys: MontanaSeed.erasedKey): never a seat's
     private val SHARED_PREFIXES = listOf("cbMine", "cbPeer", "mt.update.", "mt.release.")
     fun shared(key: String): Boolean = key in SHARED || SHARED_PREFIXES.any { key.startsWith(it) }
 

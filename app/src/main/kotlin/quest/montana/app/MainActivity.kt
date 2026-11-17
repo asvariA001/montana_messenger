@@ -58,6 +58,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         DeviceVault.init(this)
         Prefs.init(this)
+        NothingLeft.again(this, "launch")   // a phone erased whole is swept again before any owner is born, until a seed comes (iOS MTNothingLeft)
         Seats.launch(this)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         forgetContactCard()

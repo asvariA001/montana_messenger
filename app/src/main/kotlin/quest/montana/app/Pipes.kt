@@ -3239,7 +3239,11 @@ object Post {
         // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
         // other devices -- the box gave it to this one, and this one's confirmation erases it there
         if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])
-        place(ref, f[0], text, f[2], f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
+        // A LETTER WITH AN AUTHOR FIELD IS TOLD MINE OR THEIRS ONLY BY THE PERSON'S AUTHOR KEY (iOS DeliveryEngine.receive, 9e9f755b,
+        // 2433): while the key is not derived yet its envelope names nobody -- a word of the seed's other device would name the chat
+        // with the person's own name.
+        val envelope = if (f[7].isNotEmpty() && LetterAuthor.key == null) "" else f[2]
+        place(ref, f[0], text, envelope, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
     }
 

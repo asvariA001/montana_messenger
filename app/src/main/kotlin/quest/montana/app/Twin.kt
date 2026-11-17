@@ -294,8 +294,19 @@ object Twin {
         val body = wordBody(o, "c")
         val held = body?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return Unit.also { Log.d("Montana", "twin_want the cursor did not come whole") }
         val want = Archive.folders().associateWith { c -> held.optJSONObject(c)?.optLong(mine, 0L) ?: 0L }
+        // ONE ANSWER TO ONE CURSOR (iOS giveHistory givenTo, 71420e3d = 2437; OZ 1 p.1): the words opened read a day of the other
+        // device's cursor words from the box at once, each asking from the same place, and each laid the same blocks again -- thirty
+        // in a second. A cursor already answered to its device is not laid again for ten minutes.
+        val now = System.currentTimeMillis()
+        val fresh = synchronized(givenTo) {
+            val g = givenTo[f0]
+            if (g != null && g.first == want && now - g.second < 600_000L) false else { givenTo[f0] = want to now; true }
+        }
+        if (!fresh) return Unit.also { Diary.folded("twin_hist", "the same cursor answered already", 60_000, "twin_hist_given") }
         layHist(want)
     }
+    /** The cursor last answered to each device of the seed, and its moment (iOS givenTo). */
+    private val givenTo = HashMap<String, Pair<Map<String, Long>, Long>>()
     private fun takeHist(o: JSONObject, mid: String) {
         if (o.optString("f") == Archive.writerHex()) return   // this device's own letter, heard back from the box
         heardTwin(o)

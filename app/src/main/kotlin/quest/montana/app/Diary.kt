@@ -168,6 +168,16 @@ object Diary {
             t
         }
     }
+    /**
+     * THE DIARY LEAVES WITH THE PERSON (iOS MontanaLog.eraseDiary, 2434; the author's word «erase everything clean»): its files leave
+     * under the writer's own lock -- a line handed in before is written and goes with them, a line after begins the next diary -- and
+     * the salt held in memory goes, so no label of the life before is drawn again.
+     */
+    @Synchronized fun erase() {
+        saltCache = null
+        dir?.listFiles()?.forEach { it.deleteRecursively() }
+    }
+
     @Volatile private var saltCache: String? = null
     private fun salt(): String {
         saltCache?.let { return it }

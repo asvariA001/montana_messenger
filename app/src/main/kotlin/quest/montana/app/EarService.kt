@@ -55,6 +55,7 @@ class EarService : Service() {
         // the app may have been started by this service alone: what the first screen sets up, set up here (as BoxJob)
         DeviceVault.init(applicationContext)
         Prefs.init(applicationContext)
+        NothingLeft.again(applicationContext, "launch")   // the ear may be the process's first: the erase owed goes before any owner too
         Seats.launch(applicationContext)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         Diary.start(applicationContext)   // the ear may stand before any page: its lines are the diary's too
