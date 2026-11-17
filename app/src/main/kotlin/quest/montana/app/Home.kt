@@ -706,6 +706,7 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
         groupsBadge.showCount(if (open) groups else 0)
         channelsBadge.showCount(if (open) channels else 0)
         logoBadge.showCount(if (open) 0 else calls + chats + groups + channels)
+        placeMuted()
     }
 
     /**
@@ -758,14 +759,27 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
     }
     private var foldLaid = false
     private lateinit var drawerGlyph: ImageView
+    // THE MUTED SOUND'S BADGE (iOS MTMutedBadge, 2424, the author's word 23651, 16.11.2026, a picture: «a badge over the time symbol,
+    // not crooked like this»): a crossed speaker in the platform's red circle of 20, solid, no ring; its tap area is 44.
     private val mutedBadge: View = FrameLayout(act).apply {
-        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.red) }
-        addView(act.icon(R.drawable.ic_speaker_slash, Color.WHITE, 11), LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        addView(FrameLayout(act).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(MT.red) }
+            addView(act.icon(R.drawable.ic_speaker_slash, Color.WHITE, 10), LayoutParams(WRAP, WRAP, Gravity.CENTER))
+        }, LayoutParams(dp(20), dp(20), Gravity.CENTER))
         contentDescription = act.getString(R.string.notifications)
         visibility = View.GONE
         setOnClickListener { act.push { notificationsPage(act, it) } }
     }
     private var refused = false
+    /**
+     * OVER THE TIME SYMBOL, AS A BADGE (iOS MontanaChatsList 2424, the author's word 23651): the badge's centre is the logo's
+     * top-trailing corner, where a glyph's badge stands (18 right of the logo's centre, 12 up); while the folded logo wears the
+     * count there, the top-leading corner.
+     */
+    private fun placeMuted() {
+        mutedBadge.translationX = dp(if (!open && logoBadge.visibility == View.VISIBLE) -18 else 18).toFloat()
+        mutedBadge.translationY = -dp(12).toFloat()
+    }
     private var authzSaid: Boolean? = null
     /**
      * THE SYSTEM'S ANSWER, READ AT EVERY ENTRY AND EVERY RETURN (iOS MTNotifyAllowed.read): refused is the system's «off» after the
@@ -812,12 +826,10 @@ class HomeBar(private val act: MainActivity, onDrawer: (View) -> Unit, onPane: (
             }, LayoutParams(dp(36), dp(36), Gravity.CENTER))
             addView(logoBadge, LayoutParams(WRAP, dp(20), Gravity.CENTER))
             // THE MUTED SOUND IS A BADGE OVER THE LOGO, NOT A BUTTON TAKEN (iOS MTMutedBadge, 93023210, P-208, the author's word 21970):
-            // while the system refuses the notifications, a small crossed speaker in a red circle -- the count badge's size and fill --
-            // stands over the logo's top-leading edge and opens the notifications' page
-            addView(mutedBadge, LayoutParams(dp(20), dp(20), Gravity.CENTER).also {
-                mutedBadge.translationX = -dp(16).toFloat()
-                mutedBadge.translationY = -dp(36) / 2f - dp(4) + dp(10)
-            })
+            // while the system refuses the notifications, a crossed speaker in a red circle stands at the logo's corner (placeMuted)
+            // and opens the notifications' page
+            addView(mutedBadge, LayoutParams(dp(44), dp(44), Gravity.CENTER))
+            placeMuted()
             readNotify("entry")
             logoBadge.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
                 v.translationX = dp(36) / 2f + dp(10) - v.width / 2f
