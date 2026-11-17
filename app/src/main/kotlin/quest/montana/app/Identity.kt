@@ -45,6 +45,7 @@ object DeviceVault {
     private fun keep(name: String, sealed: ByteArray): Boolean {
         if (sealed.size < LOAD) {
             val ok = prefs.edit().putString(name, Base64.encodeToString(sealed, Base64.NO_WRAP)).commit()
+            if (ok) DiskDoor.count("vault:$name", sealed.size.toLong())   // the whole store is written again: the door names the value's own bytes
             if (ok) runCatching { loadFile(name).delete() }
             return ok
         }

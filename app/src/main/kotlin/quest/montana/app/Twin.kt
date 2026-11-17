@@ -238,7 +238,7 @@ object Twin {
         val me = deviceRef() ?: return
         val f = scratch()
         try {
-            f.writeBytes(g.blob)
+            DiskDoor.write(f, g.blob, "twin-hist")
             val road = Keeping.lay(f) ?: return Unit.also { Log.d("Montana", "twin_hist the blocks did not reach the nodes n=" + g.n) }
             road.put("w", "hist").put("n", g.n).put("f", Archive.writerHex() ?: "")
             LinkedDevices.stamp(road)   // its kind, and the phone's term for its joined devices (iOS MTLinkedDevices.stamp, OZ 1 p.4)
@@ -516,7 +516,7 @@ object Twin {
         val me = deviceRef() ?: return null
         val f = scratch()
         try {
-            f.writeBytes(batch.toString().toByteArray())
+            DiskDoor.write(f, batch.toString().toByteArray(), "twin-mirror")
             val road = Keeping.lay(f) ?: return 30L.also { Log.d("Montana", "twin_mirror the words did not reach the nodes n=" + batch.length()) }
             road.put("w", "lt").put("n", batch.length()).put("f", Archive.writerHex() ?: "")
             LinkedDevices.stamp(road)   // its kind, and the phone's term for its joined devices (OZ 1 p.4)
@@ -817,7 +817,7 @@ object Twin {
         if ((Keeping.MARK + inline).toByteArray().size + 48 <= Wire.ENVELOPE) { o.put(key, body); return true }
         val f = scratch()
         try {
-            f.writeText(body)
+            DiskDoor.write(f, body.toByteArray(), "twin-word")
             val road = Keeping.lay(f) ?: return false
             for (k in road.keys()) o.put(k, road.get(k))
             return true

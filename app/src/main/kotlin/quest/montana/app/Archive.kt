@@ -736,7 +736,7 @@ object Archive {
         }
         out.write(tail)
         val tmp = File(log.parentFile, log.name + ".purge")
-        val ok = runCatching { tmp.writeBytes(out.toByteArray()); tmp.renameTo(log) }.getOrDefault(false)
+        val ok = DiskDoor.write(tmp, out.toByteArray(), "archive-purge") && tmp.renameTo(log)
         if (!ok) { tmp.delete(); return null }
         return intArrayOf(cut, if (put != null) 1 else 0)
     }
