@@ -536,7 +536,7 @@ object Twin {
         val had = took.optJSONObject(run)
         val start = had?.optInt("c") ?: sn?.let { it - 1 }
         if (start != null) {
-            var c = start
+            var c: Int = start
             val above = TreeSet<Int>()
             had?.optJSONArray("above")?.let { a -> for (i in 0 until a.length()) above.add(a.optInt(i)) }
             if (lo != null && c + 1 < lo) {
