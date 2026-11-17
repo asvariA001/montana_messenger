@@ -640,9 +640,38 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         if (name.isNotEmpty()) addView(c.text(name, 12f, Color.WHITE, center = true).apply { maxLines = 2 }, lp(dp(88), WRAP).apply { topMargin = dp(6) })   // USER-DATA: the person's own name
         pressable(onProfile)
     }
+    // THE PERSONS OF MONTANA ON THIS PHONE (iOS MontanaSideDrawer.faces, ContentView.swift:1767-1797, MTSeats stage 5): the seated
+    // person's face, then each one waiting on the shelf -- the name and the letter the seat kept when it was parked, the touch moves
+    // the seat (Seats.switchTo: the process starts again with them) -- and «+» last: the seated person goes to the shelf and the
+    // first screen opens on an empty place (Seats.makeRoom), its cross brings them back.
+    fun seatFace(s: Seats.Seat) = c.vstack {
+        addView(c.avatar(null, s.name.ifEmpty { s.glyph }, 48), lp(dp(48), dp(48)))
+        if (s.name.isNotEmpty()) addView(c.text(s.name, 12f, Color.WHITE, center = true).apply { maxLines = 2 }, lp(dp(88), WRAP).apply { topMargin = dp(6) })   // USER-DATA: the person's own name
+        contentDescription = s.name.ifEmpty { "Montana" }
+        pressable { Seats.switchTo(act, s.id) }
+    }
+    val plus = c.vstack {
+        addView(FrameLayout(c).apply {
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.argb(20, 255, 255, 255)) }
+            addView(c.icon(R.drawable.ic_person_add, Color.WHITE, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER))
+        }, lp(dp(48), dp(48)))
+        contentDescription = "+"
+        pressable { Seats.makeRoom(act) }
+    }
+    val faces = android.widget.HorizontalScrollView(c).apply {
+        isHorizontalScrollBarEnabled = false
+        overScrollMode = View.OVER_SCROLL_NEVER
+        addView(c.hstack {
+            gravity = Gravity.TOP
+            addView(face, lp(dp(88), WRAP))
+            val active = Seats.active
+            for (s in Seats.seats) if (s.id != active) addView(seatFace(s), lp(dp(88), WRAP).apply { marginStart = dp(4) })
+            addView(plus, lp(dp(88), WRAP).apply { marginStart = dp(4) })
+        })
+    }
     val column = c.vstack(Gravity.NO_GRAVITY) {
         setPadding(dp(24), dp(20), dp(16), 0)
-        addView(face, lp(dp(88), WRAP).apply { marginStart = -dp(20) })
+        addView(faces, lp().apply { marginStart = -dp(20) })
         gap(14)
         addView(row(glyph(R.drawable.ic_bar_contacts), R.string.contacts) { onPane(Pane.CONTACTS) }, lp())
         addView(row(glyph(R.drawable.ic_bar_calls), R.string.app_calls, { CallsSeen.unseen() }) { onPane(Pane.CALLS) }, lp())

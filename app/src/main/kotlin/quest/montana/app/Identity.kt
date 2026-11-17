@@ -199,10 +199,15 @@ object MontanaSeed {
 
     /** The seed must land in storage; false means no identity was created. */
     fun enter(keys: SeedKeys): Boolean {
+        // THE DOOR NEVER WRITES A PERSON OVER ANOTHER (iOS MontanaSeed.enter, MTSeats, the author's word 30.09): beside a person seated,
+        // every road parks them first (Seats.makeRoom); a call that reaches here with another person seated is refused, and says so.
+        val held = mnemonic
+        if (held != null && held != keys.mnemonic) { Log.i("Montana", "seed_enter REFUSED another person is seated"); return false }
         clear()
         val stored = DeviceVault.set(MN, keys.mnemonic.toByteArray(Charsets.UTF_8))
         Log.i("Montana", "seed write: words=${keys.mnemonic.split(' ').size} stored=$stored (value not logged)")
         if (stored) Prefs.setStr(ENTERED, System.currentTimeMillis().toString())   // the past ends here (iOS 3ed661fa, decision 865 a)
+        if (stored) Seats.born(Prefs.userName)   // a person born or opened on the empty place takes a seat of their own (iOS MTSeats.born)
         return stored
     }
 
@@ -348,7 +353,7 @@ object Prefs {
 
     var userName: String
         get() = p.getString("userName", "") ?: ""
-        set(v) { p.edit().putString("userName", v).apply() }
+        set(v) { p.edit().putString("userName", v).apply(); runCatching { Seats.named(v) } }   // the drawer's face says the new name
 
     /** The notifications question was asked once (iOS MontanaNotifyGate.asked, "mt.notify.asked"). */
     var notifyAsked: Boolean

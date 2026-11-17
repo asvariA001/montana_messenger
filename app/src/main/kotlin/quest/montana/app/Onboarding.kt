@@ -81,6 +81,18 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
                 pressable { b() }
             }, FrameLayout.LayoutParams(act.dp(44), act.dp(44), Gravity.TOP or Gravity.START).apply { leftMargin = act.dp(12); topMargin = act.dp(4) })
         }
+        // THE WAY BACK TO THE PERSON ON THE SHELF (iOS ContentView 446-451, MTSeats canReturn, the second identity checklist 1.4): the
+        // place was emptied from the drawer's «+» to make a second person; the platform's own cross, where the back mark stands, brings
+        // the one who waits back (Seats.returnToLast). Only while no seed landed here: a person born on this screen keeps their seat.
+        if (act.back == null && !MontanaSeed.hasSeed && Seats.canReturn) {
+            page.setPadding(page.paddingLeft, page.paddingTop + act.dp(28), page.paddingRight, page.paddingBottom)
+            content.addView(FrameLayout(act).apply {
+                background = act.glassPlate(oval = true)
+                contentDescription = act.getString(R.string.cancel)
+                addView(act.icon(R.drawable.ic_close, Color.rgb(204, 204, 204), 22), FrameLayout.LayoutParams(act.dp(22), act.dp(22), Gravity.CENTER))
+                pressable { Seats.returnToLast(act) }
+            }, FrameLayout.LayoutParams(act.dp(44), act.dp(44), Gravity.TOP or Gravity.START).apply { leftMargin = act.dp(12); topMargin = act.dp(4) })
+        }
     }
 
     /** Page frame: black ground, 24dp padding, a column. */
@@ -284,6 +296,9 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             restore.setBusy(true); restore.setTitle(c.getString(R.string.restoring))
             act.background {
                 val keys = SeedKeys.from(words.joinToString(" "))
+                // THE WORDS OF A PERSON ON THIS PHONE'S SHELF (iOS MTSeats.lift(words)): that seat is lifted whole, no second copy of them
+                // is born; the turn starts the process again, so nothing below runs.
+                if (keys != null && Seats.lift(act, keys.mnemonic)) return@background
                 val stored = keys != null && MontanaSeed.enter(keys)
                 act.onMain {
                     restore.setBusy(false); restore.setTitle(c.getString(R.string.restore))

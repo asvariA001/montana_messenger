@@ -92,6 +92,11 @@ object Seats {
     /** «Add a person» (iOS makeRoom): the seated person leaves for the shelf, an empty place opens on the first screen. */
     fun makeRoom(ctx: Context): Boolean = move(ctx, "")
 
+    /** Whether the first screen shows its cross (iOS canReturn): the place is empty and the one who made the room waits on the shelf. */
+    val canReturn: Boolean get() = synchronized(lock) {
+        val b = read(); b.active.isEmpty() && b.step == null && b.last.isNotEmpty() && b.seats.any { it.id == b.last }
+    }
+
     /** The cross of the first screen on an empty place (iOS returnToLast): the one who made the room comes back. */
     fun returnToLast(ctx: Context): Boolean {
         val l = last.takeIf { it.isNotEmpty() && seats.any { s -> s.id == it } } ?: return false
@@ -146,6 +151,8 @@ object Seats {
             val b = read()
             if (b.step != null || to == b.active) return false
             if (to.isNotEmpty() && b.seats.none { it.id == to }) return false
+            // the face on the shelf keeps the name the person wears now (a copy may have laid it past the setter)
+            b.seats.firstOrNull { it.id == b.active }?.let { s -> Prefs.userName.trim().takeIf { it.isNotEmpty() && it != s.name }?.let { s.name = it; s.glyph = glyphOf(it) } }
             b.step = Step(b.active, to, "park")
             if (!write(b)) return false
             Log.i(TAG, "seats: turn ${b.active.ifEmpty { "empty" }} → ${to.ifEmpty { "empty" }} written, the process starts again")
