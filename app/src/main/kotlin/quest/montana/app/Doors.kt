@@ -185,6 +185,14 @@ object Doors {
         }
     }.getOrDefault(emptyList())
 
+    /** ONE DOOR PER MACHINE (iOS oneDoorPerNode 206): the door book says which door led to which machine; an unknown one keeps its place. */
+    fun onePerNode(doors: List<String>): List<String> {
+        val book = book()
+        val known = list()
+        val seen = HashSet<String>()
+        return doors.filter { d -> known.firstOrNull { it.host == host(d) }?.let { book[it.label]?.first }?.let { seen.add(it) } ?: true }
+    }
+
     // THE DOOR BOOK (iOS MontanaNodes.book 70-89): which door led to WHICH machine and in how long — an identity behind a door is
     // learned only by a handshake through it, so the first probing is unavoidable while a second must not happen.
     private const val BOOK = "mt.doorbook"

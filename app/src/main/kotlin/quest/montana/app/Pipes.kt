@@ -2909,11 +2909,7 @@ object Post {
         val now = System.currentTimeMillis()
         val rested = synchronized(boxRest) { HashMap(boxRest) }
         val free = all.filter { Signal.doorAlive(it) }.ifEmpty { all }.filter { (rested[hostOf(it)]?.first ?: 0L) <= now }
-        // ONE DOOR PER MACHINE (iOS oneDoorPerNode 206): the door book says which door led to which machine; an unknown one keeps its place
-        val book = Doors.book()
-        val known = Doors.list()
-        val seen = HashSet<String>()
-        return free.filter { d -> known.firstOrNull { it.host == hostOf(d) }?.let { book[it.label]?.first }?.let { seen.add(it) } ?: true }
+        return Doors.onePerNode(free)   // one door per machine (iOS oneDoorPerNode 206)
     }
     /**
      * Every machine of the box rests (iOS boxRested, bookAfterRest): A PICKUP THE REST HELD IS BOOKED, NOT DROPPED -- one pickup at the
