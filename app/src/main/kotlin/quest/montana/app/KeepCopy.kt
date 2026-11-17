@@ -911,13 +911,26 @@ object KeepCopy {
     private fun takeLight(secret: ByteArray, dir: File): Boolean {
         val mine = Archive.writerHex() ?: ""
         val newest = HashMap<String, JSONObject>()
-        for ((_, text) in Post.pickup(mapOf(LIGHT_NAME to secret), take = false)) {
-            val o = Keeping.word(text)?.takeIf { it.optString("w") == "light" } ?: continue
+        val words = Post.pickup(mapOf(LIGHT_NAME to secret), take = false).mapNotNull { (_, text) -> Keeping.word(text) }
+        // THE WRITERS THAT LEFT (iOS MTKeeping.sayGone + takeLight, 456fff61, 2434, OZ 1 p.6; the author's words 24013, 24016, 24017): a
+        // device that deleted its account said «gone» with its writer and its moment; no copy it named before that moment is the
+        // history, whatever store still gives its pieces whole -- the chats and names of the life before came back over the phone's
+        val gone = HashMap<String, Long>()
+        for (o in words) if (o.optString("w") == "gone") {
+            val v = o.optString("v") + "/" + o.optString("a")
+            gone[v] = maxOf(gone[v] ?: 0L, o.optLong("at", 0L))
+        }
+        var left = 0
+        for (o in words) {
+            if (o.optString("w") != "light") continue
             // THE NEWEST ROAD OF EVERY WRITER, A DEVICE AND THE APP ON IT (iOS 09.10.2026): two apps of one phone and the same words
             // count their generations each from one, and one standing for both laid a copy without the other's profile
             val v = o.optString("v") + "/" + o.optString("a")
+            val leftAt = gone[v]
+            if (leftAt != null && o.optLong("at", 0L) <= leftAt) { left++; continue }   // named before its writer left
             if (o.optLong("g", 0L) >= (newest[v]?.optLong("g", -1L) ?: -1L)) newest[v] = o
         }
+        if (gone.isNotEmpty()) Log.i("Montana", "keep_light gone writers=" + gone.size + " copies passed=" + left)
         val others = newest.values.any { it.optString("v") != mine }   // another device of these words named a copy
         val roads = newest.values.filter { o ->
             o.optString("d") !in lightSeen && !(others && o.optString("v") == mine)   // an earlier life's own copy is never the history
