@@ -376,6 +376,19 @@ object Seats {
         Log.i(TAG, "shelf_land seat=$id rows=${landed.size} of ${all.size} met=$born of ${met.size}")
     }
 
+    /** The face of a person on the shelf, for the drawer (iOS MTSeats.face): their own picture, parked with their files
+     *  (F:avatar.jpg), read small; null -- the letter the seat kept. */
+    fun face(ctx: Context, id: String): android.graphics.Bitmap? {
+        val f = File(shelf(ctx, id), "folders/F/avatar.jpg").takeIf { it.isFile } ?: return null
+        return runCatching {
+            val o = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            android.graphics.BitmapFactory.decodeFile(f.path, o)
+            var k = 1
+            while (maxOf(o.outWidth, o.outHeight) / (k * 2) >= 192) k *= 2
+            android.graphics.BitmapFactory.decodeFile(f.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = k })
+        }.getOrNull()
+    }
+
     // ───────────────────────── the shelf ─────────────────────────
 
     private fun root(ctx: Context) = File(ctx.dataDir, "seats")

@@ -645,7 +645,7 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
     // the seat (Seats.switchTo: the process starts again with them) -- and «+» last: the seated person goes to the shelf and the
     // first screen opens on an empty place (Seats.makeRoom), its cross brings them back.
     fun seatFace(s: Seats.Seat) = c.vstack {
-        addView(c.avatar(null, s.name.ifEmpty { s.glyph }, 48), lp(dp(48), dp(48)))
+        addView(c.avatar(Seats.face(c, s.id), s.name.ifEmpty { s.glyph }, 48), lp(dp(48), dp(48)))   // their picture parked with them (iOS MTSeats.face)
         if (s.name.isNotEmpty()) addView(c.text(s.name, 12f, Color.WHITE, center = true).apply { maxLines = 2 }, lp(dp(88), WRAP).apply { topMargin = dp(6) })   // USER-DATA: the person's own name
         contentDescription = s.name.ifEmpty { "Montana" }
         pressable { Seats.switchTo(act, s.id) }
