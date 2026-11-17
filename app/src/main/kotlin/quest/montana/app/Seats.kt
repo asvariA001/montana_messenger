@@ -292,8 +292,11 @@ object Seats {
             val kept = File(folders, "$r/$path")
             if (path == "Montana") {
                 // child by child: what is the phone's stays; a child that lies only on the shelf comes back too
-                val names = (File(base, path).list().orEmpty() + kept.list().orEmpty()).toSet() - MONTANA_STAYS
-                names.forEach { out += File(base, "$path/$it") to File(kept, it) }
+                val names = HashSet<String>()
+                File(base, path).list()?.let { names.addAll(it) }
+                kept.list()?.let { names.addAll(it) }
+                names.removeAll(MONTANA_STAYS)
+                for (n in names) out += File(base, "$path/$n") to File(kept, n)
             } else out += File(base, path) to kept
         }
         return out
