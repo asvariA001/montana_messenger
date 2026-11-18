@@ -830,6 +830,44 @@ object CoinPaid {
 }
 
 /**
+ * THE COINS RISE WITH THEIR SUM (iOS MTCoinFlash, MTWalletCore.swift 182-224; the author's words 03.10.2026 21:11 UTC and 04.10 12:27):
+ * the seconds just born on the Time Balance (CoinSplit.beat) are held here; while the wallet's own beat runs (`beats`, iOS MTMintBeat)
+ * the beat alone raises them, once a second, with the sum of that second; without it they gather a fifth of a second and rise once,
+ * twice a second at most. Only the chain's seconds are born here, and no app is named beside them (link 14775). The wallet shows
+ * the rise at its sides (walletPage, iOS MTCoinSides). All on the screen's thread.
+ */
+object CoinFlash {
+    const val GATHER_MS = 200L   // NOT-UI: iOS gather 0.2 s
+    private const val APART_MS = 500L   // NOT-UI: iOS apart 0.5 s
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Long) -> Unit>()
+    var beats = false
+    private var held = 0L
+    private var gathering = false
+    private var rose = 0L
+    fun listen(l: (Long) -> Unit) { listeners.add(l) }
+    fun unlisten(l: (Long) -> Unit) { listeners.remove(l) }
+    fun born(n: Long) {
+        if (n <= 0L) return
+        MainThread.post {
+            held += n
+            if (beats || gathering) return@post
+            gathering = true
+            MainThread.later(maxOf(GATHER_MS, rose + APART_MS - System.currentTimeMillis()), Runnable { rise() })
+        }
+    }
+    /** The coins held rise now, with their sum; the wallet's beat calls it once a second. */
+    fun rise() {
+        gathering = false
+        if (0L < held) {
+            val coins = held
+            held = 0L
+            rose = System.currentTimeMillis()
+            for (l in listeners) l(coins)
+        }
+    }
+}
+
+/**
  * THE OWNER SHOWS OR HIDES THEIR COINS (iOS MTCoinShow, MTWalletCore.swift:655-663): one switch, on unless its owner turned it off,
  * that the coins told to correspondents ask (Presence.coinTail). Android has no page that turns it yet.
  */

@@ -946,6 +946,7 @@ object CoinSplit {
         val now = growing
         if (before == now) return
         told()
+        if (before < now) CoinFlash.born(now - before)   // the seconds born rise at the wallet's sides (iOS beat, MTWalletCore.swift 2745)
     }
 }
 

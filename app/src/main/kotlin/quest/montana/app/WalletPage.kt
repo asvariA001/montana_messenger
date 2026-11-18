@@ -326,11 +326,54 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
             else if (windowVisibility != View.VISIBLE) { asking++; WalletPull.stop("background") }
         }
     }.apply { addView(page, FrameLayout.LayoutParams(MATCH, MATCH)) }
+    // THE SIDES' COINS (iOS MTCoinSides, MTWalletScreen.swift 2315-2346; the author's words 03.10.2026 21:11 UTC): at every rise of
+    // CoinFlash our coin stands at the left and the right edge with the count, makes its turn, rises and fades; with the animations
+    // off they stand and fade. Never a target, never read aloud.
+    val sideCoins = ArrayList<MintCoin>(2)
+    val sideTexts = ArrayList<TextView>(2)
+    val sides = listOf(Gravity.START, Gravity.END).map { edge ->
+        val coin = MintCoin(c, 30).also { sideCoins.add(it) }
+        val count = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }.also { sideTexts.add(it) }
+        LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            background = c.glassPlate(); setPadding(dp(8), dp(8), dp(8), dp(8)); alpha = 0f
+            isClickable = false; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addView(coin, LinearLayout.LayoutParams(dp(30), dp(30)).apply { bottomMargin = dp(4) })
+            addView(count, LinearLayout.LayoutParams(WRAP, WRAP))
+            holder.addView(this, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or edge).apply { marginStart = dp(10); marginEnd = dp(10) })
+        }
+    }
+    // one clock of 0.9 s: the rise eases out over all of it (iOS easeOut 0.9, 40 → -40), the fade eases in over its last 0.3 s (easeIn
+    // 0.3 after 0.6); with the animations off the clock does not run and they only stand -- then fade after 0.6 s
+    var sideRun: ValueAnimator? = null
+    val sideFade = Runnable { for (s in sides) s.animate().alpha(0f).setDuration(300).start() }
+    val flashed: (Long) -> Unit = { coins ->
+        for (t in sideTexts) t.text = "+" + CoinText.count(coins)
+        for (k in sideCoins) k.turnOnce()
+        sideRun?.cancel(); holder.removeCallbacks(sideFade)
+        val lift = dp(40).toFloat()
+        for (s in sides) { s.animate().cancel(); s.translationY = lift; s.alpha = 1f }
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            sideRun = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 900
+                interpolator = LinearInterpolator()
+                addUpdateListener { a ->
+                    val x = a.animatedValue as Float
+                    val up = 1f - (1f - x) * (1f - x)
+                    val f = ((x - 0.6f / 0.9f) / (0.3f / 0.9f)).coerceIn(0f, 1f)
+                    for (s in sides) { s.translationY = lift - 2f * lift * up; s.alpha = 1f - f * f }
+                }
+                start()
+            }
+        } else holder.postDelayed(sideFade, 600)
+    }
     val again: () -> Unit = { draw() }
     val top: () -> Unit = { drawTop() }
     // THE PAGE'S OWN BEAT (iOS .onReceive(Timer 1 s) coinSplit.beat, MTWalletScreen.swift:344-345): the seconds on their way rise once a second
     lateinit var beat: Runnable
-    beat = Runnable { CoinSplit.beat(); if (holder.isAttachedToWindow) MainThread.later(1000, beat) }
+    // the beat raises the flash a fifth of a second after it, with that second's sum (iOS MTMintBeat: beat, gather, rise)
+    val riseNow = Runnable { CoinFlash.rise() }
+    beat = Runnable { CoinSplit.beat(); MainThread.later(CoinFlash.GATHER_MS, riseNow); if (holder.isAttachedToWindow) MainThread.later(1000, beat) }
     fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
     val moved: () -> Unit = {
         if (!headsDue && CoinBook.size() != headsAt) {
@@ -341,12 +384,13 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) {
             CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); WalletPull.listen(again); CoinSplit.listen(top); draw(); coin.turnOnce()
+            CoinFlash.listen(flashed); CoinFlash.beats = true
             if (!Pantheon.lit) WalletPull.fire()   // the wallet opened: the auto minting on (iOS .onAppear, MTWalletScreen.swift:314)
             CoinTx.beHere()   // the chain hears the person (iOS .task MTVPNWallMint.count, MTWalletScreen.swift:310)
             MainThread.later(1000, beat)
         }
         // the page left: the auto minting stops with it and the nodes are asked no more (iOS .onDisappear, MTWalletScreen.swift:387)
-        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); MainThread.cancel(riseNow); CoinFlash.beats = false; CoinFlash.unlisten(flashed); CoinFlash.rise(); sideRun?.cancel(); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
     })
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     // then the transfers' records of every pipe, whatever build sent them (iOS .task, MTWalletScreen.swift 322: MTCoinTx.scan «wallet»)
