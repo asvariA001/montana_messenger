@@ -469,7 +469,7 @@ object Archive {
             if (Book.chat(key) != null && Book.hasGraves(key)) { Log.d("Montana", "archive_skip chat=" + key.take(10) + " emptied here"); continue }
             val built = rows(items)
             if (built.isEmpty()) continue
-            val shown = name?.trim()?.takeIf { it.isNotEmpty() } ?: if (ref == null) Book.ctx.getString(R.string.recovered_history) else ""
+            val shown = name?.trim()?.takeIf { it.isNotEmpty() && !Book.isOwnName(it) } ?: if (ref == null) Book.ctx.getString(R.string.recovered_history) else ""
             Book.open(key, shown, false)
             Book.edit(key) { c ->
                 if (c.name.isEmpty() && shown.isNotEmpty()) c.name = shown

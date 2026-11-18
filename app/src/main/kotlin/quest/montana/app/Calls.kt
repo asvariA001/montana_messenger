@@ -230,7 +230,7 @@ object Calls {
         noteSeed(seed, "alive")
         Signal.cutForCall()   // iOS MontanaCall.setState 4405-4412 «born» (atom cf9b083f5567): the ring stands, so the fresh question is the call's short one
         CallSound.yieldToCall()   // the call holds the sound from its birth (iOS 4413)
-        if (name.isNotBlank() && name.length <= 64 && Book.admitState(ref, "name", 0L)) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed; undated, never over a dated word
+        if (name.isNotBlank() && name.length <= 64 && Book.admitName(ref, name.trim(), 0L, "call")) Book.edit(ref) { it.name = name.trim() }   // iOS onCallerNamed; undated, never over a dated word
         Signal.hold(ref, "call")
         CallLine.updateProximity()   // a call in any state holds the sensor while its sound stands at the ear (iOS 4401)
         show(ref, video)

@@ -1835,6 +1835,25 @@ object Book {
         return true
     }
 
+    /**
+     * THIS PERSON'S OWN NAME IS NEVER A CORRESPONDENT'S (iOS 2448-2449 MTNameBook.admitDeclared, 707245b3 + 5932d165; OZ 1 p.1.6):
+     * every road a peer's name rides -- a letter's envelope, a first letter, the NM: word, a call, the archive -- can carry a word of
+     * this person's other device inside a correspondent's pipe, and «mine» is not proven on every road. So the one door refuses this
+     * person's own name for anybody else, whoever brings it; only the correspondent's own card, handed at the meeting, may name a
+     * namesake. A refusal changes nothing: the name the correspondent holds stays, nobody is left nameless.
+     */
+    fun admitName(ref: String, name: String, at: Long, source: String): Boolean {
+        if (source != "card" && isOwnName(name)) {
+            Log.d("Montana", "name_own $source word carries this person's own name -- refused peer=" + ref.take(10)); return false
+        }
+        return admitState(ref, "name", at)
+    }
+    /** Whether a name is this person's own, as the profile says it: the crown and the case set aside (iOS isOwnName). */
+    fun isOwnName(name: String): Boolean {
+        val own = stripCrown(Prefs.userName).trim()
+        return own.isNotEmpty() && stripCrown(name).trim().equals(own, ignoreCase = true)
+    }
+
     /** Any change to a chat: written, and the screens told. */
     fun edit(ref: String, work: (Chat) -> Unit) {
         val born = ArrayList<Msg>()
@@ -3182,7 +3201,7 @@ object Post {
             Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — no chat is opened for a letter born before its funeral"); return true
         }
         val ref = Book.establish(secret) ?: return false
-        val name = name0.takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
+        val name = name0.takeIf { it.isNotBlank() && it.length <= 64 && !Book.isOwnName(it) } ?: ""   // never my own name (iOS 2448)
         val fresh = Book.chat(ref) == null
         Book.open(ref, name, MontanaCard.isPermanentRoot(root))
         if (fresh) Thread { readPipeFace(ref, secret) }.start()
@@ -3473,7 +3492,7 @@ object Post {
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
                 // A CORRESPONDENT'S SENT NAME LOSES ITS CROWN (iOS MTCrown.plain, atom d4142dd38143): only a Royal hands one out.
-                if (n.isNotEmpty() && n.length <= 64 && Book.admitState(ref, "name", Marks.birthMs(sid) ?: 0L)) Book.edit(ref) { it.name = stripCrown(n) }
+                if (n.isNotEmpty() && n.length <= 64 && Book.admitName(ref, n, Marks.birthMs(sid) ?: 0L, "word")) Book.edit(ref) { it.name = stripCrown(n) }
                 receipt(ref, sid)
             }
             // the face as the name: a word older than the one that stands changes nothing (iOS stateIsCurrent)
@@ -3548,7 +3567,7 @@ object Post {
                         // landing with the chat left open while the app itself is backgrounded used to be born read, and the icon never
                         // met it; the open chat alone is not enough, the app must stand before the person too (MTForeground.active).
                         if (!quiet && (Book.openChat != ref || !Presence.shown)) c.unread++
-                        if (c.name.isEmpty() && name.isNotBlank()) c.name = name
+                        if (c.name.isEmpty() && name.isNotBlank() && !Book.isOwnName(name)) c.name = name   // the envelope never names a peer with my own name (iOS 2448)
                         isNew = true
                     }
                 }
