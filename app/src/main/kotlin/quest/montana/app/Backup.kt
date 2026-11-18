@@ -579,6 +579,7 @@ object MontanaBackup {
             }
             // The card and the feed are laid only once the whole copy has proved itself.
             if (card != null && !Card.lay(c, card!!, ofMany)) return CopyResult.Refused(Refusal.NoVault)
+            if (card != null) Prefs.setBool(Archive.COPY_LAID, true)   // this device's history is no source (iOS copyLaidKey, OZ 1 p.1.2)
             feed?.let { if (!Card.keep(c, "feed", it)) return CopyResult.Refused(Refusal.NoVault) }
             tally.chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory }?.size ?: 0
             tally.skipped = t.optJSONObject("tally")?.optInt("skipped") ?: 0

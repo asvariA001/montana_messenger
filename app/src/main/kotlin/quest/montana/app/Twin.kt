@@ -858,6 +858,8 @@ object Twin {
         val settled = System.currentTimeMillis() - 120_000L
         val out = HashMap<String, ChatPrint>()
         for (ch in Book.rooms()) {
+            // A DELETED CHAT IS TOLD TO NO DEVICE (iOS chatPrints, 34ce186e, 2443, the author's word 24302): its print would stand it again
+            if (Book.erased(ch.ref)) continue
             val rows = ch.msgs.toList()
             if (rows.isEmpty()) continue
             val keys = Archive.archiveKeys(rows.filter { it.at < settled })
@@ -1117,7 +1119,7 @@ object Twin {
         val items = runCatching { JSONObject(body).getJSONArray("i") }.getOrNull() ?: return
         val rows = Book.chat(chat)?.msgs ?: return
         val want = HashSet<String>()
-        for (i in 0 until minOf(200, items.length())) items.optJSONArray(i)?.takeIf { it.length() == 3 }?.let { a ->
+        for (i in 0 until minOf(200, items.length())) items.optJSONArray(i)?.takeIf { it.length() == 3 && it.optInt(1, -1) in 0..1 }?.let { a ->
             want.add(Archive.rowSig(a.optLong(0), a.optInt(1) == 1, a.optString(2)))
         }
         var n = 0
@@ -1341,9 +1343,10 @@ object Twin {
         if (chat == Book.SAVED) Book.saved(Book.ctx)   // born here at its first row (savedBirth)
         // a row of Saved Messages born within the hour is told back to the device that wrote it (iOS 2423, OZ 1 p.1.5); the past a heal lays is not
         if (chat == Book.SAVED && System.currentTimeMillis() - m.at < 3_600_000L && Book.chat(chat)?.msgs?.none { it.mid == m.mid } != false) tellLanded(m.mid, false)
+        if (Book.rowGone(chat, m)) return rowDropped(chat, m.mid, "the chat's chain names the row gone")
         var n = 0
         Book.edit(chat) { c ->
-            if (c.msgs.none { it.mid == m.mid } && !Book.isBuried(chat, m.mid)) { c.msgs.add(m); c.msgs.sortBy { it.at } }
+            if (c.msgs.none { it.mid == m.mid } && !Book.rowGone(chat, m)) { c.msgs.add(m); c.msgs.sortBy { it.at } }
             n = c.msgs.size
         }
         Log.d("Montana", "twin_row chat=" + chat.take(10) + " sid=" + m.mid.take(16) + " n=" + n)

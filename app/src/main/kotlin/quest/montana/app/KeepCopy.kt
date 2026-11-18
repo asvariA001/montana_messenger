@@ -908,7 +908,8 @@ object KeepCopy {
      * own (Twin.cursorsFromCopy), so every letter after the picture comes from the books, as on a joined device.
      */
     private val lightSeen = HashSet<String>()
-    private fun takeLight(secret: ByteArray, dir: File): Boolean {
+    @Volatile private var lightTaken: CopyResult.Taken? = null   // the light copy laid last: what the words opened here return (iOS lightTally)
+    private fun takeLight(secret: ByteArray, dir: File, since: Long? = null): Boolean {
         val mine = Archive.writerHex() ?: ""
         val newest = HashMap<String, JSONObject>()
         val words = Post.pickup(mapOf(LIGHT_NAME to secret), take = false).mapNotNull { (_, text) -> Keeping.word(text) }
@@ -934,6 +935,7 @@ object KeepCopy {
         val others = newest.values.any { it.optString("v") != mine }   // another device of these words named a copy
         val roads = newest.values.filter { o ->
             o.optString("d") !in lightSeen && !(others && o.optString("v") == mine)   // an earlier life's own copy is never the history
+                && (since == null || o.optLong("at", 0L) >= since)   // words opened: only a picture named for this asking (iOS 2445)
         }.sortedByDescending { it.optLong("at", 0L) }   // the newest picture first
         if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road") }
         var laid = 0
@@ -952,6 +954,7 @@ object KeepCopy {
                 val own = road.optString("v") == (Archive.writerHex() ?: "")   // this device's own copy, or another's
                 Log.i("Montana", "keep_light laid=" + r.javaClass.simpleName + " devices=" + roads.size + " own=" + own + " a=" + road.optString("a"))
                 if (r !is CopyResult.Taken) continue
+                lightTaken = r
                 laid++
                 if (laid == 1) {
                     val letIn = onLight; onLight = null; letIn?.invoke()
@@ -963,12 +966,26 @@ object KeepCopy {
         return laid > 0
     }
 
-    /** The words opened here (iOS takeOpened, 2430, 2432, the author's words 23891, 23893, 23957, 23959): the seed's other devices
-     *  are asked to name a picture of now, and nothing is awaited -- the newest copy another device named stands at once, and every
-     *  letter after it comes from the books by its cursors, as on a device joined by QR. */
+    /**
+     * THE WORDS OPENED HERE TAKE ONLY A PICTURE OF NOW (iOS takeOpened, 078d3483, 2445; OZ 1 p.2, the author's words 24326, 24327, 24328:
+     * «a crooked copy must not be possible by the architecture; the history atomic, one and true»): the seed's other devices are asked
+     * to name a picture of now, and only a copy named for this asking is the history -- an older one is never laid (P1 2442 laid an
+     * older picture of 238 records ten seconds after asking, while T1 had named its picture of now on a door P1 did not reach). The
+     * asking is said once more after a minute, never more. No device of the seed naming one in two minutes, the keepers' newest copy is
+     * the history (callAndBuild), and nothing else.
+     */
     private fun takeOpened(ls: ByteArray, dir: File): Boolean {
         Twin.askLight()
-        return takeLight(ls, dir)
+        val asked = now()
+        var again = false
+        while (!Thread.currentThread().isInterrupted && now() - asked < 120) {
+            if (takeLight(ls, dir, since = (asked - 60).toLong())) return true
+            if (!again && now() - asked >= 60) { again = true; Twin.askLight() }
+            taking = Taking.Calling(0, 0)
+            try { Thread.sleep(10_000) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
+        }
+        Log.i("Montana", "keep_light words opened: no device of the seed named a picture of now in 120 s -- the keepers are called")
+        return false
     }
 
     /**
@@ -1010,7 +1027,12 @@ object KeepCopy {
         taking = Taking.Fetching(0.0)
         // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
         // the pipes it named are asked to give back
-        KeepDerive.lightSecret(master)?.let { ls -> if (takeOpened(ls, dir)) askBack() }
+        // ONE OWNER OF THE HISTORY (iOS 2445, OZ 1 p.2, the author's words 24326, 24328): the picture of now is the whole history, and
+        // nothing is laid over it -- the keepers' copy, of an older generation, laid on top of the light one made a second owner. The
+        // keepers are called only when no device of the seed named a picture.
+        KeepDerive.lightSecret(master)?.let { ls ->
+            if (takeOpened(ls, dir)) { taking = Taking.Done; lightTaken?.let { return it } }   // the picture is whole: nobody is asked to give back (iOS 2446, OZ 1 p.1.5)
+        }
         taking = Taking.Calling(0, 0)
         try {
             while (!Thread.currentThread().isInterrupted) {

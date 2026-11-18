@@ -1900,6 +1900,10 @@ object Book {
         }
     }
     fun isBuried(ref: String, mid: String) = synchronized(lock) { graveSets()[ref]?.contains(mid) == true }
+    /** THE ONE QUESTION «IS THIS ROW DELETED» (iOS ChatStore.rowGone, 078d3483, 2445; OZ 1 p.2, the author's word 24317): a deletion is
+     *  named by the row's wire name in the graves and by its archive key in the chat's chain (Archive.goneHead, the event every device
+     *  of the seed reads). Every road that lays a row asks this one door, never the graves alone. */
+    fun rowGone(ref: String, m: Msg): Boolean = isBuried(ref, m.mid) || isBuried(ref, Archive.wire(m.mid)) || Archive.chainNamesGone(ref, m)
     /** The conversation holds graves: its letters were deleted here, and an empty feed of it is emptied, not unborn (iOS 95294cf8). */
     fun hasGraves(ref: String) = synchronized(lock) { graveSets()[ref]?.isNotEmpty() == true }
 
@@ -1944,6 +1948,9 @@ object Book {
         // A ROW OF SAVED MESSAGES DELETED HERE GOES ON THE SEED'S OTHER DEVICES TOO (iOS e451e027, 2424, OZ 1 p.9, the author's word
         // 23611): its name rides at once; there it is buried, and its row goes by this same road, told nobody again
         if (tell && ref == SAVED) chat(ref)?.msgs?.filter { it.mid in mids }?.forEach { Twin.gone(ref, it.mid, it.mine, it.at / 1000.0) }
+        // THE DELETION IS AN EVENT OF THE CHAT'S CHAIN (iOS 2441, OZ 1 p.1.2): the archive names each row gone, so no reading of the log
+        // on any device of the seed lays it again; a deletion a twin told is already an event of the twin's own chain
+        if (tell) chat(ref)?.msgs?.filter { it.mid in mids }?.mapNotNull { Archive.archiveKey(it) }?.takeIf { it.isNotEmpty() }?.let { Archive.goneHead(ref, it) }
         bury(ref, mids)
         edit(ref) { c -> c.msgs.removeAll { it.mid in mids } }
         mids.forEach { Notify.withdraw(ref, it) }   // a letter deleted for me is a letter gone too: its banner leaves (iOS 5a82f7cb)
@@ -1964,7 +1971,7 @@ object Book {
             val add = rows.filter { m ->
                 val w = Archive.wire(m.mid)
                 Archive.rowSig(m.at / 1000, m.mine, m.text) !in seen && m.mid !in had && w !in had
-                    && !isBuried(ref, w) && !isBuried(ref, m.mid) && !diedBefore(ref, w)
+                    && !rowGone(ref, m) && !diedBefore(ref, w)
             }
             c.msgs.addAll(add); c.msgs.sortBy { it.at }
             added = add.size
