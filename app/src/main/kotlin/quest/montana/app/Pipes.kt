@@ -2473,6 +2473,10 @@ object Post {
             }
             // WHILE THE INTRODUCTION IS UNANSWERED every letter a person wrote rides the invitation's box with the ciphertext;
             // the words of the wire (receipts, reads, name, face) wait for the pipe to stand (iOS first_hold).
+            // NO LETTER LEAVES WITHOUT ITS AUTHOR (iOS 2450 DeliveryEngine attempt, e58d7279; OZ 1 p.1.6, the author's word 24464):
+            // sealed before this person's author key was derived, a letter rode with no author field, and the seed's other device told
+            // it neither its own nor the correspondent's. The letter stays in the queue until the key stands; the next flush seals it signed.
+            if (LetterAuthor.key == null) { Diary.folded("tx_unproven", "the author key is not derived yet -- the letter stays queued mid=" + mid.take(8), 60_000, "tx_unproven"); continue }
             val intro = Meeting.first(to)
             val text = o.getString("t")
             val sent = if (intro != null) {
@@ -2591,13 +2595,13 @@ object Post {
         mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
 
     /** ONE KNOCK (iOS MTNodeWire.knockLetter): the body is sealed afresh at every door, the first door that boxes it ends the walk. */
-    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false): Boolean {
+    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false, long: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
         // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
         // a state letter's body (the name, the face, «about», the page's ground, the wall's page to a visitor) is the service's cargo:
         // it stands aside for the person (iOS quietCargo = kind.isState, MontanaDeliveryEngine.attempt, 996b13f7)
         val hush = stateOf(text0) != null || text0.startsWith(Board.MARK + "{\"t\":\"page\"")
-        val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0, hush) ?: return false else text0
+        val text = if (long || text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0, hush) ?: return false else text0
         var body = letterHead(mid, text)
         val quoted = !qt.isNullOrEmpty()
         if (quoted) {
@@ -2626,7 +2630,16 @@ object Post {
         if (!text.startsWith(Marks.LONG)) Channels.lay(secret, mid, live)
         // THE PERSON SIGNS THE LETTER AS ITS AUTHOR (iOS sealLetterEnvelope, MontanaWakePush.swift:1555): after the card, before the
         // padding, over the words as they ride (a long letter's reference); the live road above rides unsigned, as iOS lays it.
-        body = Wire.withAuthor(body, LetterAuthor.key, secret, mid, text)
+        val key = LetterAuthor.key
+        var signed = Wire.withAuthor(body, key, secret, mid, text)
+        // A HEAD WITH NO ROOM FOR ITS AUTHOR RIDES THE LONG LETTER'S ROAD (iOS 2450 sealLetterEnvelope, the author's word 24464):
+        // withAuthor gives such a body back unsigned, and an unsigned letter is told by nobody; the long letter's reference is short
+        // and signed. A long letter still without room (a link card filling the envelope) leaves its card aside so the author rides.
+        if (key != null && signed.size == body.size) {
+            if (!text.startsWith(Marks.LONG)) return knock(secret, mid, text0, qt, qm, lp, quiet, long = true)
+            signed = Wire.withAuthor(head, key, secret, mid, text)
+        }
+        body = signed
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
@@ -3242,6 +3255,17 @@ object Post {
         // THE PERSON'S OWN LETTER IS TOLD AT ITS OPENING (iOS MTNodeWire.authorHolds, MontanaWakePush.swift:2768), by the words as
         // they rode -- a long letter's words change at its landing, its author field does not. The live road carries no tag.
         val own = f[7].isNotEmpty() && Book.secret(ref)?.let { Wire.authorHolds(f[7], LetterAuthor.key, it, f[0], f[1]) } == true
+        // NO LETTER OF AN UNPROVEN AUTHOR (iOS 2450 DeliveryEngine.receive, e58d7279; OZ 1 p.1.6, the author's word 24464): a letter
+        // carrying its author's field while this person's author key is not derived yet can be told neither mine nor theirs. It stays
+        // in the box for the key (not taken) and comes again at the next read; it never lands as the correspondent's. With no seed
+        // there is no person to tell, and the letter walks on.
+        if (!own && f[7].isNotEmpty() && LetterAuthor.key == null && MontanaSeed.mnemonic != null) {
+            Diary.folded("rx_unproven", "the author key is not derived yet -- the letter stays mid=" + f[0].take(8), 10_000, "rx_unproven")
+            return false
+        }
+        // A WORD NAMES ITS SENDER ONLY FROM A PROVEN CORRESPONDENT (iOS 2450 theirs): the author field read under this person's key
+        // and not found mine. A letter with no author field (the live road, an older build) names nobody.
+        val theirs = !own && f[7].isNotEmpty() && LetterAuthor.key != null
         if (!own) {
             Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
             Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
@@ -3261,6 +3285,11 @@ object Post {
         // of every call packet on the node's line; it is the call's, heard as the lane's words are, and its receipt goes back the same
         // way. Before, it fell silent as an unknown word of the wire and the iPhone beat on the dead doors.
         if (text.startsWith(Marks.CALL_SIGNAL)) { Calls.lineWords(ref, text.removePrefix(Marks.CALL_SIGNAL)); return true }
+        // A NAME WORD OF NO PROVEN AUTHOR NAMES NOBODY (iOS 2450, the author's word 24464): it is answered, so its sender's queue settles.
+        if (!theirs && text.startsWith(Marks.NAME)) {
+            Diary.folded("name_unproven", "a name word of no proven author names nobody peer=" + ref.take(10), 60_000, "nu:" + ref)
+            receipt(ref, f[0]); return true
+        }
         // WHO MAY WRITE TO ME (iOS MontanaDeliveryEngine.receive, b9b212d4, OZ 1 p.1.8): a person the rule refuses is refused as a
         // blocked one -- buried, never a row, no receipt.
         if (Privacy.refuses(text, ref)) {
@@ -3271,10 +3300,9 @@ object Post {
         // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
         // other devices -- the box gave it to this one, and this one's confirmation erases it there
         if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])
-        // A LETTER WITH AN AUTHOR FIELD IS TOLD MINE OR THEIRS ONLY BY THE PERSON'S AUTHOR KEY (iOS DeliveryEngine.receive, 9e9f755b,
-        // 2433): while the key is not derived yet its envelope names nobody -- a word of the seed's other device would name the chat
-        // with the person's own name.
-        val envelope = if (f[7].isNotEmpty() && LetterAuthor.key == null) "" else f[2]
+        // ONLY A PROVEN CORRESPONDENT'S LETTER NAMES THEM (iOS 2450 theirs, e58d7279): a letter of no proven author -- no author
+        // field, or a word of the seed's other device -- would rename the correspondent with the person's own name (the author's word 24464).
+        val envelope = if (theirs) f[2] else ""
         place(ref, f[0], text, envelope, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
     }
