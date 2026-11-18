@@ -34,12 +34,112 @@ object CoinChainRules {
     fun blind(secret: ByteArray, nonce: ByteArray): ByteArray = Hkdf.hmac(secret, "mt-coin-blind".toByteArray(Charsets.US_ASCII) + nonce)
     /** The receiver's commitment: SHA-256 of ASCII mt-coin-to, the receiver's from (32 bytes) and the blind (iOS commitment, section 1). */
     fun commitment(from: ByteArray, blind: ByteArray): ByteArray = Wire.sha("mt-coin-to".toByteArray(Charsets.US_ASCII), from, blind)
+
+    // ── THE NODES' FOLD, ONE RECORD AT A TIME (iOS MTCoinChainRules 2455-2622, COIN-TX-V3 sections 3-5): the phone's copy of the chains
+    // (CoinReplica) folds every chain by these rules exactly as the node's _tx_step does, so its root is the node's root. ──
+    const val COIN_EPOCH = 1_788_210_000L    // NOT-UI: 31.08.2026 21:00 UTC, the node's TX_COIN_EPOCH (section 3)
+    const val GENESIS_GATE = 1_792_354_500L  // NOT-UI: the node's TX_GENESIS_GATE: a GENESIS above 0 stands only on the key's own past
+    /** 1 second -- 1 coin from the node's TX_SECOND_CUT, the same second as the v2 cut (iOS secondCut, section 4). */
+    const val SECOND_CUT = V2_CUT
+    const val KIND_SEND = 1; const val KIND_RECV = 2; const val KIND_MINT = 3; const val KIND_REFUND = 4; const val KIND_GENESIS = 5; const val KIND_BURN = 6
+
+    /** A key's state folded over its chain (iOS St, section 3). */
+    data class St(val head: String = CoinTx.ZERO, val height: Int = 0, val birth: Long = 0, val mintEnd: Long = 0, val proven: Long = 0,
+                  val declared: Long = 0, val v3: Boolean = false, val lastAt: Long = 0, val minted: Long = 0)
+    /** A SEND folded, as a RECV or a REFUND that settles it is weighed (iOS SendInfo). */
+    class SendInfo(val from: String, val amount: Long, val at: Long, val to: ByteArray, val dec: Long)
+
+    /** A_2(x) of section 4, the doubling rule: 2 x min(13, max(1, bit_length(s) - 1)) a second over the seconds 1..x (iOS timeA). */
+    fun timeA(x: Long): Long {
+        var total = 0L; var lo = 1L; var k = 0L
+        while (0 < x && lo <= x) {
+            val hi = minOf(x, 2 * lo - 1)
+            total += (hi - lo + 1) * minOf(13L, maxOf(1L, k))
+            lo *= 2; k++
+        }
+        return 2 * total
+    }
+    val genesisCap: Long get() = timeA(V2_CUT - COIN_EPOCH)
+    /** What the seconds 1..x of a key's life may mint by a MINT its node takes at the second [at] (iOS allowTime). */
+    fun allowTime(x: Long, at: Long): Long = if (SECOND_CUT <= at) maxOf(0L, x) else timeA(x)
+    /** The key's seconds of life up to the node second [at], never past the online cut, credited once (iOS timeStep, fold-6, fold-8). */
+    fun timeStep(s: St, at: Long): St {
+        if (at < TIME_CUT || s.height <= 0) return s
+        val end = minOf(at, ONLINE_CUT)
+        val fresh = maxOf(0L, end - maxOf(s.lastAt, TIME_CUT, s.birth))
+        val credit = maxOf(end - s.birth - s.minted, fresh)
+        if (credit <= 0) return s
+        return s.copy(proven = s.proven + credit, minted = s.minted + credit)
+    }
+    /** The seconds a MINT taken at [at] may count from the online cut: its interval within the last MINT_FRESH (iOS present, fold-7). */
+    fun present(t0: Long, t1: Long, at: Long): Long = maxOf(0L, t1 - maxOf(t0, at - MINT_FRESH, ONLINE_CUT))
+    /**
+     * A V2 RECORD THAT SPENT STANDS OPEN AS A SEND (iOS v2Spent, section 5, fold-4): on an opened chain it takes this declared part;
+     * null: a v2 record of the book's past (the chain not opened), or one above the balance.
+     */
+    fun v2Spent(s: St, amount: Long): Long? = if (!s.v3 || s.proven + s.declared < amount) null else maxOf(0L, amount - s.proven)
+    /** A hex name as its bytes (iOS bytes). */
+    fun bytes(s: String): ByteArray? =
+        if (s.length % 2 != 0) null else runCatching { ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() } }.getOrNull()
+
+    /** One step's answer: the next state, or null for a record that breaks a rule; wait for a RECV or REFUND whose SEND is not folded yet. */
+    class Step(val next: St?, val wait: Boolean)
+    /**
+     * ONE RECORD FOLDED ONTO ITS KEY'S STATE BY THE NODES' RULES (iOS step, MTWalletCore.swift 2572-2622): first the key's time, then
+     * the record's kind; a refused record leaves the state as it stood.
+     */
+    fun step(s0: St, p: CoinTx.Record, at: Long, sends: Map<String, SendInfo>, settled: Set<String>): Step {
+        val s = if (p.version == 3) timeStep(s0, at) else s0
+        var n = s.copy(head = p.id, height = s.height + 1, lastAt = maxOf(at, s.lastAt))
+        if (s.height == 0) n = n.copy(birth = at, mintEnd = at)
+        val a = p.coins
+        if (p.version == 2) {
+            // every transfer moves its balance: after the chain opened, a send that names no receiver spends as a SEND, proven first
+            if (!s.v3) return Step(n, false)
+            val d = v2Spent(s, a) ?: return Step(null, false)
+            return Step(n.copy(proven = s.proven - (a - d), declared = s.declared - d), false)
+        }
+        n = n.copy(v3 = true)
+        when (p.kind) {
+            KIND_GENESIS -> {
+                if (s.v3 || (0 < a && V2_CUT <= at) || genesisCap < a) return Step(null, false)
+                if (0 < a && GENESIS_GATE <= at && (s.height == 0 || timeA(at - s.birth) < a)) return Step(null, false)
+                n = n.copy(declared = a)
+            }
+            KIND_MINT -> {
+                val t0 = p.a; val t1 = p.b
+                if (s.height == 0 || t0 < s.mintEnd || t1 < t0 + 60 || at < t1) return Step(null, false)
+                // the sum of time (fold-3); from the online cut the present seconds alone weigh it (fold-8)
+                if (ONLINE_CUT <= at) { if (present(t0, t1, at) < a) return Step(null, false) }
+                else if (allowTime(t1 - s.birth, at) - s.minted < a) return Step(null, false)
+                n = n.copy(proven = s.proven + a, mintEnd = t1, minted = s.minted + a)
+            }
+            KIND_SEND, KIND_BURN -> {
+                // a BURN spends as a SEND and names no one
+                if (p.kind == KIND_BURN && at < ONLINE_CUT) return Step(null, false)
+                val dec = p.a
+                if (s.proven + s.declared < a || dec != maxOf(0L, a - s.proven)) return Step(null, false)
+                n = n.copy(proven = s.proven - (a - dec), declared = s.declared - dec)
+            }
+            KIND_RECV, KIND_REFUND -> {
+                val S = sends[p.ref] ?: return Step(null, true)
+                if (S.amount != a || p.ref in settled) return Step(null, false)
+                if (p.kind == KIND_RECV) {
+                    val f = bytes(p.from) ?: return Step(null, false)
+                    if (S.dec != p.a || !commitment(f, p.to).contentEquals(S.to)) return Step(null, false)
+                } else if (S.from != p.from || at < S.at + 86_400) return Step(null, false)
+                n = n.copy(proven = s.proven + a - S.dec, declared = s.declared + S.dec)
+            }
+            else -> return Step(null, false)
+        }
+        return Step(n, false)
+    }
 }
 
 object CoinTx {
     private const val TAG = "Montana"
     /** The protocol's chain set, one place (iOS chainNodes): a key's chain lives on the node at its tag's first byte. */
-    private val chainNodes = listOf("montana.quest" to "api.montana.quest", "montana.xxx" to "montana.xxx")   // NOT-UI: node names
+    val chainNodes = listOf("montana.quest" to "api.montana.quest", "montana.xxx" to "montana.xxx")   // NOT-UI: node names
     /** The seconds the road to the node may take (iOS presentMargin). */
     const val PRESENT_MARGIN = 20L
     /** The presence's beat: the chain is asked once in it while the person stays (iOS presentBeat). */
@@ -214,10 +314,14 @@ object CoinTx {
     /** A record read back, believed only when its shape holds and the core verifies its signature (iOS Record, read/read3). */
     class Record(val id: String, val version: Int, val coins: Long, val birthMs: Long, val pair: ByteArray, val prev: String, val from: String,
                  val kind: Int = 1, val to: ByteArray = ByteArray(0), val ref: String = "", val a: Long = 0, val b: Long = 0, val nonce: ByteArray = ByteArray(0))
-    fun read(rec: ByteArray): Record? {
+    /**
+     * [known]: the caller already saw a record of this very name verify, and the name is the hash of every byte, the signature's among
+     * them -- the same bytes, the same answer (iOS read(known:)); the caller still holds the read record's name to the one it knew.
+     */
+    fun read(rec: ByteArray, known: Boolean = false): Record? {
         if (rec.size < 5 || !rec.copyOfRange(0, 4).contentEquals(MAGIC)) return null
         val v = rec[4].toInt()
-        if (v == 3) return read3(rec)
+        if (v == 3) return read3(rec, known)
         if (v != 1 && v != 2) return null
         val end = if (v == 1) 2021 else 2053; val keyAt = if (v == 1) 69 else 101
         val total = if (v == 1) SIZE1 else SIZE2; val prefix = if (v == 1) SIGNED1 else SIGNED2
@@ -225,10 +329,10 @@ object CoinTx {
         val coins = u64(rec, 5)
         if (coins <= 0) return null
         val body = rec.copyOfRange(0, end); val pk = rec.copyOfRange(keyAt, end); val sig = rec.copyOfRange(end, total)
-        if (!MtBindings.nativeVerify(pk, prefix + body, sig)) return null
+        if (!known && !MtBindings.nativeVerify(pk, prefix + body, sig)) return null
         return Record(name(rec), v, coins, u64(rec, 13), rec.copyOfRange(37, 69), if (v == 2) Wire.hex(rec.copyOfRange(69, 101)) else "", keyTag(pk))
     }
-    fun read3(rec: ByteArray): Record? {
+    fun read3(rec: ByteArray, known: Boolean = false): Record? {
         if (rec.size != SIZE3 || !rec.copyOfRange(0, 4).contentEquals(MAGIC) || rec[4].toInt() != 3) return null
         val kind = rec[5].toInt() and 0xff
         if (kind !in 1..6) return null
@@ -238,7 +342,7 @@ object CoinTx {
         val a = u64(rec, 166); val b = u64(rec, 174)
         if (!fieldsHold(kind, amount, pair, to, ref, a, b)) return null
         val body = rec.copyOfRange(0, 2134); val pk = rec.copyOfRange(182, 2134); val sig = rec.copyOfRange(2134, SIZE3)
-        if (!MtBindings.nativeVerify(pk, SIGNED3 + body, sig)) return null
+        if (!known && !MtBindings.nativeVerify(pk, SIGNED3 + body, sig)) return null
         return Record(name(rec), 3, amount, u64(rec, 14), pair, Wire.hex(rec.copyOfRange(38, 70)), keyTag(pk),
             kind, to, Wire.hex(ref), a, b, rec.copyOfRange(22, 38))
     }
@@ -613,6 +717,7 @@ object CoinTx {
             reconcile()   // the chain announced (COIN-TX-V3 sections 3-4)
             refundDue()   // a SEND no one took in a day comes back (section 5)
             creditsGone() // a v2 record its sender took back leaves this book too (fold-4)
+            CoinReplica.run(why)   // this phone's copy of the network's chains and its signed root (section 6)
         } finally {
             scanning.set(false)
             if (again) { again = false; Thread { scan("again") }.start() }
