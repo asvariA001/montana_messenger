@@ -1,17 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The copy kept by the people one writes to (iOS MTKeepingSection, the question at the opening; Localizable.xcstrings at mainline-2074 d28805b6). -->
 <resources>
-    <string name="keep_ask_title">Хранить вашу копию у собеседников?</string>
+    <string name="keep_ask_title">Хранить зашифрованную копию у собеседников?</string>
     <string name="keep_ask_yes">Хранить</string>
     <string name="keep_ask_not_now">Не сейчас</string>
-    <string name="keep_ask_msg">Ваша копия живёт только на телефонах, а не в облаке: так Montana хранит её по-своему. Она запечатана вашими 24 словами и разрезана на части, а части хранят для вас ваши собеседники: каждый видит лишь размер, ни одного слова. На новом телефоне ваши 24 слова возвращают части — и вашу переписку с ними. Так же и этот телефон хранит запечатанные части ваших собеседников — до 1 ГБ — и открыть их не может. Оба переключателя — в Настройки → Данные и память.</string>
+    <string name="keep_ask_msg">История запечатывается вашими 24 словами и делится на части; собеседники хранят части и видят только их размер, ни одного слова. На новом телефоне 24 слова возвращают переписку от них. Этот телефон тоже хранит запечатанные части ваших собеседников, до 1 ГБ, и не может их открыть. Узлы Монтаны копий не хранят. Это в Настройки → Данные и память.</string>
     <string name="keep_header">Копия у собеседников</string>
     <string name="keep_mine">Хранить мою копию у собеседников</string>
     <string name="keep_asking">Спрашиваю ваших собеседников…</string>
     <string name="keep_nobody_yet">Пока никто из собеседников не может хранить часть</string>
     <string name="keep_not_yet">Пока не хранится</string>
     <string name="keep_kept_by">Хранят %1$d из %2$d</string>
-    <string name="keep_mine_footer">Ваша копия живёт только на телефонах, а не в облаке: так Montana хранит её по-своему. Она запечатана вашими 24 словами и разрезана на части, а части хранят для вас ваши собеседники: каждый видит лишь размер, ни одного слова. На новом телефоне ваши 24 слова возвращают части — и вашу переписку с ними.</string>
+    <string name="keep_mine_footer">Так ваша копия живёт только на телефонах: узлы Montana не хранят из неё ничего. Она запечатана вашими 24 словами и разрезана на части, а части хранят для вас ваши собеседники: каждый видит лишь размер, ни одного слова. На новом телефоне ваши 24 слова возвращают части — и вашу переписку с ними.</string>
     <string name="keep_others">Хранить части для собеседников</string>
     <string name="keep_stop_part">Больше не хранить эту часть</string>
     <string name="keep_take_back">Вернуть мою копию от собеседников</string>
@@ -20,4 +20,16 @@
     <string name="keep_came_back">Копия вернулась</string>
     <string name="keep_none_came_back">Копия не вернулась</string>
     <string name="keep_others_footer">Части, которые собеседники оставляют у вас, запечатаны так же: этот телефон не может их открыть, откроют только их собственные 24 слова. Так Montana хранит копии без облака посередине: люди держат друг у друга запечатанные части, и прочитать их не может никто, кроме владельца.</string>
+    <!-- the steps of the restore on its screen (iOS MTKeepWalkLines, 2451) -->
+    <string name="keep_walk_device_answered">Ваше другое устройство ответило вашей историей</string>
+    <string name="keep_walk_devices_silent">Другие ваши устройства не ответили за две минуты</string>
+    <string name="keep_walk_asking_devices">Спрашиваем ваши другие устройства</string>
+    <string name="keep_walk_no_node">Ни один узел ещё не принял запрос</string>
+    <string name="keep_walk_keepers_asked">Спросили тех, кто хранит вашу копию: %1$d из %2$d</string>
+    <string name="keep_walk_rung">Позвали их громко: %1$d</string>
+    <string name="keep_walk_broken">Копия пришла не целиком. Спрашиваем снова</string>
+    <string name="keep_walk_downloading">Загружаем вашу историю</string>
+    <string name="keep_walk_laying">Раскладываем вашу историю на этом устройстве</string>
+    <string name="keep_row_restoring">Восстановление истории: %1$s</string>
+    <string name="keep_row_restoring_none">Переписка этого чата не вернулась</string>
 </resources>

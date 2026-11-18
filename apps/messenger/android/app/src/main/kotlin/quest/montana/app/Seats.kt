@@ -384,6 +384,76 @@ object Seats {
 
     /** The face of a person on the shelf, for the drawer (iOS MTSeats.face): their own picture, parked with their files
      *  (F:avatar.jpg), read small; null -- the letter the seat kept. */
+    /**
+     * THE PAIR OF TWO PERSONS OF THIS PHONE (iOS MTSeats.pairWithShelf, MontanaSeats.swift 466-492; the author's word 11.10.2026, No.62:
+     * «with several accounts, an option in a transfer to send to oneself on another account»): the person seated meets a person on
+     * the shelf here, on the phone that holds both -- an encapsulation to the shelf person's card, accepted by that card's own key --
+     * so the pipe is born in the seated book and among the pipes the shelf person was met by, with no node in the meeting; their lift
+     * gives it birth in their own book (landShelf). A pipe the two already share is found first. Off the main thread.
+     */
+    fun pairWithShelf(id: String): String? {
+        val p = shelfPeople().firstOrNull { it.id == id } ?: run {
+            Log.i("Montana", "seat_pair refused seat=$id -- not waiting on the shelf"); return null
+        }
+        val theirs = p.pipes.values
+        quest.montana.app.Book.refs().firstOrNull { r -> quest.montana.app.Book.secret(r)?.let { s -> theirs.any { it.contentEquals(s) } } == true }
+            ?.let { return it }
+        for (body in p.invites.values) {
+            if (body.size < 1184) continue
+            val root = body.copyOf(1184)
+            val sk = p.cardKeys[MontanaCard.b64url(root)] ?: continue
+            val o = MtBindings.nativeMlkemEncaps(root) ?: continue
+            val ct = o.copyOf(1088); val ss = o.copyOfRange(1088, 1120)
+            val secret = MtBindings.nativeFirstSecret(ss, root, ct)
+            ss.fill(0); o.fill(0)
+            if (secret == null) continue
+            val ref = quest.montana.app.Book.establish(secret) ?: continue
+            val back = MtBindings.nativeMlkemDecaps(sk, ct)?.let { s2 -> MtBindings.nativeFirstSecret(s2, root, ct).also { s2.fill(0) } }
+            if (back == null || !back.contentEquals(secret) || !meetOnShelf(id, ref, secret)) { quest.montana.app.Book.forget(ref); continue }
+            Log.i("Montana", "seat_pair born seat=$id conv=" + ref.take(10))
+            return ref
+        }
+        Log.i("Montana", "seat_pair refused seat=$id -- no card of theirs opens")
+        return null
+    }
+
+    /** A shelf person's coin book, where their parked folder keeps it (F:Coins). */
+    private fun shelfBook(id: String) = File(shelf(quest.montana.app.Book.ctx, id), "folders/F/Coins/coin-ledger.jsonl")
+    private fun bookLines(f: File): List<CoinEntry> =
+        runCatching { f.takeIf { it.exists() }?.readLines(Charsets.UTF_8) }.getOrNull().orEmpty().mapNotNull { CoinEntry.of(it) }
+
+    /**
+     * A PERSON ON THE SHELF'S OWN WORDS AND THE BALANCE OF THEIR BOOK AS THE SHELF HOLDS IT (iOS MTSeats.shelfCoins, MTWalletCore.swift
+     * 501): the phone's hands for the other end of a transfer to one's own account (CoinTx.landOwn). null for the person seated, an
+     * unknown seat or a record without words.
+     */
+    fun shelfCoins(id: String): Pair<String, Long>? = synchronized(lock) {
+        if (!waiting(read(), id)) return@synchronized null
+        val words = recordWords(id).ifEmpty { return@synchronized null }
+        val seen = HashSet<String>()
+        words to bookLines(shelfBook(id)).filter { 0 < it.c && seen.add(it.id) }.sumOf { it.signed }
+    }
+
+    /**
+     * A MOVE LAID IN A SHELF PERSON'S BOOK (iOS MTCoinVault.lay with their entropy -- the vault door Android has not got, so their book
+     * on the shelf takes the line itself): the receive of a transfer to one's own account stands in their book before their lift, under
+     * the name their own scan credits it by, so the scan finds it held and never twice. False while a turn runs or once seated.
+     */
+    fun shelfLay(id: String, e: CoinEntry): Boolean = synchronized(lock) {
+        if (!waiting(read(), id)) return@synchronized false
+        val f = shelfBook(id)
+        if (bookLines(f).any { it.id == e.id }) return@synchronized true
+        runCatching {
+            f.parentFile?.mkdirs()
+            java.io.RandomAccessFile(f, "rw").use { r ->
+                val end = r.length()
+                if (0L < end) { r.seek(end - 1); if (r.read() != 10) { r.seek(end); r.write(10) } }
+                r.seek(r.length()); r.write((e.line() + "\n").toByteArray(Charsets.UTF_8)); r.fd.sync()
+            }
+            true
+        }.getOrElse { Log.w("Montana", "shelf book: " + it.javaClass.simpleName); false }
+    }
+
     fun face(ctx: Context, id: String): android.graphics.Bitmap? {
         val f = File(shelf(ctx, id), "folders/F/avatar.jpg").takeIf { it.isFile } ?: return null
         return runCatching {

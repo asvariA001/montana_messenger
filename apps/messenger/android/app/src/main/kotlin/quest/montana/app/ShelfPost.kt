@@ -109,6 +109,9 @@ object ShelfPost {
                     val words = f.getOrElse(1) { "" }
                     if (answerOn != null && f[0].isNotEmpty() && words.isNotEmpty() && !words.startsWith("​") && !words.startsWith("⁣"))
                         receipt(answerOn, p, f[0])
+                    // a coin letter: credited in their own book (iOS MTShelfPost.answer → MTApps.coins.shelfLanded)
+                    if (GooglePlay.COINS && answerOn != null && f[0].isNotEmpty())
+                        shelfCoin(p, f[0], words, if (kind == "i") Wire.reference(answerOn) else name)
                 }
             }
         }
@@ -176,6 +179,18 @@ object ShelfPost {
         if (!Seats.meetOnShelf(p.id, ref, secret)) return null
         Log.i("Montana", "shelf_meet seat=" + p.id + " ref=" + ref.take(10))
         return secret to root
+    }
+
+    /**
+     * A COIN LETTER TO A PERSON ON THE SHELF STANDS IN THEIR OWN BOOK (iOS MTCoinsDoor.shelfLanded, MTWalletCore.swift 488-494): a
+     * letter that names itself is laid as their receive under its wire name, the name their own landing credits it by at the lift,
+     * so it is never credited twice (Seats.shelfLay -- the book on the shelf takes the line; iOS lays it through MTCoinVault).
+     */
+    private fun shelfCoin(p: Person, mid: String, text: String, conv: String) {
+        val coin = CoinLetter.parse(text) ?: return
+        if (!CoinLetter.bound(coin, mid)) return
+        val laid = Seats.shelfLay(p.id, CoinEntry(CoinEntry.RECEIVE, coin.c, CoinSend.wire(mid), conv, null, System.currentTimeMillis() / 1000.0))
+        Log.i("Montana", "shelf_coin mid=" + mid.take(8) + " seat=" + p.id + " coins=" + coin.c + " rows=" + (if (laid) 1 else 0))
     }
 
     /** «Delivered» from the person on the shelf, under their own reference, silent (iOS MTShelfPost.answer). */

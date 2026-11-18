@@ -179,7 +179,7 @@ object Meeting {
                 Thread {
                     expand(inv)?.takeIf { p -> !p.contentEquals(SPENT) && p.size > 1184 }?.let { p ->
                         val nm = String(p, 1184, p.size - 1184, Charsets.UTF_8).trim()
-                        if (nm.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(nm) }
+                        if (nm.isNotEmpty() && Book.admitName(known, nm, 0L, "card")) Book.edit(known) { it.name = stripCrown(nm) }
                     }
                     wearCardFace(known, inv)
                 }.start()
@@ -196,7 +196,7 @@ object Meeting {
         val root64 = MontanaCard.b64url(root)
         synchronized(gate) { jmap(CARDS).optString(root64).takeIf { it.isNotEmpty() && Book.secret(it) != null } }?.let { known ->
             if (inv != null) synchronized(gate) { jsave(SCANS, jmap(SCANS).put(MontanaCard.b64url(inv), known)) }
-            if (name.isNotEmpty() && Book.admitState(known, "name", 0L)) Book.edit(known) { it.name = stripCrown(name) }   // a card is undated: never over the peer's dated word
+            if (name.isNotEmpty() && Book.admitName(known, name, 0L, "card")) Book.edit(known) { it.name = stripCrown(name) }   // a card is undated: never over the peer's dated word
             // THE FACE RIDES BESIDE THE NAME ON THIS ROOT TOO (iOS fea4e68ea0da refaceFromCard:1174, the «card-book»/«root» branches).
             if (inv != null) Thread { wearCardFace(known, inv) }.start()
             return Outcome.Opened(known)

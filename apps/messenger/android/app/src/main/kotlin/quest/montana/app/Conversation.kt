@@ -590,7 +590,8 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 val kind = shown?.let { rowKind(it) }
                 if (shown != null && kind != null) addView(c.letterThumb(shown, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
                 // a letter the filter hides is told as hidden in the row, opened or not (iOS ChatStore 159)
-                val words = shown?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
+                // a chat of a restore says its share of the given letters, or that none came (iOS restoringLine, f60c68c4)
+                val words = Restoring.line(c, chat) ?: shown?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
                 addView(c.text(if (kind != null) bareWords(words) else words, 16f, MT.gray).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
                 }
                 // THE ROW'S END (iOS ChatRow 2200-2214): the hand's mark first -- the blue dot 11; else the count, caption2 bold on the
@@ -2230,7 +2231,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val chessRing = View(c).apply { background = ringInk; visibility = View.GONE }   // iOS MTMiniFace.playingRing, 1.5 inside the plate
     // THE MONEY FLOW'S COIN (iOS flipMark, MontanaConversation.swift:2164-2210): our coin on the marks' round, standing on its face while
     // the flow is off; on, it spins inside the platform's ring -- the sign that holds when motion is reduced too. Open without coins
-    // (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing, and the hold's auto-reactions (coins) are not here.
+    // (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing; the hold's auto-reactions (coins) stand only where coins are open.
     val flowCoin = MintCoin(c, 22)
     val flowRing = View(c).apply { background = ringInk; visibility = View.GONE }
     fun drawFlow() {
@@ -2414,6 +2415,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         field.postDelayed({ toBottom(); showKeys() }, 350)
                     }
                     android.util.Log.d("Montana", "feed_turn flow=" + (if (on) 1 else 0) + " peer=" + ref.take(10))
+                }
+                // THE MONEY FLOW'S SETTINGS ON A LONG PRESS (iOS flipMark's LongPressGesture, MontanaConversation.swift 2199-2208; the
+                // author's word 06.10.2026 14:3x UTC): the page where the person chooses whom and how much to auto-react to -- coins
+                // alone, so the Google Play build without them keeps the plain tap
+                if (GooglePlay.COINS) setOnLongClickListener {
+                    hideKeys()
+                    performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    android.util.Log.i("Montana", "auto_react page opened by the hold")
+                    act.push { autoReactPage(act, it) }
+                    true
                 }
             }.also { rounds.add(it); if (walletStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (walletStands) marginStart = dp(6) })
             drawFlow()
@@ -2673,6 +2684,38 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             pressable { scroll.smoothScrollTo(0, if (turned) 0 else (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
         }
         addView(downKey, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(12) })
+        // THE RED MINUS AT THE NEWEST END (iOS MTPayPop, MTWalletScreen.swift 2393-2425, MontanaConversation 3223-3228; the author's
+        // word 04.10.2026 22:24 UTC): the coins this chat just paid (CoinPaid) rise over the way to the newest in red and fade; with
+        // the animations off it stands and fades. Only in a pair's ordinary feed (not turned), never a target.
+        val payHost = FrameLayout(c).apply { isClickable = false; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
+        val payCoin = MintCoin(c, 28)
+        val payText = c.text("", 17f, Color.rgb(255, 59, 48)).apply { typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }
+        val payPop = android.widget.LinearLayout(c).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = c.glassPlate(); setPadding(dp(10), dp(6), dp(10), dp(6)); alpha = 0f
+            addView(payCoin, android.widget.LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(6) })
+            addView(payText, android.widget.LinearLayout.LayoutParams(WRAP, WRAP))
+        }
+        payHost.addView(payPop, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END))
+        val payFade = Runnable { payPop.animate().alpha(0f).setDuration(400).setInterpolator(android.view.animation.AccelerateInterpolator()).start() }
+        if (GooglePlay.COINS && !group && !local) {
+            addView(payHost, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(16) })
+            val onPaid: (Long, String) -> Unit = { coins, r ->
+                if (r == ref && !turned) {
+                    payText.text = "−" + CoinText.count(coins)
+                    payCoin.turnOnce()
+                    payPop.animate().cancel()
+                    payPop.translationY = 0f; payPop.alpha = 1f
+                    if (android.animation.ValueAnimator.areAnimatorsEnabled())
+                        payPop.animate().translationY(-dp(28).toFloat()).setDuration(1300).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                    payPop.removeCallbacks(payFade); payPop.postDelayed(payFade, 1000)
+                }
+            }
+            payHost.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) = CoinPaid.listen(onPaid)
+                override fun onViewDetachedFromWindow(v: View) = CoinPaid.unlisten(onPaid)
+            })
+        }
         // THE DAY THE FINGER IS READING (iOS MTDayHeader 359-372, stage 13.1): the pill of the topmost row's day under the header while
         // the feed travels, gone a second after the last movement; a sign, never a target
         val dayPill = c.text("", 13f, Color.WHITE).apply {
@@ -2714,6 +2757,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 val bottom = if (turned) 0 else under.height + dp(10)
                 if (lp.gravity != g || lp.topMargin != top || lp.bottomMargin != bottom) { lp.gravity = g; lp.topMargin = top; lp.bottomMargin = bottom; downKey.layoutParams = lp }
             }
+            (payHost.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val want = under.height + dp(10) + dp(44) + dp(8); if (lp.bottomMargin != want) { lp.bottomMargin = want; payHost.layoutParams = lp } }
             (dayPill.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = head.height + dp(6); if (lp.topMargin != want) { lp.topMargin = want; dayPill.layoutParams = lp } }
         }
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
@@ -2731,6 +2775,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             lifted = want
             under.translationY = -want.toFloat()
             downKey.translationY = if (turned) 0f else -want.toFloat()   // turned, the way to the newest stands under the field, off the keys
+            payHost.translationY = -want.toFloat()   // the red minus rides the keys over the way to the newest
             room(keys = true)
         }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> ridePlace() }
@@ -3649,6 +3694,55 @@ object QuickReactions {
  * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone». The correspondent's page opens the same
  * cloud with its own rows (iOS onShowInChat).
  */
+/**
+ * GIVE A COIN UNDER A CORRESPONDENT'S LETTER (iOS MTCoinGiveRow, MTWalletScreen.swift 2519-2559; slice S2b b6): one coin by the row,
+ * and the levels of π as the amounts to give -- every one the available holds is a tap, the rest stand dimmed (the author's word
+ * 03.10 22:02). The SEND asks the nodes, so off the main thread; a gift that did not go is said a quarter second after the menu.
+ */
+private fun coinGiveRows(act: MainActivity, ref: String, m: Msg, close: () -> Unit): View {
+    val c: Context = act
+    fun give(n: Long) {
+        close()
+        Thread {
+            val ok = CoinSend.react(n, ref, m)
+            MainThread.post {
+                if (ok) act.window.decorView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                else MainThread.later(250) {
+                    AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+                }
+            }
+        }.start()
+    }
+    val available = CoinSplit.available
+    return c.vstack(Gravity.NO_GRAVITY) {
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(9), dp(14), dp(0))
+            addView(c.text(c.getString(R.string.coin_give), 16f, Color.WHITE), lp(0, WRAP, 1f))
+            addView(MintCoin(c, 20), lp(dp(20), dp(20)))
+            pressable { give(1) }
+        }, lp())
+        addView(HorizontalScrollView(c).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, dp(9), 0, dp(9))
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), 0, dp(14), 0)
+                for (n in PiLevels.all) {
+                    val held = n <= available
+                    // USER-DATA: a box of coins to give, in its short form
+                    addView(c.text("+" + PiLevels.short(c, n), 15f, Color.WHITE, bold = true).apply {
+                        setPadding(dp(10), dp(6), dp(10), dp(6))
+                        background = c.rounded(Color.rgb(77, 77, 77), 999)
+                        alpha = if (held) 1f else 0.4f
+                        if (held) pressable { give(n) }
+                    }, lp(WRAP, WRAP).apply { if (childCount > 0) leftMargin = dp(6) })
+                }
+            })
+        }, lp())
+    }
+}
+
 fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false, members: List<Msg> = listOf(m),
                onShowInChat: (() -> Unit)? = null) {
     val c: Context = act
@@ -3705,6 +3799,12 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
                 actions.addView(names, lp())
             }
             if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
+            // COINS ON THE CORRESPONDENT'S LETTER (iOS MontanaMessageMenu 466-469, MontanaConversation 2501-2509; the author's word
+            // 03.10 13:40): the coin and the levels of π to give, under «Reply»; the chain pays or refuses, refused the person is told
+            if (GooglePlay.COINS && !m.mine && !group && CoinSend.canPay(ref)) {
+                if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, 1))
+                actions.addView(coinGiveRows(act, ref, m) { close() }, lp())
+            }
             // EDIT STICKER (iOS MontanaMessageMenu 474-476, MontanaConversation 2251-2254): a letter's own card sticker, re-cut into a new one
             if (Stickers.editable(m)) row(c.getString(R.string.sticker_edit), R.drawable.ic_pencil) { Stickers.editFromLetter(act, ref, m) }
             // VIEW STICKER SET · COPY LINK (iOS MontanaMessageMenu.swift:498-503, MontanaConversation.swift:2387-2402 at 2314): a

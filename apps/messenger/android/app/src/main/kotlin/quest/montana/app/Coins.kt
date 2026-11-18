@@ -494,10 +494,13 @@ object CoinSend {
      * «q» and the same send goes when it comes, within ten seconds (the author's word 21.10.2026 09:41 UTC). Sent -- a letter in the
      * chat says how many coins and the time they are, and carries the transfer's link (CoinTx.LINK). Off the main thread.
      */
-    fun transferResult(ref: String, coins: Long): Sent {
+    fun transferResult(ref: String, coins: Long): Sent = transferOutcome(ref, coins).first
+    /** The same transfer, its SEND's name when it went (iOS MTCoinSend.transferId): a transfer to one's own account lays its RECV by it. */
+    fun transferId(ref: String, coins: Long): String? = transferOutcome(ref, coins).takeIf { it.first == Sent.SENT }?.second
+    private fun transferOutcome(ref: String, coins: Long): Pair<Sent, String?> {
         val available = CoinSplit.available
-        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance); return Sent.REFUSED }
-        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance); return Sent.SHORT }
+        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance); return Sent.REFUSED to null }
+        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance); return Sent.SHORT to null }
         var result = chainSend(coins, ref)
         if (result.first == Sent.NO_KEY) {
             MyAbout.sendIfNeeded(ref, askKey = true)
@@ -523,7 +526,7 @@ object CoinSend {
             Sent.PACED -> Log.i("Montana", "coin_refused transfer paced: the key's node took its thirty records a minute twice over coins=" + coins + " balance=" + balance)
             else -> Log.i("Montana", "coin_refused transfer not sent coins=" + coins + " balance=" + balance)
         }
-        return result.first
+        return result
     }
     /**
      * The pair's SEND and its word (iOS MTCoinTx.sendResult, MTWalletCore.swift 3050-3062): version 3 first; past the v2 cut
@@ -551,8 +554,59 @@ object CoinSend {
         CoinBook.receive(c, chat, RECEIVED + ref, on = sid)
     }
 
+    /**
+     * COINS GIVEN ON THE CORRESPONDENT'S LETTER ARE A SEND OF THE CHAIN (iOS MTCoinSend.react, MTWalletCore.swift 2173-2180; the
+     * author's words 23.10.2026 00:27 and 00:37 UTC: «each a SEND record in the chain, the phone only the chain's mirror»): the coins
+     * leave by the pair's version 3 SEND under the letter's name, and the reaction word only names that SEND («op»: «coin3», «tx»)
+     * -- the reader's book takes the coins from the chain alone (CoinTx.receive3), never from the word. Off the main thread.
+     */
+    fun react(coins: Long, ref: String, m: Msg): Boolean {
+        if (m.mine || m.mid.isEmpty() || !canPay(ref)) return false
+        return give(coins, wire(m.mid), m.text, ref)
+    }
+    /**
+     * An auto-reaction's coins on a chosen person's letter (iOS MTCoinSend.autoGive, 2181-2192): the paid reaction's own road, once
+     * a letter -- the name «auto:» and the letter's wire name is taken before the SEND goes, so a letter brought twice pays once; a
+     * SEND that never went gives the name back.
+     */
+    const val AUTO = "auto:"   // NOT-UI: the book's own name
+    /** A letter is fresh for a day from its birth (seconds): an auto-reaction pays only a letter born within it (iOS fresh). */
+    const val FRESH = 86_400.0
+    fun autoGive(coins: Long, m: Msg, ref: String): Boolean {
+        if (m.mid.isEmpty()) return false
+        val sid = wire(m.mid)
+        if (CoinBook.holds(CoinEntry.SPEND, AUTO + sid) || !CoinTx.once(AUTO + sid)) return false
+        val paid = give(coins, sid, m.text, ref)
+        if (!paid) CoinTx.release(AUTO + sid)
+        return paid
+    }
+    /**
+     * The one road of a paid reaction (iOS give, 2194-2214): the pair's SEND under the letter's name; the word names it and carries
+     * no coins of its own. A SEND still waiting for its node's word (pending) has left the book and says no name -- the reader's scan
+     * credits it. A REACTION KEEPS ROOM FOR A SEND: six of the key's thirty records a minute stay the person's own.
+     */
+    private fun give(coins: Long, sid: String, words: String, ref: String): Boolean {
+        if (!CoinTx.reactionRoom) {
+            Log.i("Montana", "coin_refused reaction pace laid=" + CoinTx.laidThisMinute() + " kept=" + CoinTx.KEPT_FOR_SENDS + " coins=" + coins)
+            return false
+        }
+        return when (val r = CoinTx.send3(coins, ref, on = sid)) {
+            is CoinTx.Send3.Sent -> {
+                // NOT-UI: the wire keys
+                val word = Marks.REACTION + JSONObject().put("sid", sid).put("txt", words).put("e", "🪙").put("op", "coin3").put("c", coins).put("tx", r.id)
+                Post.send(ref, Marks.mintMid(), word)
+                true
+            }
+            is CoinTx.Send3.Pending -> true
+            is CoinTx.Send3.NotApplicable -> { Log.i("Montana", "coin_refused reaction v3 why=" + r.why + " coins=" + coins); false }
+            else -> false
+        }
+    }
+
     /** A letter of theirs landed (Post): a coin letter is credited once by its wire name. */
     fun landed(ref: String, mid: String, text: String, qt: String?) {
+        // A CHOSEN PERSON'S LETTER IS PAID BY ITSELF (iOS MTAutoReact, MTWalletCore.swift 464-468; the author's word 06.10.2026)
+        if (GooglePlay.COINS) AutoReact.landed(ref, mid, text, qt)
         // A TRANSFER'S TELLING LETTER ASKS THE NODES (iOS landed, MTWalletCore.swift 459-463): the letter credits nothing; the record
         // it names is read from the chain (CoinTx.scan)
         if (GooglePlay.COINS && text.contains(CoinTx.LINK)) Thread { CoinTx.scan("told") }.start()
@@ -710,6 +764,106 @@ object CoinSend {
         Log.i("Montana", "coin_settle letters=" + letters + " coins=" + coins + " balance=" + CoinBook.balance)
         // the transfers' records: the waiting ones decided, the pipes asked (iOS settle, MTWalletCore.swift 449-452)
         if (GooglePlay.COINS) CoinTx.settle()
+    }
+}
+
+/**
+ * WHOM THE COINS GO TO BY THEMSELVES (iOS MTAutoReact, MTWalletCore.swift 2404-2433; the author's word 06.10.2026 14:3x UTC): a
+ * conversation's own rule -- the coins every new letter of the chosen person is paid, as a paid reaction (CoinSend.autoGive), and
+ * the moment of the first choice. It rides the copy with the conversation's data (CopyPlan «autoReact.»).
+ */
+object AutoReact {
+    const val PREFIX = "autoReact."   // NOT-UI: a conversation's own rule (iOS SeedScope.dataPrefixes)
+    class Rule(val coins: Long, val since: Double)
+    fun rule(ref: String): Rule? {
+        val o = runCatching { JSONObject(Prefs.str(PREFIX + ref, "")) }.getOrNull() ?: return null
+        val c = o.optLong("c", 0L)   // NOT-UI: the rule's keys
+        if (c <= 0L || !o.has("s")) return null
+        return Rule(c, o.optDouble("s", 0.0))
+    }
+    /**
+     * The coins a person's every new letter is paid; nought lets the person go. The moment of the first choice stays while the number
+     * changes, so a letter between two edits is paid by the rule that stood.
+     */
+    fun set(ref: String, coins: Long) {
+        if (coins <= 0L) { Prefs.remove(PREFIX + ref); return }
+        val since = rule(ref)?.since ?: (System.currentTimeMillis() / 1000.0)
+        Prefs.setStr(PREFIX + ref, JSONObject().put("c", coins).put("s", since).toString())   // NOT-UI: the rule's keys
+    }
+    /**
+     * A letter of the pair landed (CoinSend.landed, beside a coin letter's credit): a chosen person's fresh letter is paid -- not a
+     * coin letter, a game's letter or a row of the phone's own; born after the choice and within a day. Off the main thread, a turn
+     * after the landing, so the letter stands before the reaction that rides on it.
+     */
+    fun landed(ref: String, mid: String, text: String, qt: String?) {
+        if (Groups.isKey(ref)) return
+        val r = rule(ref) ?: return
+        if (qt == null && CoinLetter.parse(text) != null) return
+        if (ChessLetter.parse(text) != null || WallCard.of(text) != null || FlowRow.of(text) || Groups.isEvent(text)) return
+        val born = Marks.birthMs(mid) ?: return
+        val now = System.currentTimeMillis()
+        if (born < r.since * 1000 || CoinSend.FRESH * 1000 < now - born || !CoinSend.canPay(ref)) return
+        val m = Msg(mid, text, false, born)
+        Thread {
+            val paid = CoinSend.autoGive(r.coins, m, ref)
+            if (paid) CoinPaid.paid(r.coins, ref)
+            Log.i("Montana", "auto_react coins=" + r.coins + " paid=" + (if (paid) 1 else 0))
+        }.start()
+    }
+}
+
+/**
+ * THE COINS I PAID, SEEN IN THE CHAT (iOS MTCoinPaid, MTWalletCore.swift 2432-2446; the author's word 04.10.2026 22:24 UTC: «in the chat
+ * the same way, an animation of a red minus coin»): the one owner of the payment's sign -- what was just paid from me and in which chat;
+ * that chat shows it (the red minus over the way to the newest, Conversation.kt).
+ */
+object CoinPaid {
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Long, String) -> Unit>()
+    @Volatile private var toldAt = 0L
+    fun listen(l: (Long, String) -> Unit) { listeners.add(l) }
+    fun unlisten(l: (Long, String) -> Unit) { listeners.remove(l) }
+    fun paid(coins: Long, ref: String) {
+        MainThread.post { for (l in listeners) l(coins, ref) }
+        val now = System.currentTimeMillis()
+        if (60_000 <= now - toldAt) { toldAt = now; Log.i("Montana", "coin_paid coins=$coins") }   // folded in a minute (iOS markFolded)
+    }
+}
+
+/**
+ * THE COINS RISE WITH THEIR SUM (iOS MTCoinFlash, MTWalletCore.swift 182-224; the author's words 03.10.2026 21:11 UTC and 04.10 12:27):
+ * the seconds just born on the Time Balance (CoinSplit.beat) are held here; while the wallet's own beat runs (`beats`, iOS MTMintBeat)
+ * the beat alone raises them, once a second, with the sum of that second; without it they gather a fifth of a second and rise once,
+ * twice a second at most. Only the chain's seconds are born here, and no app is named beside them (link 14775). The wallet shows
+ * the rise at its sides (walletPage, iOS MTCoinSides). All on the screen's thread.
+ */
+object CoinFlash {
+    const val GATHER_MS = 200L   // NOT-UI: iOS gather 0.2 s
+    private const val APART_MS = 500L   // NOT-UI: iOS apart 0.5 s
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Long) -> Unit>()
+    var beats = false
+    private var held = 0L
+    private var gathering = false
+    private var rose = 0L
+    fun listen(l: (Long) -> Unit) { listeners.add(l) }
+    fun unlisten(l: (Long) -> Unit) { listeners.remove(l) }
+    fun born(n: Long) {
+        if (n <= 0L) return
+        MainThread.post {
+            held += n
+            if (beats || gathering) return@post
+            gathering = true
+            MainThread.later(maxOf(GATHER_MS, rose + APART_MS - System.currentTimeMillis()), Runnable { rise() })
+        }
+    }
+    /** The coins held rise now, with their sum; the wallet's beat calls it once a second. */
+    fun rise() {
+        gathering = false
+        if (0L < held) {
+            val coins = held
+            held = 0L
+            rose = System.currentTimeMillis()
+            for (l in listeners) l(coins)
+        }
     }
 }
 

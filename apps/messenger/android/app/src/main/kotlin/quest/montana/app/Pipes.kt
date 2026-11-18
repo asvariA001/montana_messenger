@@ -991,7 +991,7 @@ object Wire {
         if (bulk) BulkPuts.enter(place, quiet)
         // a resting door stands last in the list, not outside it (iOS restingLast, 996b13f7): the living first, in their order
         val taken = (try { hedgedPut(Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } },
-            bid, data, cargo, last, fan = bulk && quiet) }
+            bid, data, cargo, last) }
             finally { if (bulk) BulkPuts.leave(place, quiet) }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
@@ -999,12 +999,10 @@ object Wire {
         // THE KEEPING'S COPIES RIDE ITS OWN QUIET LANE (iOS 2414 e72752ea; T1 16.11.2026 13:24 UTC: a copy of 1419 media laid 1.3 GB
         // of pieces, two copies of each at once beside the person's puts and a call, and one stall of the link dropped 7183 of them).
         // A quiet piece's copies go one machine at a time, each after the person, by the same pulsed put; a letter's keep their threads.
-        // THE MACHINE LAYS THE KEEPING'S COPIES (iOS 2416 4b559de0, OZ 3, record 995 = b): a quiet piece is put with «fan», and a
-        // machine that says it lays the copies itself (the cap blob_fan) takes the piece once -- the phone sends a backup's bytes one
-        // time, not three. A machine of an older store gets the copies from the phone, as before.
-        if (bulk && quiet && Doors.holds(taken, "blob_fan")) {
-            Log.d("Montana", "blob_fan id=" + bid.take(8) + " to=" + (android.net.Uri.parse(taken).host ?: "-") + " -- the machine lays the copies")
-        } else if (bulk && quiet) {
+        // A QUIET PIECE IS TRANSIT LIKE ANY OTHER (iOS 2a3e1fc2, OZ 1 p.1.7; the author's words 24394, 24402: the nodes are blind
+        // relays): it asks no machine to hand it on -- the mark «fan» was refused 403 and left a new device's restore at 0. A relay
+        // hands nothing on, so the phone lays a quiet piece's copies itself.
+        if (bulk && quiet) {
             for ((id, door) in copies(bid, taken)) {
                 if (!BulkPuts.yieldToPerson("copy")) break
                 val code = putBlobAt(door, bid, data, cargo, last)
@@ -1021,7 +1019,7 @@ object Wire {
      * gives up no piece. The first door that holds the piece wins and the others are let go; a failed door calls the next at once,
      * a busy one (429) is waited, not jumped; a quiet or resting door calls one more in once a second at most: never a storm.
      */
-    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean, fan: Boolean = false): String? {
+    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean): String? {
         if (doors.isEmpty()) return null
         val answers = java.util.concurrent.LinkedBlockingQueue<Pair<String, Int>>()
         val stop = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1034,7 +1032,7 @@ object Wire {
             val spoke = java.util.concurrent.atomic.AtomicBoolean(false)
             called = System.currentTimeMillis(); flying[door] = called to spoke
             if (next > 1) Log.d("Montana", "blob_up id=" + bid.take(8) + " next door=" + (android.net.Uri.parse(door).host ?: door))
-            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop, fan) } catch (_: Throwable) { -1 })) }
+            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop) } catch (_: Throwable) { -1 })) }
                 .apply { isDaemon = true }.start()
         }
         launch()
@@ -1151,11 +1149,9 @@ object Wire {
     private const val FIRST_BYTE_MS = 1_500L
     /** The answer's code; -2 when the put was let go because another door won the race (it teaches the door book nothing). */
     private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean,
-                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null,
-                          fan: Boolean = false): Int {
+                          spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
         val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
         if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        if (fan) body.put("fan", true)   // a quiet piece asks the machine that takes it to hand it on (iOS 2416)
         val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid, spoke, stop)
         if (code == 200) Signal.doorAnswered(door) else if (code != -2) Signal.doorFailed(door, code)
         return code
@@ -1835,6 +1831,25 @@ object Book {
         return true
     }
 
+    /**
+     * THIS PERSON'S OWN NAME IS NEVER A CORRESPONDENT'S (iOS 2448-2449 MTNameBook.admitDeclared, 707245b3 + 5932d165; OZ 1 p.1.6):
+     * every road a peer's name rides -- a letter's envelope, a first letter, the NM: word, a call, the archive -- can carry a word of
+     * this person's other device inside a correspondent's pipe, and «mine» is not proven on every road. So the one door refuses this
+     * person's own name for anybody else, whoever brings it; only the correspondent's own card, handed at the meeting, may name a
+     * namesake. A refusal changes nothing: the name the correspondent holds stays, nobody is left nameless.
+     */
+    fun admitName(ref: String, name: String, at: Long, source: String): Boolean {
+        if (source != "card" && isOwnName(name)) {
+            Log.d("Montana", "name_own $source word carries this person's own name -- refused peer=" + ref.take(10)); return false
+        }
+        return admitState(ref, "name", at)
+    }
+    /** Whether a name is this person's own, as the profile says it: the crown and the case set aside (iOS isOwnName). */
+    fun isOwnName(name: String): Boolean {
+        val own = stripCrown(Prefs.userName).trim()
+        return own.isNotEmpty() && stripCrown(name).trim().equals(own, ignoreCase = true)
+    }
+
     /** Any change to a chat: written, and the screens told. */
     fun edit(ref: String, work: (Chat) -> Unit) {
         val born = ArrayList<Msg>()
@@ -1900,6 +1915,10 @@ object Book {
         }
     }
     fun isBuried(ref: String, mid: String) = synchronized(lock) { graveSets()[ref]?.contains(mid) == true }
+    /** THE ONE QUESTION «IS THIS ROW DELETED» (iOS ChatStore.rowGone, 078d3483, 2445; OZ 1 p.2, the author's word 24317): a deletion is
+     *  named by the row's wire name in the graves and by its archive key in the chat's chain (Archive.goneHead, the event every device
+     *  of the seed reads). Every road that lays a row asks this one door, never the graves alone. */
+    fun rowGone(ref: String, m: Msg): Boolean = isBuried(ref, m.mid) || isBuried(ref, Archive.wire(m.mid)) || Archive.chainNamesGone(ref, m)
     /** The conversation holds graves: its letters were deleted here, and an empty feed of it is emptied, not unborn (iOS 95294cf8). */
     fun hasGraves(ref: String) = synchronized(lock) { graveSets()[ref]?.isNotEmpty() == true }
 
@@ -1944,6 +1963,9 @@ object Book {
         // A ROW OF SAVED MESSAGES DELETED HERE GOES ON THE SEED'S OTHER DEVICES TOO (iOS e451e027, 2424, OZ 1 p.9, the author's word
         // 23611): its name rides at once; there it is buried, and its row goes by this same road, told nobody again
         if (tell && ref == SAVED) chat(ref)?.msgs?.filter { it.mid in mids }?.forEach { Twin.gone(ref, it.mid, it.mine, it.at / 1000.0) }
+        // THE DELETION IS AN EVENT OF THE CHAT'S CHAIN (iOS 2441, OZ 1 p.1.2): the archive names each row gone, so no reading of the log
+        // on any device of the seed lays it again; a deletion a twin told is already an event of the twin's own chain
+        if (tell) chat(ref)?.msgs?.filter { it.mid in mids }?.mapNotNull { Archive.archiveKey(it) }?.takeIf { it.isNotEmpty() }?.let { Archive.goneHead(ref, it) }
         bury(ref, mids)
         edit(ref) { c -> c.msgs.removeAll { it.mid in mids } }
         mids.forEach { Notify.withdraw(ref, it) }   // a letter deleted for me is a letter gone too: its banner leaves (iOS 5a82f7cb)
@@ -1964,7 +1986,7 @@ object Book {
             val add = rows.filter { m ->
                 val w = Archive.wire(m.mid)
                 Archive.rowSig(m.at / 1000, m.mine, m.text) !in seen && m.mid !in had && w !in had
-                    && !isBuried(ref, w) && !isBuried(ref, m.mid) && !diedBefore(ref, w)
+                    && !rowGone(ref, m) && !diedBefore(ref, w)
             }
             c.msgs.addAll(add); c.msgs.sortBy { it.at }
             added = add.size
@@ -2447,6 +2469,10 @@ object Post {
             }
             // WHILE THE INTRODUCTION IS UNANSWERED every letter a person wrote rides the invitation's box with the ciphertext;
             // the words of the wire (receipts, reads, name, face) wait for the pipe to stand (iOS first_hold).
+            // NO LETTER LEAVES WITHOUT ITS AUTHOR (iOS 2450 DeliveryEngine attempt, e58d7279; OZ 1 p.1.6, the author's word 24464):
+            // sealed before this person's author key was derived, a letter rode with no author field, and the seed's other device told
+            // it neither its own nor the correspondent's. The letter stays in the queue until the key stands; the next flush seals it signed.
+            if (LetterAuthor.key == null) { Diary.folded("tx_unproven", "the author key is not derived yet -- the letter stays queued mid=" + mid.take(8), 60_000, "tx_unproven"); continue }
             val intro = Meeting.first(to)
             val text = o.getString("t")
             val sent = if (intro != null) {
@@ -2565,13 +2591,13 @@ object Post {
         mid.toByteArray() + 0 + text.toByteArray() + 0 + Prefs.userName.trim().toByteArray() + 0 + byteArrayOf(0)
 
     /** ONE KNOCK (iOS MTNodeWire.knockLetter): the body is sealed afresh at every door, the first door that boxes it ends the walk. */
-    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false): Boolean {
+    private fun knock(secret: ByteArray, mid: String, text0: String, qt: String?, qm: String?, lp: String? = null, quiet: Boolean = false, long: Boolean = false): Boolean {
         val twin = MontanaSeed.twin ?: return false
         // A LETTER TOO LONG FOR ONE ENVELOPE rides as a blob under a key of its own, the envelope carries the reference (iOS sealLongLetter).
         // a state letter's body (the name, the face, «about», the page's ground, the wall's page to a visitor) is the service's cargo:
         // it stands aside for the person (iOS quietCargo = kind.isState, MontanaDeliveryEngine.attempt, 996b13f7)
         val hush = stateOf(text0) != null || text0.startsWith(Board.MARK + "{\"t\":\"page\"")
-        val text = if (text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0, hush) ?: return false else text0
+        val text = if (long || text0.toByteArray().size > Wire.ENVELOPE - 400) sealLong(mid, text0, hush) ?: return false else text0
         var body = letterHead(mid, text)
         val quoted = !qt.isNullOrEmpty()
         if (quoted) {
@@ -2600,7 +2626,16 @@ object Post {
         if (!text.startsWith(Marks.LONG)) Channels.lay(secret, mid, live)
         // THE PERSON SIGNS THE LETTER AS ITS AUTHOR (iOS sealLetterEnvelope, MontanaWakePush.swift:1555): after the card, before the
         // padding, over the words as they ride (a long letter's reference); the live road above rides unsigned, as iOS lays it.
-        body = Wire.withAuthor(body, LetterAuthor.key, secret, mid, text)
+        val key = LetterAuthor.key
+        var signed = Wire.withAuthor(body, key, secret, mid, text)
+        // A HEAD WITH NO ROOM FOR ITS AUTHOR RIDES THE LONG LETTER'S ROAD (iOS 2450 sealLetterEnvelope, the author's word 24464):
+        // withAuthor gives such a body back unsigned, and an unsigned letter is told by nobody; the long letter's reference is short
+        // and signed. A long letter still without room (a link card filling the envelope) leaves its card aside so the author rides.
+        if (key != null && signed.size == body.size) {
+            if (!text.startsWith(Marks.LONG)) return knock(secret, mid, text0, qt, qm, lp, quiet, long = true)
+            signed = Wire.withAuthor(head, key, secret, mid, text)
+        }
+        body = signed
         val plain = body + ByteArray(Wire.ENVELOPE - body.size)
         val cw = Wire.convW(secret, Wire.day())
         // a service word asks the node for a silent push (iOS wake: body["silent"]), judged by its words, not by a long letter's reference
@@ -3175,7 +3210,7 @@ object Post {
             Log.d("Montana", "rx_funeral m=" + mid.take(16) + " — no chat is opened for a letter born before its funeral"); return true
         }
         val ref = Book.establish(secret) ?: return false
-        val name = name0.takeIf { it.isNotBlank() && it.length <= 64 } ?: ""
+        val name = name0.takeIf { it.isNotBlank() && it.length <= 64 && !Book.isOwnName(it) } ?: ""   // never my own name (iOS 2448)
         val fresh = Book.chat(ref) == null
         Book.open(ref, name, MontanaCard.isPermanentRoot(root))
         if (fresh) Thread { readPipeFace(ref, secret) }.start()
@@ -3216,6 +3251,17 @@ object Post {
         // THE PERSON'S OWN LETTER IS TOLD AT ITS OPENING (iOS MTNodeWire.authorHolds, MontanaWakePush.swift:2768), by the words as
         // they rode -- a long letter's words change at its landing, its author field does not. The live road carries no tag.
         val own = f[7].isNotEmpty() && Book.secret(ref)?.let { Wire.authorHolds(f[7], LetterAuthor.key, it, f[0], f[1]) } == true
+        // NO LETTER OF AN UNPROVEN AUTHOR (iOS 2450 DeliveryEngine.receive, e58d7279; OZ 1 p.1.6, the author's word 24464): a letter
+        // carrying its author's field while this person's author key is not derived yet can be told neither mine nor theirs. It stays
+        // in the box for the key (not taken) and comes again at the next read; it never lands as the correspondent's. With no seed
+        // there is no person to tell, and the letter walks on.
+        if (!own && f[7].isNotEmpty() && LetterAuthor.key == null && MontanaSeed.mnemonic != null) {
+            Diary.folded("rx_unproven", "the author key is not derived yet -- the letter stays mid=" + f[0].take(8), 10_000, "rx_unproven")
+            return false
+        }
+        // A WORD NAMES ITS SENDER ONLY FROM A PROVEN CORRESPONDENT (iOS 2450 theirs): the author field read under this person's key
+        // and not found mine. A letter with no author field (the live road, an older build) names nobody.
+        val theirs = !own && f[7].isNotEmpty() && LetterAuthor.key != null
         if (!own) {
             Meeting.firstDone(ref)   // a word sealed under the pipe by the other side: the introduction is over
             Channels.heard(ref)   // the pipe lives: the moment to name my own address when no road of mine reaches them (iOS ChatStore 3976-3986)
@@ -3235,6 +3281,11 @@ object Post {
         // of every call packet on the node's line; it is the call's, heard as the lane's words are, and its receipt goes back the same
         // way. Before, it fell silent as an unknown word of the wire and the iPhone beat on the dead doors.
         if (text.startsWith(Marks.CALL_SIGNAL)) { Calls.lineWords(ref, text.removePrefix(Marks.CALL_SIGNAL)); return true }
+        // A NAME WORD OF NO PROVEN AUTHOR NAMES NOBODY (iOS 2450, the author's word 24464): it is answered, so its sender's queue settles.
+        if (!theirs && text.startsWith(Marks.NAME)) {
+            Diary.folded("name_unproven", "a name word of no proven author names nobody peer=" + ref.take(10), 60_000, "nu:" + ref)
+            receipt(ref, f[0]); return true
+        }
         // WHO MAY WRITE TO ME (iOS MontanaDeliveryEngine.receive, b9b212d4, OZ 1 p.1.8): a person the rule refuses is refused as a
         // blocked one -- buried, never a row, no receipt.
         if (Privacy.refuses(text, ref)) {
@@ -3245,10 +3296,9 @@ object Post {
         // THE TWIN MIRROR (iOS receive, MontanaDeliveryEngine.swift:246-250): a correspondent's word this device took rides to the seed's
         // other devices -- the box gave it to this one, and this one's confirmation erases it there
         if (Twin.mirrors(text)) Twin.note(ref, f[0], text, at = Marks.birthMs(f[0])?.let { it / 1000.0 }, qt = f[4], qm = f[5], lp = f[6])
-        // A LETTER WITH AN AUTHOR FIELD IS TOLD MINE OR THEIRS ONLY BY THE PERSON'S AUTHOR KEY (iOS DeliveryEngine.receive, 9e9f755b,
-        // 2433): while the key is not derived yet its envelope names nobody -- a word of the seed's other device would name the chat
-        // with the person's own name.
-        val envelope = if (f[7].isNotEmpty() && LetterAuthor.key == null) "" else f[2]
+        // ONLY A PROVEN CORRESPONDENT'S LETTER NAMES THEM (iOS 2450 theirs, e58d7279): a letter of no proven author -- no author
+        // field, or a word of the seed's other device -- would rename the correspondent with the person's own name (the author's word 24464).
+        val envelope = if (theirs) f[2] else ""
         place(ref, f[0], text, envelope, f[4].ifEmpty { null }, f[5].ifEmpty { null }, f[6].ifEmpty { null })
         return true
     }
@@ -3441,7 +3491,13 @@ object Post {
             text.startsWith(Marks.REACTION) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.REACTION)); val d = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
                 // coins given on a letter ride the reaction's road under their own op: credited, never an emoji (iOS 5901-5908)
-                if (o.optString("op") == "coin") CoinSend.reacted(o.optLong("c"), o.optString("r"), o.optString("sid"), ref)
+                val op = o.optString("op")
+                if (op == "coin") CoinSend.reacted(o.optLong("c"), o.optString("r"), o.optString("sid"), ref)
+                // A PAID REACTION IS A SEND OF THE CHAIN (iOS applyReactionFromControl 7423-7430): the word names the SEND and its
+                // letter; the coins come by the scan
+                else if (op == "coin3") { if (GooglePlay.COINS && o.optString("sid").isNotEmpty()) CoinTx.heard(o.optString("tx"), o.optString("sid")) }
+                // any other word -- a paid one this build cannot read -- touches no emoji (iOS: only add and del)
+                else if (op != "add" && op != "del") Unit
                 // THE CORRESPONDENT HAS ONE ANSWER ON A LETTER (iOS applyReaction 5858-5866): a new one replaces their old, and taking one
                 // away takes theirs — Android kept one list for both, so their taking away a sign we both gave took away mine
                 else Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m ->
@@ -3466,7 +3522,7 @@ object Post {
             text.startsWith(Marks.NAME) -> {
                 val n = text.removePrefix(Marks.NAME).trim()
                 // A CORRESPONDENT'S SENT NAME LOSES ITS CROWN (iOS MTCrown.plain, atom d4142dd38143): only a Royal hands one out.
-                if (n.isNotEmpty() && n.length <= 64 && Book.admitState(ref, "name", Marks.birthMs(sid) ?: 0L)) Book.edit(ref) { it.name = stripCrown(n) }
+                if (n.isNotEmpty() && n.length <= 64 && Book.admitName(ref, n, Marks.birthMs(sid) ?: 0L, "word")) Book.edit(ref) { it.name = stripCrown(n) }
                 receipt(ref, sid)
             }
             // the face as the name: a word older than the one that stands changes nothing (iOS stateIsCurrent)
@@ -3541,7 +3597,7 @@ object Post {
                         // landing with the chat left open while the app itself is backgrounded used to be born read, and the icon never
                         // met it; the open chat alone is not enough, the app must stand before the person too (MTForeground.active).
                         if (!quiet && (Book.openChat != ref || !Presence.shown)) c.unread++
-                        if (c.name.isEmpty() && name.isNotBlank()) c.name = name
+                        if (c.name.isEmpty() && name.isNotBlank() && !Book.isOwnName(name)) c.name = name   // the envelope never names a peer with my own name (iOS 2448)
                         isNew = true
                     }
                 }

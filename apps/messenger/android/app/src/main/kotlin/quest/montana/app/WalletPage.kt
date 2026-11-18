@@ -326,11 +326,54 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
             else if (windowVisibility != View.VISIBLE) { asking++; WalletPull.stop("background") }
         }
     }.apply { addView(page, FrameLayout.LayoutParams(MATCH, MATCH)) }
+    // THE SIDES' COINS (iOS MTCoinSides, MTWalletScreen.swift 2315-2346; the author's words 03.10.2026 21:11 UTC): at every rise of
+    // CoinFlash our coin stands at the left and the right edge with the count, makes its turn, rises and fades; with the animations
+    // off they stand and fade. Never a target, never read aloud.
+    val sideCoins = ArrayList<MintCoin>(2)
+    val sideTexts = ArrayList<TextView>(2)
+    val sides = listOf(Gravity.START, Gravity.END).map { edge ->
+        val coin = MintCoin(c, 30).also { sideCoins.add(it) }
+        val count = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }.also { sideTexts.add(it) }
+        LinearLayout(c).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            background = c.glassPlate(); setPadding(c.dp(8), c.dp(8), c.dp(8), c.dp(8)); alpha = 0f
+            isClickable = false; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+            addView(coin, LinearLayout.LayoutParams(c.dp(30), c.dp(30)).apply { bottomMargin = c.dp(4) })
+            addView(count, LinearLayout.LayoutParams(WRAP, WRAP))
+            holder.addView(this, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or edge).apply { marginStart = c.dp(10); marginEnd = c.dp(10) })
+        }
+    }
+    // one clock of 0.9 s: the rise eases out over all of it (iOS easeOut 0.9, 40 → -40), the fade eases in over its last 0.3 s (easeIn
+    // 0.3 after 0.6); with the animations off the clock does not run and they only stand -- then fade after 0.6 s
+    var sideRun: ValueAnimator? = null
+    val sideFade = Runnable { for (s in sides) s.animate().alpha(0f).setDuration(300).start() }
+    val flashed: (Long) -> Unit = { coins ->
+        for (t in sideTexts) t.text = "+" + CoinText.count(coins)
+        for (k in sideCoins) k.turnOnce()
+        sideRun?.cancel(); holder.removeCallbacks(sideFade)
+        val lift = c.dp(40).toFloat()
+        for (s in sides) { s.animate().cancel(); s.translationY = lift; s.alpha = 1f }
+        if (ValueAnimator.areAnimatorsEnabled()) {
+            sideRun = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 900
+                interpolator = LinearInterpolator()
+                addUpdateListener { a ->
+                    val x = a.animatedValue as Float
+                    val up = 1f - (1f - x) * (1f - x)
+                    val f = ((x - 0.6f / 0.9f) / (0.3f / 0.9f)).coerceIn(0f, 1f)
+                    for (s in sides) { s.translationY = lift - 2f * lift * up; s.alpha = 1f - f * f }
+                }
+                start()
+            }
+        } else holder.postDelayed(sideFade, 600)
+    }
     val again: () -> Unit = { draw() }
     val top: () -> Unit = { drawTop() }
     // THE PAGE'S OWN BEAT (iOS .onReceive(Timer 1 s) coinSplit.beat, MTWalletScreen.swift:344-345): the seconds on their way rise once a second
     lateinit var beat: Runnable
-    beat = Runnable { CoinSplit.beat(); if (holder.isAttachedToWindow) MainThread.later(1000, beat) }
+    // the beat raises the flash a fifth of a second after it, with that second's sum (iOS MTMintBeat: beat, gather, rise)
+    val riseNow = Runnable { CoinFlash.rise() }
+    beat = Runnable { CoinSplit.beat(); MainThread.later(CoinFlash.GATHER_MS, riseNow); if (holder.isAttachedToWindow) MainThread.later(1000, beat) }
     fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
     val moved: () -> Unit = {
         if (!headsDue && CoinBook.size() != headsAt) {
@@ -341,12 +384,13 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     page.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
         override fun onViewAttachedToWindow(v: View) {
             CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); WalletPull.listen(again); CoinSplit.listen(top); draw(); coin.turnOnce()
+            CoinFlash.listen(flashed); CoinFlash.beats = true
             if (!Pantheon.lit) WalletPull.fire()   // the wallet opened: the auto minting on (iOS .onAppear, MTWalletScreen.swift:314)
             CoinTx.beHere()   // the chain hears the person (iOS .task MTVPNWallMint.count, MTWalletScreen.swift:310)
             MainThread.later(1000, beat)
         }
         // the page left: the auto minting stops with it and the nodes are asked no more (iOS .onDisappear, MTWalletScreen.swift:387)
-        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); MainThread.cancel(riseNow); CoinFlash.beats = false; CoinFlash.unlisten(flashed); CoinFlash.rise(); sideRun?.cancel(); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
     })
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     // then the transfers' records of every pipe, whatever build sent them (iOS .task, MTWalletScreen.swift 322: MTCoinTx.scan «wallet»)
@@ -363,6 +407,9 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
  * (Groups.coinPeople), the others stand greyed with why; `each` -- the number written in the field, each pick's coins; each pick
  * gets the pair's own transfer, the group is told only how many were paid (Groups.tellCoins), `sent` empties the field.
  */
+/** A shelf person's key among the picks: never a chat's name (iOS seatKey). */
+private const val SEAT_KEY = "seat:"   // NOT-UI: the pick's key
+
 fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null, each: Long = 0L, sent: () -> Unit = {}): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY)
@@ -405,6 +452,26 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
     }
     body.addView(HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; addView(boxes); setPadding(0, dp(12), 0, dp(6)) }, lp())
     body.addView(total, lp())
+    // each pick its own field, the system's: coins typed pick it, a field emptied lets it go
+    fun amountField(ref: String): EditText = EditText(c).apply {
+        inputType = InputType.TYPE_CLASS_NUMBER
+        filters = arrayOf(InputFilter.LengthFilter(15))
+        hint = "0"
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+        background = c.rounded(Color.rgb(44, 44, 46), 8)
+        setPadding(dp(8), 0, dp(8), 0)
+        addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                // coins typed pick the chat, a field emptied lets it go
+                val n = s?.toString()?.toLongOrNull() ?: 0L
+                if (0L < n) picked[ref] = this@apply else picked.remove(ref)
+                mark(ref); drawTotal()
+            }
+        })
+    }
     val payees = group?.let { Groups.coinPeople(c, it) }
     val people: List<Pair<String, String>> = payees?.mapNotNull { p -> p.ref?.let { it to (Book.chat(it)?.shown?.ifBlank { null } ?: p.name) } }
         ?: Book.all().filter { CoinSend.canPay(it.ref) }.map { it.ref to it.shown }
@@ -414,25 +481,7 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
         if (people.isEmpty() && unreached.isEmpty()) addView(c.text(c.getString(if (group == null) R.string.coin_no_chats else R.string.coin_no_members), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
         people.forEachIndexed { i, (ref, shown) ->
             if (0 < i) divider()
-            val field = EditText(c).apply {
-                inputType = InputType.TYPE_CLASS_NUMBER
-                filters = arrayOf(InputFilter.LengthFilter(15))
-                hint = "0"
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                setTextColor(Color.WHITE); setHintTextColor(MT.gray)
-                background = c.rounded(Color.rgb(44, 44, 46), 8)
-                setPadding(dp(8), 0, dp(8), 0)
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-                    override fun afterTextChanged(s: android.text.Editable?) {
-                        // coins typed pick the chat, a field emptied lets it go
-                        val n = s?.toString()?.toLongOrNull() ?: 0L
-                        if (0L < n) picked[ref] = this@apply else picked.remove(ref)
-                        mark(ref); drawTotal()
-                    }
-                })
-            }
+            val field = amountField(ref)
             fields[ref] = field
             val pick = ImageView(c).apply { setPadding(dp(10), dp(10), dp(10), dp(10)) }
             marks[ref] = pick
@@ -469,29 +518,84 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
             }, lp())
         }
     }
+    // TO ONESELF ON ANOTHER ACCOUNT (iOS MTCoinSendSheet seats, MTWalletScreen.swift 1952-1987; the author's word 11.10.2026, No.62):
+    // every person waiting on this phone's shelf, by the face and the name the drawer shows; the coins ride the pipe the two persons
+    // share, born on this phone when they have none (Seats.pairWithShelf), and the shelf files them in that person's own book.
+    val shelf = if (group == null) Seats.active.let { now -> Seats.seats.filter { it.id != now && it.id.isNotEmpty() } } else emptyList()
+    if (shelf.isNotEmpty()) {
+        body.addView(c.text(c.getString(R.string.coin_own_header), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
+        body.addView(c.plate {
+            shelf.forEachIndexed { i, s ->
+                if (0 < i) divider()
+                val key = SEAT_KEY + s.id
+                val field = amountField(key)
+                fields[key] = field
+                val pick = ImageView(c).apply { setPadding(dp(10), dp(10), dp(10), dp(10)) }
+                marks[key] = pick
+                addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(8), dp(8), dp(8))
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(c.avatar(Seats.face(c, s.id), s.glyph.ifEmpty { "M" }, 40), lp(dp(40), dp(40)))
+                        gap(12)
+                        addView(c.text(s.name.ifBlank { "Montana" }, 16f).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the person's own name
+                        minimumHeight = dp(44)
+                        pressable { toggle(key) }
+                    }, lp(0, WRAP, 1f))
+                    addView(field, lp(dp(96), dp(44)))
+                    addView(pick, lp(dp(44), dp(44)).apply { marginStart = dp(4) })
+                    pick.pressable { toggle(key) }
+                }, lp())
+                mark(key)
+            }
+        }, lp())
+        body.addView(c.text(c.getString(R.string.coin_own_footer), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
+    }
     body.addView(c.text(c.getString(if (group == null) R.string.coin_choose_chats else R.string.coin_choose_members), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
     body.addView(list, lp())
     if (group != null) body.addView(c.text(c.getString(R.string.coin_group_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
     drawTotal()
     lateinit var close: () -> Unit
     var sending = false
-    val go = c.icon(R.drawable.ic_paperplane, MT.blue).apply {
-        setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.coin_send)
-        pressable {
+    var linkAgreed = false
+    fun send() {
             val to = picked.filter { 0L < coinsOf(it.value) }
             var sum = 0L
             for (f in to.values) sum += coinsOf(f)
             // the sum weighed against the available, the one number every transfer page shows (iOS send, MTWalletScreen.swift 2192)
             if (to.isEmpty() || CoinSplit.available < sum) {
                 AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
-                return@pressable
+                return
             }
-            if (sending) return@pressable
+            val seats = to.keys.filter { it.startsWith(SEAT_KEY) }
+            // A TRANSFER TO ONE'S OWN ACCOUNT LINKS THE TWO FOREVER, asked first (iOS ask .link)
+            if (seats.isNotEmpty() && !linkAgreed) {
+                AlertDialog.Builder(act).setTitle(R.string.coin_link_title).setMessage(R.string.coin_link_sub)
+                    .setPositiveButton(R.string.coin_link_go) { _, _ -> linkAgreed = true; send() }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+                return
+            }
+            if (sending) return
             sending = true
             // each pick by the pair's own SEND, off the main thread: the nodes are asked (iOS send's Task, 2196-2234)
             Thread {
-                val went = to.keys.filter { ref -> CoinSend.transfer(ref, coinsOf(to.getValue(ref))) }
-                Log.i("Montana", "coin_send_many chats=" + to.size + " total=" + sum + " went=" + went.size)
+                val went = ArrayList<String>()
+                // ONE PAIR, SENT AND RECEIVED (No.66, point 0): the SEND names my other key, and its RECV is laid at once by this phone
+                for (key in seats) {
+                    val id = key.removePrefix(SEAT_KEY)
+                    val sum1 = coinsOf(to.getValue(key))
+                    val conv = Seats.pairWithShelf(id) ?: continue
+                    val name = shelf.firstOrNull { it.id == id }?.name.orEmpty()
+                    if (Book.chat(conv) == null) Book.open(conv, name, false)
+                    if (name.isNotBlank() && Book.admitName(conv, name.trim(), System.currentTimeMillis(), "seat")) Book.edit(conv) { it.name = name.trim() }   // iOS setPeerName source «seat»
+                    CoinTx.knowOwn(id, conv)
+                    val tx = CoinSend.transferId(conv, sum1) ?: continue
+                    CoinTx.landOwn(id, tx, sum1, conv)
+                    went += conv
+                }
+                for (ref in to.keys) if (!ref.startsWith(SEAT_KEY) && CoinSend.transfer(ref, coinsOf(to.getValue(ref)))) went += ref
+                Log.i("Montana", "coin_send_many chats=" + (to.size - seats.size) + " own=" + seats.size + " total=" + sum + " went=" + went.size)
                 MainThread.post {
                     sending = false
                     if (went.isEmpty()) {
@@ -504,10 +608,63 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
                     if (group == null && went.size == 1) act.push { back -> conversationPage(act, went[0], back) }
                 }
             }.start()
-        }
+    }
+    val go = c.icon(R.drawable.ic_paperplane, MT.blue).apply {
+        setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.coin_send)
+        pressable { send() }
     }
     close = onClose
     return walletFrame(act, c.getString(R.string.coin_send_title), onClose, true, go, body)
+}
+
+/**
+ * WHOM THE COINS GO TO BY THEMSELVES (iOS MTAutoReactPage, MTWalletScreen.swift 2234-2293; the author's word 06.10.2026 14:3x UTC: «on
+ * a long press, open a page where I choose whom and how much I want to auto-react to, from my contacts»): the person's chats, each
+ * with the coins its every new letter is paid, typed beside the name; an emptied field lets the person go. What is typed stands at once.
+ */
+fun autoReactPage(act: MainActivity, onClose: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY)
+    val people = Book.all().filter { CoinSend.canPay(it.ref) }.map { it.ref to it.shown }
+    Log.i("Montana", "auto_react page pairs=" + people.size)
+    val list = c.plate {
+        if (people.isEmpty()) addView(c.text(c.getString(R.string.coin_no_chats), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
+        people.forEachIndexed { i, (ref, shown) ->
+            if (0 < i) divider()
+            val field = EditText(c).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                filters = arrayOf(InputFilter.LengthFilter(12))
+                hint = "0"
+                AutoReact.rule(ref)?.let { setText(it.coins.toString()) }   // USER-DATA: the coins of the rule
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+                background = c.rounded(Color.rgb(44, 44, 46), 8)
+                setPadding(dp(8), 0, dp(8), 0)
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        // what is typed stands at once; an emptied field lets the person go
+                        AutoReact.set(ref, s?.toString()?.toLongOrNull() ?: 0L)
+                    }
+                })
+            }
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(8))
+                minimumHeight = dp(44)
+                addView(c.peerFace(ref, shown, 40), lp(dp(40), dp(40)))
+                gap(12)
+                addView(c.text(shown.ifBlank { c.getString(R.string.peer) }, 16f).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(field, lp(dp(96), dp(44)))
+            }, lp())
+        }
+    }
+    body.addView(c.text(c.getString(R.string.auto_react_header), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
+    body.addView(list, lp())
+    body.addView(c.text(c.getString(R.string.auto_react_footer), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
+    return walletFrame(act, c.getString(R.string.auto_react_title), onClose, true, null, body)
 }
 
 /** THE LEVELS OF π (iOS MTPiLevelsSheet): the next level to reach on top, then the levels reached, thirteen at a time, each with π revealed. */

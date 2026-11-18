@@ -424,6 +424,11 @@
     <string name="coin_to_level">%1$s coins to level %2$d</string>
     <string name="coin_send_title">Send coins</string>
     <string name="coin_choose_chats">Choose chats</string>
+    <string name="coin_own_header">My other accounts</string>
+    <string name="coin_own_footer">A transfer to your own account links the two accounts publicly forever.</string>
+    <string name="coin_link_title">Link your accounts forever?</string>
+    <string name="coin_link_sub">A transfer between two of your accounts links them publicly and forever: anyone who reads the TimeChain sees that both belong to one owner. Coins you send to other people never link your accounts.</string>
+    <string name="coin_link_go">Send and link</string>
     <string name="coin_no_chats">No chats yet</string>
     <string name="coin_choose_members">Choose members</string>
     <string name="coin_no_members">No members yet</string>
@@ -431,6 +436,11 @@
     <string name="coin_no_pair">No chat of your own with this member</string>
     <string name="coin_group_note">Each member you pick gets a transfer of their own in your chat with them. The group is told only how many members you sent coins to.</string>
     <string name="coin_total">Total</string>
+    <string name="coin_give">Give a coin</string>
+    <string name="wall_coins">Coins</string>
+    <string name="auto_react_title">Auto-reactions</string>
+    <string name="auto_react_header">Coins on each new letter</string>
+    <string name="auto_react_footer">Paid by itself as a reaction on every letter the person writes from now on, while your coins last.</string>
     <string name="coin_not_enough">Not enough coins</string>
     <string name="coin_enter_amount">Enter the coin amount</string>
     <string name="coin_send_coins">Send coins</string>

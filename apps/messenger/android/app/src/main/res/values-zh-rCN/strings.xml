@@ -418,6 +418,11 @@
     <string name="coin_to_level">距离第 %2$d 级还差 %1$s 枚</string>
     <string name="coin_send_title">发送硬币</string>
     <string name="coin_choose_chats">选择聊天</string>
+    <string name="coin_own_header">我的其他账户</string>
+    <string name="coin_own_footer">向您自己的账户转账会将这两个账户永久公开关联。</string>
+    <string name="coin_link_title">永久关联您的账户？</string>
+    <string name="coin_link_sub">在您的两个账户之间转账会将它们公开且永久地关联起来：任何读取 TimeChain 的人都会看到它们属于同一个所有者。发送给他人的时间币不会关联您的账户。</string>
+    <string name="coin_link_go">发送并关联</string>
     <string name="coin_no_chats">暂无聊天</string>
     <string name="coin_choose_members">选择成员</string>
     <string name="coin_no_members">暂无成员</string>
@@ -425,6 +430,11 @@
     <string name="coin_no_pair">你与该成员没有单独的聊天</string>
     <string name="coin_group_note">每位选中的成员都会在你与其的聊天中收到一笔单独的转账。群组只会得知你向多少位成员转了硬币。</string>
     <string name="coin_total">合计</string>
+    <string name="coin_give">赠送硬币</string>
+    <string name="wall_coins">硬币</string>
+    <string name="auto_react_title">自动回应</string>
+    <string name="auto_react_header">每封新消息的币</string>
+    <string name="auto_react_footer">从现在起，对方每写一封消息，就自动以回应支付，直到你的币用完。</string>
     <string name="coin_not_enough">硬币不足</string>
     <string name="coin_enter_amount">输入硬币数量</string>
     <string name="coin_send_coins">发送硬币</string>

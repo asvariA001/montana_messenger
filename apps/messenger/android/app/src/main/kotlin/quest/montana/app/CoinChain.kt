@@ -34,12 +34,112 @@ object CoinChainRules {
     fun blind(secret: ByteArray, nonce: ByteArray): ByteArray = Hkdf.hmac(secret, "mt-coin-blind".toByteArray(Charsets.US_ASCII) + nonce)
     /** The receiver's commitment: SHA-256 of ASCII mt-coin-to, the receiver's from (32 bytes) and the blind (iOS commitment, section 1). */
     fun commitment(from: ByteArray, blind: ByteArray): ByteArray = Wire.sha("mt-coin-to".toByteArray(Charsets.US_ASCII), from, blind)
+
+    // ── THE NODES' FOLD, ONE RECORD AT A TIME (iOS MTCoinChainRules 2455-2622, COIN-TX-V3 sections 3-5): the phone's copy of the chains
+    // (CoinReplica) folds every chain by these rules exactly as the node's _tx_step does, so its root is the node's root. ──
+    const val COIN_EPOCH = 1_788_210_000L    // NOT-UI: 31.08.2026 21:00 UTC, the node's TX_COIN_EPOCH (section 3)
+    const val GENESIS_GATE = 1_792_354_500L  // NOT-UI: the node's TX_GENESIS_GATE: a GENESIS above 0 stands only on the key's own past
+    /** 1 second -- 1 coin from the node's TX_SECOND_CUT, the same second as the v2 cut (iOS secondCut, section 4). */
+    const val SECOND_CUT = V2_CUT
+    const val KIND_SEND = 1; const val KIND_RECV = 2; const val KIND_MINT = 3; const val KIND_REFUND = 4; const val KIND_GENESIS = 5; const val KIND_BURN = 6
+
+    /** A key's state folded over its chain (iOS St, section 3). */
+    data class St(val head: String = CoinTx.ZERO, val height: Int = 0, val birth: Long = 0, val mintEnd: Long = 0, val proven: Long = 0,
+                  val declared: Long = 0, val v3: Boolean = false, val lastAt: Long = 0, val minted: Long = 0)
+    /** A SEND folded, as a RECV or a REFUND that settles it is weighed (iOS SendInfo). */
+    class SendInfo(val from: String, val amount: Long, val at: Long, val to: ByteArray, val dec: Long)
+
+    /** A_2(x) of section 4, the doubling rule: 2 x min(13, max(1, bit_length(s) - 1)) a second over the seconds 1..x (iOS timeA). */
+    fun timeA(x: Long): Long {
+        var total = 0L; var lo = 1L; var k = 0L
+        while (0 < x && lo <= x) {
+            val hi = minOf(x, 2 * lo - 1)
+            total += (hi - lo + 1) * minOf(13L, maxOf(1L, k))
+            lo *= 2; k++
+        }
+        return 2 * total
+    }
+    val genesisCap: Long get() = timeA(V2_CUT - COIN_EPOCH)
+    /** What the seconds 1..x of a key's life may mint by a MINT its node takes at the second [at] (iOS allowTime). */
+    fun allowTime(x: Long, at: Long): Long = if (SECOND_CUT <= at) maxOf(0L, x) else timeA(x)
+    /** The key's seconds of life up to the node second [at], never past the online cut, credited once (iOS timeStep, fold-6, fold-8). */
+    fun timeStep(s: St, at: Long): St {
+        if (at < TIME_CUT || s.height <= 0) return s
+        val end = minOf(at, ONLINE_CUT)
+        val fresh = maxOf(0L, end - maxOf(s.lastAt, TIME_CUT, s.birth))
+        val credit = maxOf(end - s.birth - s.minted, fresh)
+        if (credit <= 0) return s
+        return s.copy(proven = s.proven + credit, minted = s.minted + credit)
+    }
+    /** The seconds a MINT taken at [at] may count from the online cut: its interval within the last MINT_FRESH (iOS present, fold-7). */
+    fun present(t0: Long, t1: Long, at: Long): Long = maxOf(0L, t1 - maxOf(t0, at - MINT_FRESH, ONLINE_CUT))
+    /**
+     * A V2 RECORD THAT SPENT STANDS OPEN AS A SEND (iOS v2Spent, section 5, fold-4): on an opened chain it takes this declared part;
+     * null: a v2 record of the book's past (the chain not opened), or one above the balance.
+     */
+    fun v2Spent(s: St, amount: Long): Long? = if (!s.v3 || s.proven + s.declared < amount) null else maxOf(0L, amount - s.proven)
+    /** A hex name as its bytes (iOS bytes). */
+    fun bytes(s: String): ByteArray? =
+        if (s.length % 2 != 0) null else runCatching { ByteArray(s.length / 2) { s.substring(2 * it, 2 * it + 2).toInt(16).toByte() } }.getOrNull()
+
+    /** One step's answer: the next state, or null for a record that breaks a rule; wait for a RECV or REFUND whose SEND is not folded yet. */
+    class Step(val next: St?, val wait: Boolean)
+    /**
+     * ONE RECORD FOLDED ONTO ITS KEY'S STATE BY THE NODES' RULES (iOS step, MTWalletCore.swift 2572-2622): first the key's time, then
+     * the record's kind; a refused record leaves the state as it stood.
+     */
+    fun step(s0: St, p: CoinTx.Record, at: Long, sends: Map<String, SendInfo>, settled: Set<String>): Step {
+        val s = if (p.version == 3) timeStep(s0, at) else s0
+        var n = s.copy(head = p.id, height = s.height + 1, lastAt = maxOf(at, s.lastAt))
+        if (s.height == 0) n = n.copy(birth = at, mintEnd = at)
+        val a = p.coins
+        if (p.version == 2) {
+            // every transfer moves its balance: after the chain opened, a send that names no receiver spends as a SEND, proven first
+            if (!s.v3) return Step(n, false)
+            val d = v2Spent(s, a) ?: return Step(null, false)
+            return Step(n.copy(proven = s.proven - (a - d), declared = s.declared - d), false)
+        }
+        n = n.copy(v3 = true)
+        when (p.kind) {
+            KIND_GENESIS -> {
+                if (s.v3 || (0 < a && V2_CUT <= at) || genesisCap < a) return Step(null, false)
+                if (0 < a && GENESIS_GATE <= at && (s.height == 0 || timeA(at - s.birth) < a)) return Step(null, false)
+                n = n.copy(declared = a)
+            }
+            KIND_MINT -> {
+                val t0 = p.a; val t1 = p.b
+                if (s.height == 0 || t0 < s.mintEnd || t1 < t0 + 60 || at < t1) return Step(null, false)
+                // the sum of time (fold-3); from the online cut the present seconds alone weigh it (fold-8)
+                if (ONLINE_CUT <= at) { if (present(t0, t1, at) < a) return Step(null, false) }
+                else if (allowTime(t1 - s.birth, at) - s.minted < a) return Step(null, false)
+                n = n.copy(proven = s.proven + a, mintEnd = t1, minted = s.minted + a)
+            }
+            KIND_SEND, KIND_BURN -> {
+                // a BURN spends as a SEND and names no one
+                if (p.kind == KIND_BURN && at < ONLINE_CUT) return Step(null, false)
+                val dec = p.a
+                if (s.proven + s.declared < a || dec != maxOf(0L, a - s.proven)) return Step(null, false)
+                n = n.copy(proven = s.proven - (a - dec), declared = s.declared - dec)
+            }
+            KIND_RECV, KIND_REFUND -> {
+                val S = sends[p.ref] ?: return Step(null, true)
+                if (S.amount != a || p.ref in settled) return Step(null, false)
+                if (p.kind == KIND_RECV) {
+                    val f = bytes(p.from) ?: return Step(null, false)
+                    if (S.dec != p.a || !commitment(f, p.to).contentEquals(S.to)) return Step(null, false)
+                } else if (S.from != p.from || at < S.at + 86_400) return Step(null, false)
+                n = n.copy(proven = s.proven + a - S.dec, declared = s.declared + S.dec)
+            }
+            else -> return Step(null, false)
+        }
+        return Step(n, false)
+    }
 }
 
 object CoinTx {
     private const val TAG = "Montana"
     /** The protocol's chain set, one place (iOS chainNodes): a key's chain lives on the node at its tag's first byte. */
-    private val chainNodes = listOf("montana.quest" to "api.montana.quest", "montana.xxx" to "montana.xxx")   // NOT-UI: node names
+    val chainNodes = listOf("montana.quest" to "api.montana.quest", "montana.xxx" to "montana.xxx")   // NOT-UI: node names
     /** The seconds the road to the node may take (iOS presentMargin). */
     const val PRESENT_MARGIN = 20L
     /** The presence's beat: the chain is asked once in it while the person stays (iOS presentBeat). */
@@ -214,10 +314,14 @@ object CoinTx {
     /** A record read back, believed only when its shape holds and the core verifies its signature (iOS Record, read/read3). */
     class Record(val id: String, val version: Int, val coins: Long, val birthMs: Long, val pair: ByteArray, val prev: String, val from: String,
                  val kind: Int = 1, val to: ByteArray = ByteArray(0), val ref: String = "", val a: Long = 0, val b: Long = 0, val nonce: ByteArray = ByteArray(0))
-    fun read(rec: ByteArray): Record? {
+    /**
+     * [known]: the caller already saw a record of this very name verify, and the name is the hash of every byte, the signature's among
+     * them -- the same bytes, the same answer (iOS read(known:)); the caller still holds the read record's name to the one it knew.
+     */
+    fun read(rec: ByteArray, known: Boolean = false): Record? {
         if (rec.size < 5 || !rec.copyOfRange(0, 4).contentEquals(MAGIC)) return null
         val v = rec[4].toInt()
-        if (v == 3) return read3(rec)
+        if (v == 3) return read3(rec, known)
         if (v != 1 && v != 2) return null
         val end = if (v == 1) 2021 else 2053; val keyAt = if (v == 1) 69 else 101
         val total = if (v == 1) SIZE1 else SIZE2; val prefix = if (v == 1) SIGNED1 else SIGNED2
@@ -225,10 +329,10 @@ object CoinTx {
         val coins = u64(rec, 5)
         if (coins <= 0) return null
         val body = rec.copyOfRange(0, end); val pk = rec.copyOfRange(keyAt, end); val sig = rec.copyOfRange(end, total)
-        if (!MtBindings.nativeVerify(pk, prefix + body, sig)) return null
+        if (!known && !MtBindings.nativeVerify(pk, prefix + body, sig)) return null
         return Record(name(rec), v, coins, u64(rec, 13), rec.copyOfRange(37, 69), if (v == 2) Wire.hex(rec.copyOfRange(69, 101)) else "", keyTag(pk))
     }
-    fun read3(rec: ByteArray): Record? {
+    fun read3(rec: ByteArray, known: Boolean = false): Record? {
         if (rec.size != SIZE3 || !rec.copyOfRange(0, 4).contentEquals(MAGIC) || rec[4].toInt() != 3) return null
         val kind = rec[5].toInt() and 0xff
         if (kind !in 1..6) return null
@@ -238,7 +342,7 @@ object CoinTx {
         val a = u64(rec, 166); val b = u64(rec, 174)
         if (!fieldsHold(kind, amount, pair, to, ref, a, b)) return null
         val body = rec.copyOfRange(0, 2134); val pk = rec.copyOfRange(182, 2134); val sig = rec.copyOfRange(2134, SIZE3)
-        if (!MtBindings.nativeVerify(pk, SIGNED3 + body, sig)) return null
+        if (!known && !MtBindings.nativeVerify(pk, SIGNED3 + body, sig)) return null
         return Record(name(rec), 3, amount, u64(rec, 14), pair, Wire.hex(rec.copyOfRange(38, 70)), keyTag(pk),
             kind, to, Wire.hex(ref), a, b, rec.copyOfRange(22, 38))
     }
@@ -289,13 +393,30 @@ object CoinTx {
         val id = name(rec)
         val door = chainDoor(keyTag(rec.copyOfRange(182, 2134))) ?: return Word.NOT_LEFT
         val a = ask("$door/tx-put", JSONObject().put("rec", Base64.encodeToString(rec, Base64.NO_WRAP)))
-        if (a.code == 200 && a.obj?.optString("id") == id) return Word.LEFT
+        if (a.code == 200 && a.obj?.optString("id") == id) { tookOne(); return Word.LEFT }
         Log.i(TAG, "coin_lay code=" + a.code + " error=" + (a.obj?.optString("error")?.ifEmpty { null } ?: "-") + " unreached=" + (if (a.unreached) 1 else 0) + " id=" + id.take(12))
         if (a.code == 409) return Word.BEHIND
         if (a.code == 429) return Word.PACED
         if (a.code == 400 || a.code == 507 || a.unreached) return Word.NOT_LEFT
         return if (ask("$door/tx-get", JSONObject().put("id", id)).code == 200) Word.LEFT else Word.UNKNOWN
     }
+    /**
+     * THE KEY'S PACE HAS ONE OWNER (iOS MTCoinTx.keyPace, MTWalletCore.swift 2848-2862; the critic of 14486): the node takes thirty
+     * records a minute from one key (V3 section 7), and the paid reactions -- a person's and the auto-reactions' -- must not spend the
+     * minute a send of the person's own then needs. Every record the node took from this phone stands here by its moment; a reaction
+     * leaves six of the thirty to the person's sends (reactionRoom), and a send that still meets the pace waits the minute out (send3).
+     */
+    const val KEY_PACE = 30
+    const val KEPT_FOR_SENDS = 6
+    private val laidAt = ArrayList<Long>()   // under its own lock: one list, never held across a wait
+    fun laidThisMinute(): Int = synchronized(laidAt) {
+        val now = System.currentTimeMillis()
+        laidAt.removeAll { 60_000 <= now - it }
+        laidAt.size
+    }
+    private fun tookOne() = synchronized(laidAt) { laidAt.add(System.currentTimeMillis()) }
+    val reactionRoom: Boolean get() = laidThisMinute() < KEY_PACE - KEPT_FOR_SENDS
+
     /** Where a SEND waits for its node's word, in the person's folder (iOS pendingURL: tx-pending-<id>.rec; settle reads it). */
     fun pendingFile(id: String): File = File(File(Book.ctx.filesDir, "Coins").apply { mkdirs() }, "tx-pending-$id.rec")
 
@@ -341,6 +462,51 @@ object CoinTx {
     /** SENDs laid and not yet taken or refunded (iOS openSends/keepOpen: rows of id, conv, coins, at). */
     fun openSends(): List<JSONObject> = load(OPEN).optJSONArray("open")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } ?: emptyList()
     fun keepOpen(rows: List<JSONObject>) = save(OPEN, JSONObject().put("open", org.json.JSONArray(rows)))
+
+    /**
+     * THE LETTER A PAID REACTION'S SEND STANDS UNDER, AS ITS WORD NAMED IT (iOS MTCoinTx.heard, MTWalletCore.swift 3469-3483): the
+     * word moves no coins; it names the SEND, and the scan asked at once credits that SEND under the letter. A word later than the
+     * scan leaves the coins right and under no letter. The newest 256 names are kept.
+     */
+    private const val HEARD = "coin3-heard.json"   // NOT-UI: the file's name
+    fun heard(tx: String, on: String) {
+        if (tx.length != 64 || !tx.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' } || on.isEmpty()) return
+        synchronized(held) {
+            val a = load(HEARD).optJSONArray("on") ?: org.json.JSONArray()
+            val rows = (0 until a.length()).mapNotNull { a.optJSONArray(it) }.filter { it.optString(0) != tx }.toMutableList()
+            rows.add(org.json.JSONArray().put(tx).put(on))
+            save(HEARD, JSONObject().put("on", org.json.JSONArray(rows.takeLast(256))))
+        }
+        if (CoinBook.holds(CoinEntry.RECEIVE, REF_PREFIX + tx)) return
+        Thread { scanFresh("reaction") }.start()
+    }
+    private fun heardOn(tx: String): String? {
+        val a = load(HEARD).optJSONArray("on") ?: return null
+        for (i in a.length() - 1 downTo 0) {
+            val r = a.optJSONArray(i) ?: continue
+            if (r.optString(0) == tx) return if (r.length() == 2) r.optString(1).ifEmpty { null } else null
+        }
+        return null
+    }
+    /**
+     * A name taken once (an auto-reaction's «auto:» and its letter; iOS MTCoinTx.once/release 3486-3499): false if it stands. Two
+     * days are kept -- an auto-reaction pays only a letter born within a day (CoinSend.FRESH).
+     */
+    private const val ONCE = "coin3-once.json"   // NOT-UI: the file's name
+    fun once(name: String): Boolean = synchronized(held) {
+        val now = System.currentTimeMillis() / 1000.0
+        val was = load(ONCE).optJSONObject("n") ?: JSONObject()
+        val o = JSONObject()
+        for (k in was.keys()) { val at = was.optDouble(k); if (now - at < 2 * CoinSend.FRESH) o.put(k, at) }
+        if (o.has(name)) return@synchronized false
+        o.put(name, now)
+        save(ONCE, JSONObject().put("n", o))
+        true
+    }
+    fun release(name: String) = synchronized(held) {
+        val o = JSONObject((load(ONCE).optJSONObject("n") ?: JSONObject()).toString())
+        if (o.remove(name) != null) save(ONCE, JSONObject().put("n", o))
+    }
 
     const val REF_PREFIX = "tx:"       // NOT-UI: the book's name of a transfer's moves (iOS refPrefix)
     const val BACK_PREFIX = "txback:"  // NOT-UI: the book's name of a debit no node took (iOS backPrefix)
@@ -463,6 +629,46 @@ object CoinTx {
      * believed only from its key's chain node, so a record laid on another node (a fork a dishonest client tried) moves nothing.
      * Then the chain is reconciled and the untaken SENDs of a day come back (refundDue). Off the main thread: it asks the nodes.
      */
+    /** The v2 records this book credited, each with its sender's key, its coins and its pair: a REFUND by the sender takes them back (iOS noteCredit2, 3677-3686). */
+    private const val CREDITS2 = "coin2-credits.json"   // NOT-UI: the file's name
+    private const val GONE_PREFIX = "txgone:"           // NOT-UI: the book's name of a credit its sender took back
+    fun noteCredit2(id: String, from: String, coins: Long, conv: String) = synchronized(held) {
+        val o = JSONObject(load(CREDITS2).toString())
+        val m = o.optJSONObject("c") ?: JSONObject()
+        if (m.has(id)) return@synchronized
+        m.put(id, JSONObject().put("f", from).put("n", coins).put("p", conv))
+        save(CREDITS2, o.put("c", m))
+    }
+    /**
+     * THE COINS ARE EITHER GONE OR NOT (constitution, article 8; iOS creditsGone, 3687-3707): a v2 record credited here whose sender's
+     * REFUND took it back at its chain node leaves this book by one move under its name, whatever the balance (retake: the truth of
+     * a debt). Asked once an hour. Off the main thread: it asks the nodes.
+     */
+    fun creditsGone() {
+        val me = myKeyTag ?: return
+        val o = load(CREDITS2)
+        val m = JSONObject((o.optJSONObject("c") ?: JSONObject()).toString())
+        val now = System.currentTimeMillis() / 1000.0
+        if (m.length() == 0 || now - o.optDouble("at", 0.0) < 3600) return
+        for (id in m.keys().asSequence().toList()) {
+            val c = m.optJSONObject(id)
+            val from = c?.optString("f").orEmpty(); val coins = c?.optLong("n") ?: 0L; val conv = c?.optString("p").orEmpty()
+            val door = if (from.isEmpty() || conv.isEmpty() || coins <= 0) null else chainDoor(from)
+            if (door == null) { m.remove(id); continue }
+            val f = ask("$door/tx-settle", JSONObject().put("send", id))
+            if (me != myKeyTag) return   // the credits' file stays in its person's folder
+            if (f.code != 200 || f.obj?.optString("state") != "refund") continue
+            if (CoinBook.holds(CoinEntry.SEND, GONE_PREFIX + id) || CoinBook.retake(coins, conv, GONE_PREFIX + id)) m.remove(id)
+            Log.i(TAG, "coin_v3 credit gone coins=" + coins + " id=" + id.take(12))
+        }
+        synchronized(held) { save(CREDITS2, JSONObject(load(CREDITS2).toString()).put("c", m).put("at", now)) }
+    }
+    /** A scan that starts after the one in flight ends (iOS scanFresh, 3132): what the node holds now is in the book when it returns. */
+    fun scanFresh(why: String) {
+        var waited = 0
+        while (scanning.get() && waited < 150) { waited++; Thread.sleep(100) }
+        scan(why)
+    }
     fun scan(why: String) {
         if (!scanning.compareAndSet(false, true)) { again = true; return }
         try {
@@ -495,7 +701,10 @@ object CoinTx {
                                 if (!CoinBook.holds(CoinEntry.SEND, REF_PREFIX + r.id) && CoinBook.retake(r.coins, c, REF_PREFIX + r.id)) own++
                             } else if (r.version == 3) {
                                 if (receive3(r, c)) credited++
-                            } else if (CoinBook.receive(r.coins, c, REF_PREFIX + r.id)) credited++
+                            } else {
+                                if (CoinBook.receive(r.coins, c, REF_PREFIX + r.id)) credited++
+                                if (r.version == 2 && CoinBook.holds(CoinEntry.RECEIVE, REF_PREFIX + r.id)) noteCredit2(r.id, r.from, r.coins, c)
+                            }
                         }
                         val last = a.obj?.optLong("last", since) ?: since
                         if (txs.length() != 512 || since >= last) break
@@ -507,6 +716,8 @@ object CoinTx {
             if (me != myKeyTag) return
             reconcile()   // the chain announced (COIN-TX-V3 sections 3-4)
             refundDue()   // a SEND no one took in a day comes back (section 5)
+            creditsGone() // a v2 record its sender took back leaves this book too (fold-4)
+            CoinReplica.run(why)   // this phone's copy of the network's chains and its signed root (section 6)
         } finally {
             scanning.set(false)
             if (again) { again = false; Thread { scan("again") }.start() }
@@ -533,7 +744,58 @@ object CoinTx {
             taken = f.obj?.optString("state") == "recv" && f.obj?.optString("by") == me
         }
         Log.i(TAG, "coin_v3 recv code=" + r.code + " word=" + r.word + " taken=" + (if (taken) 1 else 0) + " id=" + s.id.take(12))
-        return taken && me == myKeyTag && CoinBook.receive(s.coins, conv, REF_PREFIX + s.id)
+        return taken && me == myKeyTag && CoinBook.receive(s.coins, conv, REF_PREFIX + s.id, heardOn(s.id))
+    }
+
+    /**
+     * A TRANSFER TO ONE'S OWN OTHER ACCOUNT IS ONE PAIR, SENT AND RECEIVED IN THE SAME STEP (iOS knowOwn/landOwn, MTWalletCore.swift
+     * 3578-3630; the author's words 12.10.2026, No.66: «a transfer to oneself in Montana must become one pair of records, sent and
+     * received»). The phone holds both seeds -- the person seated and the person on its shelf -- so the SEND names the other key
+     * (knowOwn), and the RECV is laid at once on the other key's own chain with that key, the chain opened first by its GENESIS, as
+     * its own phone would open it. Only then do the coins stand in the other person's book (Seats.shelfLay), under the name their own
+     * scan credits them by: a SEND whose RECV did not stand stays the receiver's to take when seated, or comes back to its sender by
+     * the REFUND after a day -- never both. Off the main thread.
+     */
+    fun knowOwn(seat: String, conv: String): Hands? {
+        val hands = Seats.shelfCoins(seat)?.let { derive(it.first) } ?: run { Log.i(TAG, "coin_own seat=$seat no hands"); return null }
+        notePeerFrom(conv, hands.from)
+        return hands
+    }
+    fun landOwn(seat: String, id: String, coins: Long, conv: String) {
+        val shelf = Seats.shelfCoins(seat)
+        val hands = shelf?.let { derive(it.first) }
+        val me = myKeyTag
+        val door = me?.let { chainDoor(it) }
+        if (shelf == null || hands == null || door == null) { Log.i(TAG, "coin_own seat=$seat no hands -- the receiver takes it when seated"); return }
+        var v3 = false; var taken = false; var said = "v2"
+        val g = ask("$door/tx-get", JSONObject().put("id", id))
+        val b = g.obj?.optString("rec")?.takeIf { g.code == 200 && it.isNotEmpty() }?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }
+        if (b != null) {
+            v3 = b.size == SIZE3
+            val s = if (v3) read3(b)?.takeIf { it.id == id } else null
+            val secret = Book.secret(conv)?.takeIf { Wire.isWhole(it) }
+            val theirs = unhex(hands.from)
+            val tdoor = chainDoor(hands.from)
+            if (s != null && secret != null && theirs != null && tdoor != null) {
+                val blind = Wire.itemKeys(secret).map { CoinChainRules.blind(it, s.nonce) }
+                    .firstOrNull { CoinChainRules.commitment(theirs, it).contentEquals(s.to) }
+                if (blind != null) {
+                    chain3(hands.from, tdoor)?.takeIf { !it.v3 }?.let {
+                        val r = layOnHead(hands) { c -> build3(Kind3.GENESIS, 0L, c.head, fresh(), hands = hands) }   // genesisRoom is 0 from the v2 cut
+                        Log.i(TAG, "coin_own seat=$seat genesis code=" + r.code + " word=" + r.word + " amount=0")
+                    }
+                    val r = layOnHead(hands) { c -> build3(Kind3.RECV, s.coins, c.head, fresh(), to = blind, ref = s.id, a = s.a, hands = hands) }
+                    taken = r.code == 200
+                    said = "recv code=" + r.code + " word=" + r.word
+                } else said = "not their key"
+            }
+        } else said = "no record code=" + g.code
+        if (!taken && !(g.code == 200 && !v3)) {
+            Log.i(TAG, "coin_own seat=$seat coins=$coins $said -- the receiver takes it when seated, or it comes back")
+            return
+        }
+        val laid = Seats.shelfLay(seat, CoinEntry(CoinEntry.RECEIVE, coins, REF_PREFIX + id, conv, null, System.currentTimeMillis() / 1000.0))
+        Log.i(TAG, "coin_own seat=$seat coins=$coins $said book=" + (if (laid) 1 else 0) + " id=" + id.take(12))
     }
 
     /** An untaken SEND comes back after a day by a REFUND on my chain (iOS refundDue, 3632; section 5): its node's clock decides, one fate a SEND. */
@@ -684,6 +946,7 @@ object CoinSplit {
         val now = growing
         if (before == now) return
         told()
+        if (before < now) CoinFlash.born(now - before)   // the seconds born rise at the wallet's sides (iOS beat, MTWalletCore.swift 2745)
     }
 }
 

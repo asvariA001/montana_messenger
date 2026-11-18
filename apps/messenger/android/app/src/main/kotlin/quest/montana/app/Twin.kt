@@ -40,7 +40,7 @@ object Keeping {
     }
 
     /** The file comes back piece by piece (iOS fetch 688-714): the list checked by its name, each piece by its own, the length whole. */
-    fun fetch(o: JSONObject, dest: File): Boolean {
+    fun fetch(o: JSONObject, dest: File, progress: (Float) -> Unit = {}): Boolean {
         val size = o.optLong("z", 0L)
         val bk = o.optString("bk"); val mref = o.optString("mref")
         val mk = runCatching { Base64.decode(o.optString("mk"), Base64.DEFAULT) }.getOrNull()
@@ -48,15 +48,16 @@ object Keeping {
         val list = Wire.getBlob(mref)?.takeIf { Wire.hex(Wire.sha(it)) == mref } ?: return false
         val chunks = Wire.open(mk, list)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: return false
         dest.delete()
-        if (!Media.download(JSONObject().put("bk", bk).put("chunks", chunks), dest)) return false
+        if (!Media.download(JSONObject().put("bk", bk).put("chunks", chunks), dest, progress)) return false
         return dest.length() == size
     }
 
     /** A road's name and key alone (iOS roadsOf, c22a497d at 2418): enough to find its pieces again and take them off the nodes. */
     fun roadsOf(roads: Collection<JSONObject>): JSONArray = JSONArray().apply {
         for (r in roads) {
+            // a road with no key is one piece named alone -- the keepers' book (iOS roadsOf keeps it, f60c68c4): unlay drops its name
             val mref = r.optString("mref"); val mk = r.optString("mk")
-            if (mref.isNotEmpty() && mk.isNotEmpty()) put(JSONObject().put("mref", mref).put("mk", mk))
+            if (mref.isNotEmpty() && r.has("mk")) put(JSONObject().put("mref", mref).put("mk", mk))
         }
     }
     /** Two lists of roads as one (an absent list is empty). */
@@ -782,6 +783,7 @@ object Twin {
                 val me = deviceRef() ?: return@runCatching
                 val told = Keeping.knock(secret, JSONObject().put("w", "lw").put("f", mine).put("at", System.currentTimeMillis() / 1000), me)
                 Log.i("Montana", "keep_light words opened: the seed's devices asked boxed=" + (if (told) 1 else 0))
+                KeepCopy.devicesAsked(told)   // the restore's screen says it (iOS 2451)
             }.onFailure { Log.w("Montana", "keep_light " + it.javaClass.simpleName) }
         }
     }
@@ -858,6 +860,11 @@ object Twin {
         val settled = System.currentTimeMillis() - 120_000L
         val out = HashMap<String, ChatPrint>()
         for (ch in Book.rooms()) {
+            // A DELETED CHAT IS TOLD TO NO DEVICE (iOS chatPrints, 34ce186e, 2443, the author's word 24302): its print would stand it again
+            if (Book.erased(ch.ref)) continue
+            // THE MONTANA ROOM IS EACH DEVICE'S OWN (iOS chatPrints, 17b1f7c4 at 2446, OZ 1 p.1.4): its rows are this build's words;
+            // told as a print, another device took the rows of other devices' builds
+            if (Book.isMontana(ch.ref)) continue
             val rows = ch.msgs.toList()
             if (rows.isEmpty()) continue
             val keys = Archive.archiveKeys(rows.filter { it.at < settled })
@@ -929,6 +936,7 @@ object Twin {
      * gap; a row buried there is never laid over its tombstone.
      */
     private fun heal(chat: String, theirs: Set<String>) {
+        if (Book.isMontana(chat)) return   // the Montana room is each device's own (iOS healTwin, 2446, OZ 1 p.1.4)
         val mine = HashSet<String>()
         var given = 0
         for (m in Book.chat(chat)?.msgs?.toList().orEmpty()) {
@@ -1117,7 +1125,7 @@ object Twin {
         val items = runCatching { JSONObject(body).getJSONArray("i") }.getOrNull() ?: return
         val rows = Book.chat(chat)?.msgs ?: return
         val want = HashSet<String>()
-        for (i in 0 until minOf(200, items.length())) items.optJSONArray(i)?.takeIf { it.length() == 3 }?.let { a ->
+        for (i in 0 until minOf(200, items.length())) items.optJSONArray(i)?.takeIf { it.length() == 3 && it.optInt(1, -1) in 0..1 }?.let { a ->
             want.add(Archive.rowSig(a.optLong(0), a.optInt(1) == 1, a.optString(2)))
         }
         var n = 0
@@ -1178,6 +1186,7 @@ object Twin {
      */
     private fun takeRow(chat: String, mid: String, own: Boolean, at: Double, body: String) {
         val o = runCatching { JSONObject(body) }.getOrNull()
+        if (Book.isMontana(chat)) return rowDropped(chat, mid, "the Montana room is each device's own")   // iOS takeTwinRow, 2446
         if (o == null || at <= 0 || mid.isEmpty()) return rowDropped(chat, mid, "a letter that names no row")
         // SAVED MESSAGES IS BORN BY THE TWIN'S ROW (iOS 4bff00b3 savedBirth, the critic of 22541): a device that never wrote to itself
         // holds no Saved Messages, and the row its twin gave left silently; a person's conversation is born only by its pipe
@@ -1341,9 +1350,10 @@ object Twin {
         if (chat == Book.SAVED) Book.saved(Book.ctx)   // born here at its first row (savedBirth)
         // a row of Saved Messages born within the hour is told back to the device that wrote it (iOS 2423, OZ 1 p.1.5); the past a heal lays is not
         if (chat == Book.SAVED && System.currentTimeMillis() - m.at < 3_600_000L && Book.chat(chat)?.msgs?.none { it.mid == m.mid } != false) tellLanded(m.mid, false)
+        if (Book.rowGone(chat, m)) return rowDropped(chat, m.mid, "the chat's chain names the row gone")
         var n = 0
         Book.edit(chat) { c ->
-            if (c.msgs.none { it.mid == m.mid } && !Book.isBuried(chat, m.mid)) { c.msgs.add(m); c.msgs.sortBy { it.at } }
+            if (c.msgs.none { it.mid == m.mid } && !Book.rowGone(chat, m)) { c.msgs.add(m); c.msgs.sortBy { it.at } }
             n = c.msgs.size
         }
         Log.d("Montana", "twin_row chat=" + chat.take(10) + " sid=" + m.mid.take(16) + " n=" + n)

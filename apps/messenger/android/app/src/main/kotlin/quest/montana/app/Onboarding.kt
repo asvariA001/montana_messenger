@@ -369,6 +369,38 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             .setCancelable(false).show()
     }
 
+    /**
+     * THE STEPS OF THE RESTORE ON ITS SCREEN (iOS MTKeepWalkLines, 2451; the author's words 24484, 24486): one line a step, said as it
+     * happens -- who was asked, who answered, what came and what did not.
+     */
+    private fun walkLines(box: LinearLayout, t: KeepCopy.Taking) {
+        val c = box.context
+        val w = KeepCopy.walk
+        val rows = ArrayList<Pair<Int, String>>()
+        if (0 < w.devicesAsked) rows += when {
+            0 < w.named -> R.drawable.ic_check_circle_outline to c.getString(R.string.keep_walk_device_answered)
+            w.devicesSilent -> R.drawable.ic_minus_circle to c.getString(R.string.keep_walk_devices_silent)
+            w.devicesReached -> R.drawable.ic_clock to c.getString(R.string.keep_walk_asking_devices)
+            else -> R.drawable.ic_warning_triangle to c.getString(R.string.keep_walk_no_node)
+        }
+        if (0 < w.slots) rows += (if (0 < w.boxed) R.drawable.ic_person_2 else R.drawable.ic_warning_triangle) to
+            c.getString(R.string.keep_walk_keepers_asked, w.boxed, w.slots)
+        if (0 < w.rung) rows += R.drawable.ic_set_bell to c.getString(R.string.keep_walk_rung, w.rung)
+        if (0 < w.broken) rows += R.drawable.ic_refresh to c.getString(R.string.keep_walk_broken)
+        when (t) {
+            is KeepCopy.Taking.Fetching -> rows += R.drawable.ic_arrow_circle_down to c.getString(R.string.keep_walk_downloading)
+            is KeepCopy.Taking.Laying -> rows += R.drawable.ic_tray_down to c.getString(R.string.keep_walk_laying)
+            else -> {}
+        }
+        box.removeAllViews()
+        for ((glyph, word) in rows) box.addView(LinearLayout(c).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            addView(c.icon(glyph, Color.WHITE, 16), LinearLayout.LayoutParams(c.dp(16), c.dp(16)).apply { marginEnd = c.dp(8) })
+            addView(c.text(word, 15f, Color.WHITE))
+        }, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = c.dp(6) })
+    }
+
     private fun takingBack() = page {
         val c = context
         spacer()
@@ -387,6 +419,9 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
         addView(pct, lp())
         val parts = c.text("", 15f, Color.WHITE, center = true).apply { visibility = View.GONE }   // iOS «Parts in hand: N of M»
         addView(parts, lp())
+        gap(8)
+        val lines = LinearLayout(c).apply { orientation = LinearLayout.VERTICAL }   // the steps of the restore (iOS MTKeepWalkLines, 2451)
+        addView(lines, lp().apply { marginStart = dp(24); marginEnd = dp(24) })
         spacer()
         // The person may walk on without the copy while nothing is being laid into this device: a copy half laid is
         // not a state to leave in (iOS canGoOn).
@@ -410,6 +445,7 @@ class Onboarding(private val act: MainActivity, private val onDone: () -> Unit) 
             if (f != null) bar.progress = (f * 100).toInt()
             pct.text = if (f == null) "" else "${(f * 100).toInt()}%"   // USER-DATA: a share
             without.visibility = if (HomeNodeWatch.restoring == null) View.VISIBLE else View.GONE
+            walkLines(lines, t)
         }
         show()
         HomeNodeWatch.onChange = { act.onMain { if (isAttachedToWindow) show() } }
