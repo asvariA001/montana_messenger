@@ -20,4 +20,14 @@
     <string name="keep_came_back">The copy came back</string>
     <string name="keep_none_came_back">No copy came back</string>
     <string name="keep_others_footer">The parts your contacts leave with you are sealed the same way: this phone cannot open them, and only their own 24 words can. This is how Montana keeps copies with no cloud in between: people hold each other\'s sealed parts, and no one but the owner can ever read them.</string>
+    <!-- the steps of the restore on its screen (iOS MTKeepWalkLines, 2451) -->
+    <string name="keep_walk_device_answered">Your other device answered with your history</string>
+    <string name="keep_walk_devices_silent">Your other devices did not answer in two minutes</string>
+    <string name="keep_walk_asking_devices">Asking your other devices</string>
+    <string name="keep_walk_no_node">No node took the asking yet</string>
+    <string name="keep_walk_keepers_asked">Asked the people who keep your copy: %1$d of %2$d</string>
+    <string name="keep_walk_rung">Called them loudly: %1$d</string>
+    <string name="keep_walk_broken">A copy did not come whole. Asking again</string>
+    <string name="keep_walk_downloading">Downloading your history</string>
+    <string name="keep_walk_laying">Laying your history on this device</string>
 </resources>

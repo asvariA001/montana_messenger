@@ -20,4 +20,14 @@
     <string name="keep_came_back">Копия вернулась</string>
     <string name="keep_none_came_back">Копия не вернулась</string>
     <string name="keep_others_footer">Части, которые собеседники оставляют у вас, запечатаны так же: этот телефон не может их открыть, откроют только их собственные 24 слова. Так Montana хранит копии без облака посередине: люди держат друг у друга запечатанные части, и прочитать их не может никто, кроме владельца.</string>
+    <!-- the steps of the restore on its screen (iOS MTKeepWalkLines, 2451) -->
+    <string name="keep_walk_device_answered">Ваше другое устройство ответило вашей историей</string>
+    <string name="keep_walk_devices_silent">Другие ваши устройства не ответили за две минуты</string>
+    <string name="keep_walk_asking_devices">Спрашиваем ваши другие устройства</string>
+    <string name="keep_walk_no_node">Ни один узел ещё не принял запрос</string>
+    <string name="keep_walk_keepers_asked">Спросили тех, кто хранит вашу копию: %1$d из %2$d</string>
+    <string name="keep_walk_rung">Позвали их громко: %1$d</string>
+    <string name="keep_walk_broken">Копия пришла не целиком. Спрашиваем снова</string>
+    <string name="keep_walk_downloading">Загружаем вашу историю</string>
+    <string name="keep_walk_laying">Раскладываем вашу историю на этом устройстве</string>
 </resources>

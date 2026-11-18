@@ -20,4 +20,14 @@
     <string name="keep_came_back">副本已取回</string>
     <string name="keep_none_came_back">副本未能取回</string>
     <string name="keep_others_footer">联系人留在您这里的部分也以同样方式加密：此手机无法打开，只有他们自己的 24 个单词才能打开。Montana 就是这样在不经过云端的情况下保管副本：人们互相保管加密的部分，除了主人，没有人能读取。</string>
+    <!-- the steps of the restore on its screen (iOS MTKeepWalkLines, 2451) -->
+    <string name="keep_walk_device_answered">您的另一台设备已回传您的历史记录</string>
+    <string name="keep_walk_devices_silent">您的其他设备在两分钟内没有回应</string>
+    <string name="keep_walk_asking_devices">正在询问您的其他设备</string>
+    <string name="keep_walk_no_node">尚无节点接收此请求</string>
+    <string name="keep_walk_keepers_asked">已询问保管您副本的人：%1$d/%2$d</string>
+    <string name="keep_walk_rung">已大声呼叫：%1$d</string>
+    <string name="keep_walk_broken">副本未完整到达，正在重新请求</string>
+    <string name="keep_walk_downloading">正在下载您的历史记录</string>
+    <string name="keep_walk_laying">正在将您的历史记录放到此设备上</string>
 </resources>

@@ -782,6 +782,7 @@ object Twin {
                 val me = deviceRef() ?: return@runCatching
                 val told = Keeping.knock(secret, JSONObject().put("w", "lw").put("f", mine).put("at", System.currentTimeMillis() / 1000), me)
                 Log.i("Montana", "keep_light words opened: the seed's devices asked boxed=" + (if (told) 1 else 0))
+                KeepCopy.devicesAsked(told)   // the restore's screen says it (iOS 2451)
             }.onFailure { Log.w("Montana", "keep_light " + it.javaClass.simpleName) }
         }
     }

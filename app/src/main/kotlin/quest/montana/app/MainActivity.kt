@@ -272,6 +272,7 @@ class MainActivity : Activity() {
                 // «Forget this device» (iOS: Privacy): first the archive seals what the words can reopen — every head, name and face
                 // (iOS sealForForget) — then the seed and everything of the person leave; the sealed history stays for the 24 words.
                 Archive.sealForForget {
+                    KeepCopy.stopTaking()   // a restore under way leaves with the person, so the next words begin their own (iOS eraseHere, 2451)
                     ShareSuggest.forgetAll(this)   // the share sheet's suggestions of the departed person go with them
                     MontanaSeed.clear(); Archive.forgetKeys(); Prefs.forgetPerson(); SelfFace.clear(this); SavedMessages.forget(this)
                     Seats.leaveForgotten(this)   // the seat of the one forgotten leaves the book; others on the shelf stay (iOS leaveForgotten)

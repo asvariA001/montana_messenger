@@ -898,6 +898,25 @@ object KeepCopy {
     @Volatile var watch: (() -> Unit)? = null
     @Volatile var taking: Taking = Taking.Idle
         private set(v) { field = v; watch?.invoke() }
+    /**
+     * THE RESTORE SAYS WHAT IT DOES (iOS MTKeeping.Walk, 2451; the author's words 24484, 24486: «show on the restore screen what is
+     * happening»): who was asked, who answered, what came and what did not -- the screen reads this alone (Onboarding walkLines).
+     */
+    data class Walk(
+        val devicesAsked: Int = 0,          // the times the seed's other devices were asked for a picture of now
+        val devicesReached: Boolean = false, // a door boxed that asking
+        val devicesSilent: Boolean = false,  // two minutes passed and no device named a picture
+        val named: Int = 0,                 // the copies a device named for this asking
+        val broken: Int = 0,                // the copies and parts that did not come whole
+        val slots: Int = 0, val boxed: Int = 0,   // the keepers' pipes called, and those a door boxed
+        val rung: Int = 0,                  // the keepers rung loudly
+    )
+    @Volatile var walk = Walk()
+        private set(v) { field = v; watch?.invoke() }
+    private val walkLock = Any()
+    private fun walked(f: (Walk) -> Walk) = synchronized(walkLock) { walk = f(walk) }
+    /** The asking of the seed's devices was said (Twin.askLight), boxed on a door or not. */
+    fun devicesAsked(boxed: Boolean) = walked { it.copy(devicesAsked = it.devicesAsked + 1, devicesReached = it.devicesReached || boxed) }
     /** The first screen lets the person in the moment the light copy is laid (iOS onLight; App: «once the light copy is laid»). */
     @Volatile var onLight: (() -> Unit)? = null
     @Volatile private var takingRun: Thread? = null
@@ -954,6 +973,7 @@ object KeepCopy {
             o.optString("d") !in lightSeen && !(others && o.optString("v") == mine)   // an earlier life's own copy is never the history
                 && (since == null || o.optLong("at", 0L) >= since)   // words opened: only a picture named for this asking (iOS 2445)
         }.sortedByDescending { it.optLong("at", 0L) }   // the newest picture first
+        walked { it.copy(named = maxOf(it.named, roads.size)) }
         if (roads.isEmpty()) return false.also { Log.i("Montana", "keep_light the pipe of light holds no road") }
         var laid = 0
         for (road in roads) {
@@ -963,6 +983,7 @@ object KeepCopy {
                 taking = Taking.Fetching(0.0)
                 if (!Keeping.fetch(road, f) || shaHex(f) != d) {
                     lightSeen.add(d)
+                    walked { it.copy(broken = it.broken + 1) }
                     Log.i("Montana", "keep_light a light copy did not come whole"); continue
                 }
                 // TAKEN, IT LEAVES THE RELAY (iOS takeLight, 61694b15 at 2447): the pieces go from the nodes the moment they are here
@@ -1005,7 +1026,8 @@ object KeepCopy {
             taking = Taking.Calling(0, 0)
             try { Thread.sleep(10_000) } catch (_: InterruptedException) { Thread.currentThread().interrupt(); break }
         }
-        Log.i("Montana", "keep_light words opened: no device of the seed named a picture of now in 120 s -- the keepers are called")
+        walked { it.copy(devicesSilent = true) }
+        Log.i("Montana", "keep_light words opened: no device of the seed named a picture of now in 120 s -- the keepers' copy is the history")
         return false
     }
 
@@ -1021,14 +1043,25 @@ object KeepCopy {
             val r = runCatching { callAndBuild() }.getOrElse {
                 Log.w("Montana", "keep_build " + it.javaClass.simpleName); taking = Taking.Failed; CopyResult.Refused(Refusal.Empty)
             }
-            synchronized(lock) { if (takingRun === Thread.currentThread()) takingRun = null }
-            done(r)
+            // stopped: a newer walk owns the handle and the screen (iOS takingRound, 2451)
+            val mine = synchronized(lock) { (takingRun === Thread.currentThread()).also { if (it) takingRun = null } }
+            if (mine) done(r)
         }, "keep-take").apply { isDaemon = true; start() }
     }
+    /** The walk stops, and the next takeBack begins a new one (iOS 2451; P1 on Messenger 2450: the walk of an erased person outlived
+     *  the erase, and the new restore, refused by the guard above, never asked the devices). */
     fun stopTaking() {
-        val t = synchronized(lock) { takingRun.also { takingRun = null } }
-        t?.interrupt()
-        if (taking is Taking.Calling) taking = Taking.Idle
+        val t = synchronized(lock) { takingRun.also { takingRun = null } } ?: return
+        t.interrupt()
+        taking = Taking.Idle; walked { Walk() }
+    }
+
+    /** The keepers' pipes called once, each boxed where a door takes it. */
+    private fun callKeepers(secrets: List<ByteArray>, twin: String) {
+        var boxed = 0
+        for (s in secrets) if (Keeping.knock(s, JSONObject().put("w", "call"), twin)) boxed++
+        walked { it.copy(slots = secrets.size, boxed = boxed) }
+        Log.i("Montana", "keep_call slots=${secrets.size} boxed=$boxed")
     }
 
     private fun callAndBuild(): CopyResult {
@@ -1046,11 +1079,17 @@ object KeepCopy {
         var lastLoud = 0.0
         val began = now()
         taking = Taking.Fetching(0.0)
+        walked { Walk() }
         // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
         // the pipes it named are asked to give back
         // ONE OWNER OF THE HISTORY (iOS 2445, OZ 1 p.2, the author's words 24326, 24328): the picture of now is the whole history, and
         // nothing is laid over it -- the keepers' copy, of an older generation, laid on top of the light one made a second owner. The
-        // keepers are called only when no device of the seed named a picture.
+        // keepers are laid only when no device of the seed named a picture.
+        // EVERY ONE IS ASKED AT ONCE (iOS 2451, the author's word 24486: «ask all the nodes and devices, so as not to get stuck»): the
+        // keepers are called with the devices, never two minutes after them; their parts wait in the box, read below only when no
+        // device named a picture of now. Taken, a part leaves the nodes; one never read leaves them by the relay's term (HOLD).
+        lastCall = now()
+        Thread({ runCatching { callKeepers(secrets, twin) } }, "keep-call").apply { isDaemon = true }.start()
         KeepDerive.lightSecret(master)?.let { ls ->
             if (takeOpened(ls, dir)) { taking = Taking.Done; lightTaken?.let { return it } }   // the picture is whole: nobody is asked to give back (iOS 2446, OZ 1 p.1.5)
         }
@@ -1060,14 +1099,12 @@ object KeepCopy {
                 val t = now()
                 if (t - lastCall >= 120) {
                     lastCall = t
-                    var boxed = 0
-                    for (s in secrets) if (Keeping.knock(s, JSONObject().put("w", "call"), twin)) boxed++
-                    Log.i("Montana", "keep_call slots=${secrets.size} boxed=$boxed")
+                    callKeepers(secrets, twin)
                 }
-                // IF NEEDED, A LOUD PUSH (iOS, the author's word 08.10.2026): six minutes of silence from a slot, and the call in its
-                // pipe rings the keeper's screen with the owner's name, every ten minutes. The slots that answered the newest copy are
-                // rung no more.
-                if (t - began >= 360 && t - lastLoud >= 600) {
+                // A LOUD PUSH (iOS, the author's word 08.10.2026; decision 1063 = b, 2451): the call in a slot's pipe rings the keeper's
+                // screen with the owner's name once a minute for the first ten minutes, then every ten minutes -- a phone whose app the
+                // person closed hears no silent push at all. The slots that answered the newest copy are rung no more.
+                if (t - lastLoud >= (if (t - began < 600) 60 else 600)) {
                     lastLoud = t
                     val newest = answers.values.maxByOrNull { it.first.generation }?.first
                     val heard = answers.values.filter { newest != null && it.first.copyDigest.contentEquals(newest.copyDigest) }.mapTo(HashSet()) { it.first.slot }
@@ -1075,6 +1112,7 @@ object KeepCopy {
                     for (k in 0 until (newest?.n ?: KeepDerive.SLOTS)) if (k !in heard && k < secrets.size) {
                         if (Keeping.knock(secrets[k], JSONObject().put("w", "call").put("loud", 1), twin, silent = false)) rung++
                     }
+                    walked { it.copy(rung = rung) }
                     Log.i("Montana", "keep_call loud rung=$rung heard=${heard.size}")
                 }
                 for ((name, text) in Post.pickup(pipes, take = true)) {
@@ -1121,8 +1159,7 @@ object KeepCopy {
             }
         } catch (stopped: InterruptedException) {
         } finally { answers.values.forEach { it.second.delete() } }
-        taking = Taking.Idle
-        return CopyResult.Refused(Refusal.Stopped)
+        return CopyResult.Refused(Refusal.Stopped)   // stopped by stopTaking, which said idle itself: a newer walk may own the screen already
     }
 
     // ── the correspondence given back (iOS MTKeeping 919-1010; Network «The correspondence given back»; the author's word 08.10.2026:
