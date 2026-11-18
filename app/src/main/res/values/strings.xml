@@ -431,6 +431,7 @@
     <string name="coin_no_pair">No chat of your own with this member</string>
     <string name="coin_group_note">Each member you pick gets a transfer of their own in your chat with them. The group is told only how many members you sent coins to.</string>
     <string name="coin_total">Total</string>
+    <string name="coin_give">Give a coin</string>
     <string name="coin_not_enough">Not enough coins</string>
     <string name="coin_enter_amount">Enter the coin amount</string>
     <string name="coin_send_coins">Send coins</string>

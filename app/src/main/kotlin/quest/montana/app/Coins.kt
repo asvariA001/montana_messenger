@@ -551,6 +551,55 @@ object CoinSend {
         CoinBook.receive(c, chat, RECEIVED + ref, on = sid)
     }
 
+    /**
+     * COINS GIVEN ON THE CORRESPONDENT'S LETTER ARE A SEND OF THE CHAIN (iOS MTCoinSend.react, MTWalletCore.swift 2173-2180; the
+     * author's words 23.10.2026 00:27 and 00:37 UTC: «each a SEND record in the chain, the phone only the chain's mirror»): the coins
+     * leave by the pair's version 3 SEND under the letter's name, and the reaction word only names that SEND («op»: «coin3», «tx»)
+     * -- the reader's book takes the coins from the chain alone (CoinTx.receive3), never from the word. Off the main thread.
+     */
+    fun react(coins: Long, ref: String, m: Msg): Boolean {
+        if (m.mine || m.mid.isEmpty() || !canPay(ref)) return false
+        return give(coins, wire(m.mid), m.text, ref)
+    }
+    /**
+     * An auto-reaction's coins on a chosen person's letter (iOS MTCoinSend.autoGive, 2181-2192): the paid reaction's own road, once
+     * a letter -- the name «auto:» and the letter's wire name is taken before the SEND goes, so a letter brought twice pays once; a
+     * SEND that never went gives the name back.
+     */
+    const val AUTO = "auto:"   // NOT-UI: the book's own name
+    /** A letter is fresh for a day from its birth (seconds): an auto-reaction pays only a letter born within it (iOS fresh). */
+    const val FRESH = 86_400.0
+    fun autoGive(coins: Long, m: Msg, ref: String): Boolean {
+        if (m.mid.isEmpty()) return false
+        val sid = wire(m.mid)
+        if (CoinBook.holds(CoinEntry.SPEND, AUTO + sid) || !CoinTx.once(AUTO + sid)) return false
+        val paid = give(coins, sid, m.text, ref)
+        if (!paid) CoinTx.release(AUTO + sid)
+        return paid
+    }
+    /**
+     * The one road of a paid reaction (iOS give, 2194-2214): the pair's SEND under the letter's name; the word names it and carries
+     * no coins of its own. A SEND still waiting for its node's word (pending) has left the book and says no name -- the reader's scan
+     * credits it. A REACTION KEEPS ROOM FOR A SEND: six of the key's thirty records a minute stay the person's own.
+     */
+    private fun give(coins: Long, sid: String, words: String, ref: String): Boolean {
+        if (!CoinTx.reactionRoom) {
+            Log.i("Montana", "coin_refused reaction pace laid=" + CoinTx.laidThisMinute() + " kept=" + CoinTx.KEPT_FOR_SENDS + " coins=" + coins)
+            return false
+        }
+        return when (val r = CoinTx.send3(coins, ref, on = sid)) {
+            is CoinTx.Send3.Sent -> {
+                // NOT-UI: the wire keys
+                val word = Marks.REACTION + JSONObject().put("sid", sid).put("txt", words).put("e", "🪙").put("op", "coin3").put("c", coins).put("tx", r.id)
+                Post.send(ref, Marks.mintMid(), word)
+                true
+            }
+            is CoinTx.Send3.Pending -> true
+            is CoinTx.Send3.NotApplicable -> { Log.i("Montana", "coin_refused reaction v3 why=" + r.why + " coins=" + coins); false }
+            else -> false
+        }
+    }
+
     /** A letter of theirs landed (Post): a coin letter is credited once by its wire name. */
     fun landed(ref: String, mid: String, text: String, qt: String?) {
         // A TRANSFER'S TELLING LETTER ASKS THE NODES (iOS landed, MTWalletCore.swift 459-463): the letter credits nothing; the record

@@ -289,13 +289,30 @@ object CoinTx {
         val id = name(rec)
         val door = chainDoor(keyTag(rec.copyOfRange(182, 2134))) ?: return Word.NOT_LEFT
         val a = ask("$door/tx-put", JSONObject().put("rec", Base64.encodeToString(rec, Base64.NO_WRAP)))
-        if (a.code == 200 && a.obj?.optString("id") == id) return Word.LEFT
+        if (a.code == 200 && a.obj?.optString("id") == id) { tookOne(); return Word.LEFT }
         Log.i(TAG, "coin_lay code=" + a.code + " error=" + (a.obj?.optString("error")?.ifEmpty { null } ?: "-") + " unreached=" + (if (a.unreached) 1 else 0) + " id=" + id.take(12))
         if (a.code == 409) return Word.BEHIND
         if (a.code == 429) return Word.PACED
         if (a.code == 400 || a.code == 507 || a.unreached) return Word.NOT_LEFT
         return if (ask("$door/tx-get", JSONObject().put("id", id)).code == 200) Word.LEFT else Word.UNKNOWN
     }
+    /**
+     * THE KEY'S PACE HAS ONE OWNER (iOS MTCoinTx.keyPace, MTWalletCore.swift 2848-2862; the critic of 14486): the node takes thirty
+     * records a minute from one key (V3 section 7), and the paid reactions -- a person's and the auto-reactions' -- must not spend the
+     * minute a send of the person's own then needs. Every record the node took from this phone stands here by its moment; a reaction
+     * leaves six of the thirty to the person's sends (reactionRoom), and a send that still meets the pace waits the minute out (send3).
+     */
+    const val KEY_PACE = 30
+    const val KEPT_FOR_SENDS = 6
+    private val laidAt = ArrayList<Long>()   // under its own lock: one list, never held across a wait
+    fun laidThisMinute(): Int = synchronized(laidAt) {
+        val now = System.currentTimeMillis()
+        laidAt.removeAll { 60_000 <= now - it }
+        laidAt.size
+    }
+    private fun tookOne() = synchronized(laidAt) { laidAt.add(System.currentTimeMillis()) }
+    val reactionRoom: Boolean get() = laidThisMinute() < KEY_PACE - KEPT_FOR_SENDS
+
     /** Where a SEND waits for its node's word, in the person's folder (iOS pendingURL: tx-pending-<id>.rec; settle reads it). */
     fun pendingFile(id: String): File = File(File(Book.ctx.filesDir, "Coins").apply { mkdirs() }, "tx-pending-$id.rec")
 
@@ -341,6 +358,51 @@ object CoinTx {
     /** SENDs laid and not yet taken or refunded (iOS openSends/keepOpen: rows of id, conv, coins, at). */
     fun openSends(): List<JSONObject> = load(OPEN).optJSONArray("open")?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } } ?: emptyList()
     fun keepOpen(rows: List<JSONObject>) = save(OPEN, JSONObject().put("open", org.json.JSONArray(rows)))
+
+    /**
+     * THE LETTER A PAID REACTION'S SEND STANDS UNDER, AS ITS WORD NAMED IT (iOS MTCoinTx.heard, MTWalletCore.swift 3469-3483): the
+     * word moves no coins; it names the SEND, and the scan asked at once credits that SEND under the letter. A word later than the
+     * scan leaves the coins right and under no letter. The newest 256 names are kept.
+     */
+    private const val HEARD = "coin3-heard.json"   // NOT-UI: the file's name
+    fun heard(tx: String, on: String) {
+        if (tx.length != 64 || !tx.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' } || on.isEmpty()) return
+        synchronized(held) {
+            val a = load(HEARD).optJSONArray("on") ?: org.json.JSONArray()
+            val rows = (0 until a.length()).mapNotNull { a.optJSONArray(it) }.filter { it.optString(0) != tx }.toMutableList()
+            rows.add(org.json.JSONArray().put(tx).put(on))
+            save(HEARD, JSONObject().put("on", org.json.JSONArray(rows.takeLast(256))))
+        }
+        if (CoinBook.holds(CoinEntry.RECEIVE, REF_PREFIX + tx)) return
+        Thread { scanFresh("reaction") }.start()
+    }
+    private fun heardOn(tx: String): String? {
+        val a = load(HEARD).optJSONArray("on") ?: return null
+        for (i in a.length() - 1 downTo 0) {
+            val r = a.optJSONArray(i) ?: continue
+            if (r.optString(0) == tx) return if (r.length() == 2) r.optString(1).ifEmpty { null } else null
+        }
+        return null
+    }
+    /**
+     * A name taken once (an auto-reaction's «auto:» and its letter; iOS MTCoinTx.once/release 3486-3499): false if it stands. Two
+     * days are kept -- an auto-reaction pays only a letter born within a day (CoinSend.FRESH).
+     */
+    private const val ONCE = "coin3-once.json"   // NOT-UI: the file's name
+    fun once(name: String): Boolean = synchronized(held) {
+        val now = System.currentTimeMillis() / 1000.0
+        val was = load(ONCE).optJSONObject("n") ?: JSONObject()
+        val o = JSONObject()
+        for (k in was.keys()) { val at = was.optDouble(k); if (now - at < 2 * CoinSend.FRESH) o.put(k, at) }
+        if (o.has(name)) return@synchronized false
+        o.put(name, now)
+        save(ONCE, JSONObject().put("n", o))
+        true
+    }
+    fun release(name: String) = synchronized(held) {
+        val o = JSONObject((load(ONCE).optJSONObject("n") ?: JSONObject()).toString())
+        if (o.remove(name) != null) save(ONCE, JSONObject().put("n", o))
+    }
 
     const val REF_PREFIX = "tx:"       // NOT-UI: the book's name of a transfer's moves (iOS refPrefix)
     const val BACK_PREFIX = "txback:"  // NOT-UI: the book's name of a debit no node took (iOS backPrefix)
@@ -463,6 +525,46 @@ object CoinTx {
      * believed only from its key's chain node, so a record laid on another node (a fork a dishonest client tried) moves nothing.
      * Then the chain is reconciled and the untaken SENDs of a day come back (refundDue). Off the main thread: it asks the nodes.
      */
+    /** The v2 records this book credited, each with its sender's key, its coins and its pair: a REFUND by the sender takes them back (iOS noteCredit2, 3677-3686). */
+    private const val CREDITS2 = "coin2-credits.json"   // NOT-UI: the file's name
+    private const val GONE_PREFIX = "txgone:"           // NOT-UI: the book's name of a credit its sender took back
+    fun noteCredit2(id: String, from: String, coins: Long, conv: String) = synchronized(held) {
+        val o = JSONObject(load(CREDITS2).toString())
+        val m = o.optJSONObject("c") ?: JSONObject()
+        if (m.has(id)) return@synchronized
+        m.put(id, JSONObject().put("f", from).put("n", coins).put("p", conv))
+        save(CREDITS2, o.put("c", m))
+    }
+    /**
+     * THE COINS ARE EITHER GONE OR NOT (constitution, article 8; iOS creditsGone, 3687-3707): a v2 record credited here whose sender's
+     * REFUND took it back at its chain node leaves this book by one move under its name, whatever the balance (retake: the truth of
+     * a debt). Asked once an hour. Off the main thread: it asks the nodes.
+     */
+    fun creditsGone() {
+        val me = myKeyTag ?: return
+        val o = load(CREDITS2)
+        val m = JSONObject((o.optJSONObject("c") ?: JSONObject()).toString())
+        val now = System.currentTimeMillis() / 1000.0
+        if (m.length() == 0 || now - o.optDouble("at", 0.0) < 3600) return
+        for (id in m.keys().asSequence().toList()) {
+            val c = m.optJSONObject(id)
+            val from = c?.optString("f").orEmpty(); val coins = c?.optLong("n") ?: 0L; val conv = c?.optString("p").orEmpty()
+            val door = if (from.isEmpty() || conv.isEmpty() || coins <= 0) null else chainDoor(from)
+            if (door == null) { m.remove(id); continue }
+            val f = ask("$door/tx-settle", JSONObject().put("send", id))
+            if (me != myKeyTag) return   // the credits' file stays in its person's folder
+            if (f.code != 200 || f.obj?.optString("state") != "refund") continue
+            if (CoinBook.holds(CoinEntry.SEND, GONE_PREFIX + id) || CoinBook.retake(coins, conv, GONE_PREFIX + id)) m.remove(id)
+            Log.i(TAG, "coin_v3 credit gone coins=" + coins + " id=" + id.take(12))
+        }
+        synchronized(held) { save(CREDITS2, JSONObject(load(CREDITS2).toString()).put("c", m).put("at", now)) }
+    }
+    /** A scan that starts after the one in flight ends (iOS scanFresh, 3132): what the node holds now is in the book when it returns. */
+    fun scanFresh(why: String) {
+        var waited = 0
+        while (scanning.get() && waited < 150) { waited++; Thread.sleep(100) }
+        scan(why)
+    }
     fun scan(why: String) {
         if (!scanning.compareAndSet(false, true)) { again = true; return }
         try {
@@ -495,7 +597,10 @@ object CoinTx {
                                 if (!CoinBook.holds(CoinEntry.SEND, REF_PREFIX + r.id) && CoinBook.retake(r.coins, c, REF_PREFIX + r.id)) own++
                             } else if (r.version == 3) {
                                 if (receive3(r, c)) credited++
-                            } else if (CoinBook.receive(r.coins, c, REF_PREFIX + r.id)) credited++
+                            } else {
+                                if (CoinBook.receive(r.coins, c, REF_PREFIX + r.id)) credited++
+                                if (r.version == 2 && CoinBook.holds(CoinEntry.RECEIVE, REF_PREFIX + r.id)) noteCredit2(r.id, r.from, r.coins, c)
+                            }
                         }
                         val last = a.obj?.optLong("last", since) ?: since
                         if (txs.length() != 512 || since >= last) break
@@ -507,6 +612,7 @@ object CoinTx {
             if (me != myKeyTag) return
             reconcile()   // the chain announced (COIN-TX-V3 sections 3-4)
             refundDue()   // a SEND no one took in a day comes back (section 5)
+            creditsGone() // a v2 record its sender took back leaves this book too (fold-4)
         } finally {
             scanning.set(false)
             if (again) { again = false; Thread { scan("again") }.start() }
@@ -533,7 +639,7 @@ object CoinTx {
             taken = f.obj?.optString("state") == "recv" && f.obj?.optString("by") == me
         }
         Log.i(TAG, "coin_v3 recv code=" + r.code + " word=" + r.word + " taken=" + (if (taken) 1 else 0) + " id=" + s.id.take(12))
-        return taken && me == myKeyTag && CoinBook.receive(s.coins, conv, REF_PREFIX + s.id)
+        return taken && me == myKeyTag && CoinBook.receive(s.coins, conv, REF_PREFIX + s.id, heardOn(s.id))
     }
 
     /** An untaken SEND comes back after a day by a REFUND on my chain (iOS refundDue, 3632; section 5): its node's clock decides, one fate a SEND. */

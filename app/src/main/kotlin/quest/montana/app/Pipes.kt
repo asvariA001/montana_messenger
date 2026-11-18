@@ -3491,7 +3491,13 @@ object Post {
             text.startsWith(Marks.REACTION) -> runCatching {
                 val o = JSONObject(text.removePrefix(Marks.REACTION)); val d = o.getString("sid").removePrefix("mid:"); val e = o.getString("e")
                 // coins given on a letter ride the reaction's road under their own op: credited, never an emoji (iOS 5901-5908)
-                if (o.optString("op") == "coin") CoinSend.reacted(o.optLong("c"), o.optString("r"), o.optString("sid"), ref)
+                val op = o.optString("op")
+                if (op == "coin") CoinSend.reacted(o.optLong("c"), o.optString("r"), o.optString("sid"), ref)
+                // A PAID REACTION IS A SEND OF THE CHAIN (iOS applyReactionFromControl 7423-7430): the word names the SEND and its
+                // letter; the coins come by the scan
+                else if (op == "coin3") { if (GooglePlay.COINS && o.optString("sid").isNotEmpty()) CoinTx.heard(o.optString("tx"), o.optString("sid")) }
+                // any other word -- a paid one this build cannot read -- touches no emoji (iOS: only add and del)
+                else if (op != "add" && op != "del") Unit
                 // THE CORRESPONDENT HAS ONE ANSWER ON A LETTER (iOS applyReaction 5858-5866): a new one replaces their old, and taking one
                 // away takes theirs — Android kept one list for both, so their taking away a sign we both gave took away mine
                 else Book.edit(ref) { c -> c.msgs.find { it.mid == d }?.let { m ->

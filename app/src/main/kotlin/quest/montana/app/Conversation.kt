@@ -3650,6 +3650,55 @@ object QuickReactions {
  * Reply · Copy · Edit (one's own words) · Delete, which asks «for me» or «for everyone». The correspondent's page opens the same
  * cloud with its own rows (iOS onShowInChat).
  */
+/**
+ * GIVE A COIN UNDER A CORRESPONDENT'S LETTER (iOS MTCoinGiveRow, MTWalletScreen.swift 2519-2559; slice S2b b6): one coin by the row,
+ * and the levels of π as the amounts to give -- every one the available holds is a tap, the rest stand dimmed (the author's word
+ * 03.10 22:02). The SEND asks the nodes, so off the main thread; a gift that did not go is said a quarter second after the menu.
+ */
+private fun coinGiveRows(act: MainActivity, ref: String, m: Msg, close: () -> Unit): View {
+    val c: Context = act
+    fun give(n: Long) {
+        close()
+        Thread {
+            val ok = CoinSend.react(n, ref, m)
+            MainThread.post {
+                if (ok) act.window.decorView.performHapticFeedback(android.view.HapticFeedbackConstants.VIRTUAL_KEY)
+                else MainThread.later(250) {
+                    AlertDialog.Builder(c).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
+                }
+            }
+        }.start()
+    }
+    val available = CoinSplit.available
+    return c.vstack(Gravity.NO_GRAVITY) {
+        addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(9), dp(14), dp(0))
+            addView(c.text(c.getString(R.string.coin_give), 16f, Color.WHITE), lp(0, WRAP, 1f))
+            addView(MintCoin(c, 20), lp(dp(20), dp(20)))
+            pressable { give(1) }
+        }, lp())
+        addView(HorizontalScrollView(c).apply {
+            isHorizontalScrollBarEnabled = false
+            setPadding(0, dp(9), 0, dp(9))
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(14), 0, dp(14), 0)
+                for (n in PiLevels.all) {
+                    val held = n <= available
+                    // USER-DATA: a box of coins to give, in its short form
+                    addView(c.text("+" + PiLevels.short(c, n), 15f, Color.WHITE, bold = true).apply {
+                        setPadding(dp(10), dp(6), dp(10), dp(6))
+                        background = c.rounded(Color.rgb(77, 77, 77), 999)
+                        alpha = if (held) 1f else 0.4f
+                        if (held) pressable { give(n) }
+                    }, lp(WRAP, WRAP).apply { if (childCount > 0) leftMargin = dp(6) })
+                }
+            })
+        }, lp())
+    }
+}
+
 fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEdit: () -> Unit, onForward: () -> Unit, onSelect: () -> Unit, group: Boolean = false, members: List<Msg> = listOf(m),
                onShowInChat: (() -> Unit)? = null) {
     val c: Context = act
@@ -3706,6 +3755,12 @@ fun letterMenu(act: MainActivity, ref: String, m: Msg, onReply: () -> Unit, onEd
                 actions.addView(names, lp())
             }
             if (writes) row(c.getString(R.string.reply), R.drawable.ic_reply) { onReply() }
+            // COINS ON THE CORRESPONDENT'S LETTER (iOS MontanaMessageMenu 466-469, MontanaConversation 2501-2509; the author's word
+            // 03.10 13:40): the coin and the levels of π to give, under «Reply»; the chain pays or refuses, refused the person is told
+            if (GooglePlay.COINS && !m.mine && !group && CoinSend.canPay(ref)) {
+                if (actions.childCount > 0) actions.addView(View(c).apply { setBackgroundColor(line) }, lp(MATCH, 1))
+                actions.addView(coinGiveRows(act, ref, m) { close() }, lp())
+            }
             // EDIT STICKER (iOS MontanaMessageMenu 474-476, MontanaConversation 2251-2254): a letter's own card sticker, re-cut into a new one
             if (Stickers.editable(m)) row(c.getString(R.string.sticker_edit), R.drawable.ic_pencil) { Stickers.editFromLetter(act, ref, m) }
             // VIEW STICKER SET · COPY LINK (iOS MontanaMessageMenu.swift:498-503, MontanaConversation.swift:2387-2402 at 2314): a
