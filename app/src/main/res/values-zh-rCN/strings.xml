@@ -426,6 +426,9 @@
     <string name="coin_group_note">每位选中的成员都会在你与其的聊天中收到一笔单独的转账。群组只会得知你向多少位成员转了硬币。</string>
     <string name="coin_total">合计</string>
     <string name="coin_give">赠送硬币</string>
+    <string name="auto_react_title">自动回应</string>
+    <string name="auto_react_header">每封新消息的币</string>
+    <string name="auto_react_footer">从现在起，对方每写一封消息，就自动以回应支付，直到你的币用完。</string>
     <string name="coin_not_enough">硬币不足</string>
     <string name="coin_enter_amount">输入硬币数量</string>
     <string name="coin_send_coins">发送硬币</string>

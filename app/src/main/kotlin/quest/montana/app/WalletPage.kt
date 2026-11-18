@@ -510,6 +510,56 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
     return walletFrame(act, c.getString(R.string.coin_send_title), onClose, true, go, body)
 }
 
+/**
+ * WHOM THE COINS GO TO BY THEMSELVES (iOS MTAutoReactPage, MTWalletScreen.swift 2234-2293; the author's word 06.10.2026 14:3x UTC: «on
+ * a long press, open a page where I choose whom and how much I want to auto-react to, from my contacts»): the person's chats, each
+ * with the coins its every new letter is paid, typed beside the name; an emptied field lets the person go. What is typed stands at once.
+ */
+fun autoReactPage(act: MainActivity, onClose: () -> Unit): View {
+    val c: Context = act
+    val body = c.vstack(Gravity.NO_GRAVITY)
+    val people = Book.all().filter { CoinSend.canPay(it.ref) }.map { it.ref to it.shown }
+    Log.i("Montana", "auto_react page pairs=" + people.size)
+    val list = c.plate {
+        if (people.isEmpty()) addView(c.text(c.getString(R.string.coin_no_chats), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
+        people.forEachIndexed { i, (ref, shown) ->
+            if (0 < i) divider()
+            val field = EditText(c).apply {
+                inputType = InputType.TYPE_CLASS_NUMBER
+                filters = arrayOf(InputFilter.LengthFilter(12))
+                hint = "0"
+                AutoReact.rule(ref)?.let { setText(it.coins.toString()) }   // USER-DATA: the coins of the rule
+                gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+                background = c.rounded(Color.rgb(44, 44, 46), 8)
+                setPadding(dp(8), 0, dp(8), 0)
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+                    override fun afterTextChanged(s: android.text.Editable?) {
+                        // what is typed stands at once; an emptied field lets the person go
+                        AutoReact.set(ref, s?.toString()?.toLongOrNull() ?: 0L)
+                    }
+                })
+            }
+            addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(8), dp(16), dp(8))
+                minimumHeight = dp(44)
+                addView(c.peerFace(ref, shown, 40), lp(dp(40), dp(40)))
+                gap(12)
+                addView(c.text(shown.ifBlank { c.getString(R.string.peer) }, 16f).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the name
+                addView(field, lp(dp(96), dp(44)))
+            }, lp())
+        }
+    }
+    body.addView(c.text(c.getString(R.string.auto_react_header), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
+    body.addView(list, lp())
+    body.addView(c.text(c.getString(R.string.auto_react_footer), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
+    return walletFrame(act, c.getString(R.string.auto_react_title), onClose, true, null, body)
+}
+
 /** THE LEVELS OF π (iOS MTPiLevelsSheet): the next level to reach on top, then the levels reached, thirteen at a time, each with π revealed. */
 fun piLevelsPage(act: MainActivity, onClose: () -> Unit): View {
     val c: Context = act

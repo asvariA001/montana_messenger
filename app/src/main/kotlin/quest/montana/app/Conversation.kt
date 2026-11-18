@@ -2231,7 +2231,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     val chessRing = View(c).apply { background = ringInk; visibility = View.GONE }   // iOS MTMiniFace.playingRing, 1.5 inside the plate
     // THE MONEY FLOW'S COIN (iOS flipMark, MontanaConversation.swift:2164-2210): our coin on the marks' round, standing on its face while
     // the flow is off; on, it spins inside the platform's ring -- the sign that holds when motion is reduced too. Open without coins
-    // (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing, and the hold's auto-reactions (coins) are not here.
+    // (the author's word 17.11.2026 «the Flow without coins»): the turn mints nothing; the hold's auto-reactions (coins) stand only where coins are open.
     val flowCoin = MintCoin(c, 22)
     val flowRing = View(c).apply { background = ringInk; visibility = View.GONE }
     fun drawFlow() {
@@ -2415,6 +2415,16 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                         field.postDelayed({ toBottom(); showKeys() }, 350)
                     }
                     android.util.Log.d("Montana", "feed_turn flow=" + (if (on) 1 else 0) + " peer=" + ref.take(10))
+                }
+                // THE MONEY FLOW'S SETTINGS ON A LONG PRESS (iOS flipMark's LongPressGesture, MontanaConversation.swift 2199-2208; the
+                // author's word 06.10.2026 14:3x UTC): the page where the person chooses whom and how much to auto-react to -- coins
+                // alone, so the Google Play build without them keeps the plain tap
+                if (GooglePlay.COINS) setOnLongClickListener {
+                    hideKeys()
+                    performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                    android.util.Log.i("Montana", "auto_react page opened by the hold")
+                    act.push { autoReactPage(act, it) }
+                    true
                 }
             }.also { rounds.add(it); if (walletStands) gapped.add(it) }, lp(dp(44), dp(44)).apply { if (walletStands) marginStart = dp(6) })
             drawFlow()

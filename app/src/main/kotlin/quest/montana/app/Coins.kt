@@ -602,6 +602,8 @@ object CoinSend {
 
     /** A letter of theirs landed (Post): a coin letter is credited once by its wire name. */
     fun landed(ref: String, mid: String, text: String, qt: String?) {
+        // A CHOSEN PERSON'S LETTER IS PAID BY ITSELF (iOS MTAutoReact, MTWalletCore.swift 464-468; the author's word 06.10.2026)
+        if (GooglePlay.COINS) AutoReact.landed(ref, mid, text, qt)
         // A TRANSFER'S TELLING LETTER ASKS THE NODES (iOS landed, MTWalletCore.swift 459-463): the letter credits nothing; the record
         // it names is read from the chain (CoinTx.scan)
         if (GooglePlay.COINS && text.contains(CoinTx.LINK)) Thread { CoinTx.scan("told") }.start()
@@ -759,6 +761,50 @@ object CoinSend {
         Log.i("Montana", "coin_settle letters=" + letters + " coins=" + coins + " balance=" + CoinBook.balance)
         // the transfers' records: the waiting ones decided, the pipes asked (iOS settle, MTWalletCore.swift 449-452)
         if (GooglePlay.COINS) CoinTx.settle()
+    }
+}
+
+/**
+ * WHOM THE COINS GO TO BY THEMSELVES (iOS MTAutoReact, MTWalletCore.swift 2404-2433; the author's word 06.10.2026 14:3x UTC): a
+ * conversation's own rule -- the coins every new letter of the chosen person is paid, as a paid reaction (CoinSend.autoGive), and
+ * the moment of the first choice. It rides the copy with the conversation's data (CopyPlan «autoReact.»).
+ */
+object AutoReact {
+    const val PREFIX = "autoReact."   // NOT-UI: a conversation's own rule (iOS SeedScope.dataPrefixes)
+    class Rule(val coins: Long, val since: Double)
+    fun rule(ref: String): Rule? {
+        val o = runCatching { JSONObject(Prefs.str(PREFIX + ref, "")) }.getOrNull() ?: return null
+        val c = o.optLong("c", 0L)   // NOT-UI: the rule's keys
+        if (c <= 0L || !o.has("s")) return null
+        return Rule(c, o.optDouble("s", 0.0))
+    }
+    /**
+     * The coins a person's every new letter is paid; nought lets the person go. The moment of the first choice stays while the number
+     * changes, so a letter between two edits is paid by the rule that stood.
+     */
+    fun set(ref: String, coins: Long) {
+        if (coins <= 0L) { Prefs.remove(PREFIX + ref); return }
+        val since = rule(ref)?.since ?: (System.currentTimeMillis() / 1000.0)
+        Prefs.setStr(PREFIX + ref, JSONObject().put("c", coins).put("s", since).toString())   // NOT-UI: the rule's keys
+    }
+    /**
+     * A letter of the pair landed (CoinSend.landed, beside a coin letter's credit): a chosen person's fresh letter is paid -- not a
+     * coin letter, a game's letter or a row of the phone's own; born after the choice and within a day. Off the main thread, a turn
+     * after the landing, so the letter stands before the reaction that rides on it.
+     */
+    fun landed(ref: String, mid: String, text: String, qt: String?) {
+        if (Groups.isKey(ref)) return
+        val r = rule(ref) ?: return
+        if (qt == null && CoinLetter.parse(text) != null) return
+        if (ChessLetter.parse(text) != null || WallCard.of(text) != null || FlowRow.of(text) || Groups.isEvent(text)) return
+        val born = Marks.birthMs(mid) ?: return
+        val now = System.currentTimeMillis()
+        if (born < r.since * 1000 || CoinSend.FRESH * 1000 < now - born || !CoinSend.canPay(ref)) return
+        val m = Msg(mid, text, false, born)
+        Thread {
+            val paid = CoinSend.autoGive(r.coins, m, ref)
+            Log.i("Montana", "auto_react coins=" + r.coins + " paid=" + (if (paid) 1 else 0))
+        }.start()
     }
 }
 
