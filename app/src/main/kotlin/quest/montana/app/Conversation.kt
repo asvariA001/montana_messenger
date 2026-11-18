@@ -2684,6 +2684,38 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             pressable { scroll.smoothScrollTo(0, if (turned) 0 else (scroll.getChildAt(0)?.height ?: 0) + scroll.paddingTop + scroll.paddingBottom) }
         }
         addView(downKey, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(12) })
+        // THE RED MINUS AT THE NEWEST END (iOS MTPayPop, MTWalletScreen.swift 2393-2425, MontanaConversation 3223-3228; the author's
+        // word 04.10.2026 22:24 UTC): the coins this chat just paid (CoinPaid) rise over the way to the newest in red and fade; with
+        // the animations off it stands and fades. Only in a pair's ordinary feed (not turned), never a target.
+        val payHost = FrameLayout(c).apply { isClickable = false; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS }
+        val payCoin = MintCoin(c, 28)
+        val payText = c.text("", 17f, Color.rgb(255, 59, 48)).apply { typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }
+        val payPop = android.widget.LinearLayout(c).apply {
+            orientation = android.widget.LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = c.glassPlate(); setPadding(dp(10), dp(6), dp(10), dp(6)); alpha = 0f
+            addView(payCoin, android.widget.LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(6) })
+            addView(payText, android.widget.LinearLayout.LayoutParams(WRAP, WRAP))
+        }
+        payHost.addView(payPop, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END))
+        val payFade = Runnable { payPop.animate().alpha(0f).setDuration(400).setInterpolator(android.view.animation.AccelerateInterpolator()).start() }
+        if (GooglePlay.COINS && !group && !local) {
+            addView(payHost, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.BOTTOM or Gravity.END).apply { marginEnd = dp(16) })
+            val onPaid: (Long, String) -> Unit = { coins, r ->
+                if (r == ref && !turned) {
+                    payText.text = "−" + CoinText.count(coins)
+                    payCoin.turnOnce()
+                    payPop.animate().cancel()
+                    payPop.translationY = 0f; payPop.alpha = 1f
+                    if (android.animation.ValueAnimator.areAnimatorsEnabled())
+                        payPop.animate().translationY(-dp(28).toFloat()).setDuration(1300).setInterpolator(android.view.animation.DecelerateInterpolator()).start()
+                    payPop.removeCallbacks(payFade); payPop.postDelayed(payFade, 1000)
+                }
+            }
+            payHost.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
+                override fun onViewAttachedToWindow(v: View) = CoinPaid.listen(onPaid)
+                override fun onViewDetachedFromWindow(v: View) = CoinPaid.unlisten(onPaid)
+            })
+        }
         // THE DAY THE FINGER IS READING (iOS MTDayHeader 359-372, stage 13.1): the pill of the topmost row's day under the header while
         // the feed travels, gone a second after the last movement; a sign, never a target
         val dayPill = c.text("", 13f, Color.WHITE).apply {
@@ -2725,6 +2757,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
                 val bottom = if (turned) 0 else under.height + dp(10)
                 if (lp.gravity != g || lp.topMargin != top || lp.bottomMargin != bottom) { lp.gravity = g; lp.topMargin = top; lp.bottomMargin = bottom; downKey.layoutParams = lp }
             }
+            (payHost.layoutParams as? FrameLayout.LayoutParams)?.let { lp -> val want = under.height + dp(10) + dp(44) + dp(8); if (lp.bottomMargin != want) { lp.bottomMargin = want; payHost.layoutParams = lp } }
             (dayPill.layoutParams as FrameLayout.LayoutParams).let { lp -> val want = head.height + dp(6); if (lp.topMargin != want) { lp.topMargin = want; dayPill.layoutParams = lp } }
         }
         head.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> room(); lift() }
@@ -2742,6 +2775,7 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
             lifted = want
             under.translationY = -want.toFloat()
             downKey.translationY = if (turned) 0f else -want.toFloat()   // turned, the way to the newest stands under the field, off the keys
+            payHost.translationY = -want.toFloat()   // the red minus rides the keys over the way to the newest
             room(keys = true)
         }
         under.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> ridePlace() }

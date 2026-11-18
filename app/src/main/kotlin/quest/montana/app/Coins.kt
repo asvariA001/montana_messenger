@@ -806,8 +806,26 @@ object AutoReact {
         val m = Msg(mid, text, false, born)
         Thread {
             val paid = CoinSend.autoGive(r.coins, m, ref)
+            if (paid) CoinPaid.paid(r.coins, ref)
             Log.i("Montana", "auto_react coins=" + r.coins + " paid=" + (if (paid) 1 else 0))
         }.start()
+    }
+}
+
+/**
+ * THE COINS I PAID, SEEN IN THE CHAT (iOS MTCoinPaid, MTWalletCore.swift 2432-2446; the author's word 04.10.2026 22:24 UTC: «in the chat
+ * the same way, an animation of a red minus coin»): the one owner of the payment's sign -- what was just paid from me and in which chat;
+ * that chat shows it (the red minus over the way to the newest, Conversation.kt).
+ */
+object CoinPaid {
+    private val listeners = java.util.concurrent.CopyOnWriteArrayList<(Long, String) -> Unit>()
+    @Volatile private var toldAt = 0L
+    fun listen(l: (Long, String) -> Unit) { listeners.add(l) }
+    fun unlisten(l: (Long, String) -> Unit) { listeners.remove(l) }
+    fun paid(coins: Long, ref: String) {
+        MainThread.post { for (l in listeners) l(coins, ref) }
+        val now = System.currentTimeMillis()
+        if (60_000 <= now - toldAt) { toldAt = now; Log.i("Montana", "coin_paid coins=$coins") }   // folded in a minute (iOS markFolded)
     }
 }
 
