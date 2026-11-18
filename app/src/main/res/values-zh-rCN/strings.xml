@@ -418,6 +418,11 @@
     <string name="coin_to_level">距离第 %2$d 级还差 %1$s 枚</string>
     <string name="coin_send_title">发送硬币</string>
     <string name="coin_choose_chats">选择聊天</string>
+    <string name="coin_own_header">我的其他账户</string>
+    <string name="coin_own_footer">向您自己的账户转账会将这两个账户永久公开关联。</string>
+    <string name="coin_link_title">永久关联您的账户？</string>
+    <string name="coin_link_sub">在您的两个账户之间转账会将它们公开且永久地关联起来：任何读取 TimeChain 的人都会看到它们属于同一个所有者。发送给他人的时间币不会关联您的账户。</string>
+    <string name="coin_link_go">发送并关联</string>
     <string name="coin_no_chats">暂无聊天</string>
     <string name="coin_choose_members">选择成员</string>
     <string name="coin_no_members">暂无成员</string>

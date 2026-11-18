@@ -642,6 +642,57 @@ object CoinTx {
         return taken && me == myKeyTag && CoinBook.receive(s.coins, conv, REF_PREFIX + s.id, heardOn(s.id))
     }
 
+    /**
+     * A TRANSFER TO ONE'S OWN OTHER ACCOUNT IS ONE PAIR, SENT AND RECEIVED IN THE SAME STEP (iOS knowOwn/landOwn, MTWalletCore.swift
+     * 3578-3630; the author's words 12.10.2026, No.66: «a transfer to oneself in Montana must become one pair of records, sent and
+     * received»). The phone holds both seeds -- the person seated and the person on its shelf -- so the SEND names the other key
+     * (knowOwn), and the RECV is laid at once on the other key's own chain with that key, the chain opened first by its GENESIS, as
+     * its own phone would open it. Only then do the coins stand in the other person's book (Seats.shelfLay), under the name their own
+     * scan credits them by: a SEND whose RECV did not stand stays the receiver's to take when seated, or comes back to its sender by
+     * the REFUND after a day -- never both. Off the main thread.
+     */
+    fun knowOwn(seat: String, conv: String): Hands? {
+        val hands = Seats.shelfCoins(seat)?.let { derive(it.first) } ?: run { Log.i(TAG, "coin_own seat=$seat no hands"); return null }
+        notePeerFrom(conv, hands.from)
+        return hands
+    }
+    fun landOwn(seat: String, id: String, coins: Long, conv: String) {
+        val shelf = Seats.shelfCoins(seat)
+        val hands = shelf?.let { derive(it.first) }
+        val me = myKeyTag
+        val door = me?.let { chainDoor(it) }
+        if (shelf == null || hands == null || door == null) { Log.i(TAG, "coin_own seat=$seat no hands -- the receiver takes it when seated"); return }
+        var v3 = false; var taken = false; var said = "v2"
+        val g = ask("$door/tx-get", JSONObject().put("id", id))
+        val b = g.obj?.optString("rec")?.takeIf { g.code == 200 && it.isNotEmpty() }?.let { runCatching { Base64.decode(it, Base64.NO_WRAP) }.getOrNull() }
+        if (b != null) {
+            v3 = b.size == SIZE3
+            val s = if (v3) read3(b)?.takeIf { it.id == id } else null
+            val secret = Book.secret(conv)?.takeIf { Wire.isWhole(it) }
+            val theirs = unhex(hands.from)
+            val tdoor = chainDoor(hands.from)
+            if (s != null && secret != null && theirs != null && tdoor != null) {
+                val blind = Wire.itemKeys(secret).map { CoinChainRules.blind(it, s.nonce) }
+                    .firstOrNull { CoinChainRules.commitment(theirs, it).contentEquals(s.to) }
+                if (blind != null) {
+                    chain3(hands.from, tdoor)?.takeIf { !it.v3 }?.let {
+                        val r = layOnHead(hands) { c -> build3(Kind3.GENESIS, 0L, c.head, fresh(), hands = hands) }   // genesisRoom is 0 from the v2 cut
+                        Log.i(TAG, "coin_own seat=$seat genesis code=" + r.code + " word=" + r.word + " amount=0")
+                    }
+                    val r = layOnHead(hands) { c -> build3(Kind3.RECV, s.coins, c.head, fresh(), to = blind, ref = s.id, a = s.a, hands = hands) }
+                    taken = r.code == 200
+                    said = "recv code=" + r.code + " word=" + r.word
+                } else said = "not their key"
+            }
+        } else said = "no record code=" + g.code
+        if (!taken && !(g.code == 200 && !v3)) {
+            Log.i(TAG, "coin_own seat=$seat coins=$coins $said -- the receiver takes it when seated, or it comes back")
+            return
+        }
+        val laid = Seats.shelfLay(seat, CoinEntry(CoinEntry.RECEIVE, coins, REF_PREFIX + id, conv, null, System.currentTimeMillis() / 1000.0))
+        Log.i(TAG, "coin_own seat=$seat coins=$coins $said book=" + (if (laid) 1 else 0) + " id=" + id.take(12))
+    }
+
     /** An untaken SEND comes back after a day by a REFUND on my chain (iOS refundDue, 3632; section 5): its node's clock decides, one fate a SEND. */
     fun refundDue() {
         val me = myKeyTag ?: return

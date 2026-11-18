@@ -494,10 +494,13 @@ object CoinSend {
      * «q» and the same send goes when it comes, within ten seconds (the author's word 21.10.2026 09:41 UTC). Sent -- a letter in the
      * chat says how many coins and the time they are, and carries the transfer's link (CoinTx.LINK). Off the main thread.
      */
-    fun transferResult(ref: String, coins: Long): Sent {
+    fun transferResult(ref: String, coins: Long): Sent = transferOutcome(ref, coins).first
+    /** The same transfer, its SEND's name when it went (iOS MTCoinSend.transferId): a transfer to one's own account lays its RECV by it. */
+    fun transferId(ref: String, coins: Long): String? = transferOutcome(ref, coins).takeIf { it.first == Sent.SENT }?.second
+    private fun transferOutcome(ref: String, coins: Long): Pair<Sent, String?> {
         val available = CoinSplit.available
-        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance); return Sent.REFUSED }
-        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance); return Sent.SHORT }
+        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance); return Sent.REFUSED to null }
+        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance); return Sent.SHORT to null }
         var result = chainSend(coins, ref)
         if (result.first == Sent.NO_KEY) {
             MyAbout.sendIfNeeded(ref, askKey = true)
@@ -523,7 +526,7 @@ object CoinSend {
             Sent.PACED -> Log.i("Montana", "coin_refused transfer paced: the key's node took its thirty records a minute twice over coins=" + coins + " balance=" + balance)
             else -> Log.i("Montana", "coin_refused transfer not sent coins=" + coins + " balance=" + balance)
         }
-        return result.first
+        return result
     }
     /**
      * The pair's SEND and its word (iOS MTCoinTx.sendResult, MTWalletCore.swift 3050-3062): version 3 first; past the v2 cut

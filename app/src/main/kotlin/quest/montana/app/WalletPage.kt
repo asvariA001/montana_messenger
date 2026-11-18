@@ -363,6 +363,9 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
  * (Groups.coinPeople), the others stand greyed with why; `each` -- the number written in the field, each pick's coins; each pick
  * gets the pair's own transfer, the group is told only how many were paid (Groups.tellCoins), `sent` empties the field.
  */
+/** A shelf person's key among the picks: never a chat's name (iOS seatKey). */
+private const val SEAT_KEY = "seat:"   // NOT-UI: the pick's key
+
 fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null, each: Long = 0L, sent: () -> Unit = {}): View {
     val c: Context = act
     val body = c.vstack(Gravity.NO_GRAVITY)
@@ -405,6 +408,26 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
     }
     body.addView(HorizontalScrollView(c).apply { isHorizontalScrollBarEnabled = false; addView(boxes); setPadding(0, dp(12), 0, dp(6)) }, lp())
     body.addView(total, lp())
+    // each pick its own field, the system's: coins typed pick it, a field emptied lets it go
+    fun amountField(ref: String): EditText = EditText(c).apply {
+        inputType = InputType.TYPE_CLASS_NUMBER
+        filters = arrayOf(InputFilter.LengthFilter(15))
+        hint = "0"
+        gravity = Gravity.END or Gravity.CENTER_VERTICAL
+        setTextColor(Color.WHITE); setHintTextColor(MT.gray)
+        background = c.rounded(Color.rgb(44, 44, 46), 8)
+        setPadding(dp(8), 0, dp(8), 0)
+        addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+            override fun afterTextChanged(s: android.text.Editable?) {
+                // coins typed pick the chat, a field emptied lets it go
+                val n = s?.toString()?.toLongOrNull() ?: 0L
+                if (0L < n) picked[ref] = this@apply else picked.remove(ref)
+                mark(ref); drawTotal()
+            }
+        })
+    }
     val payees = group?.let { Groups.coinPeople(c, it) }
     val people: List<Pair<String, String>> = payees?.mapNotNull { p -> p.ref?.let { it to (Book.chat(it)?.shown?.ifBlank { null } ?: p.name) } }
         ?: Book.all().filter { CoinSend.canPay(it.ref) }.map { it.ref to it.shown }
@@ -414,25 +437,7 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
         if (people.isEmpty() && unreached.isEmpty()) addView(c.text(c.getString(if (group == null) R.string.coin_no_chats else R.string.coin_no_members), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) }, lp())
         people.forEachIndexed { i, (ref, shown) ->
             if (0 < i) divider()
-            val field = EditText(c).apply {
-                inputType = InputType.TYPE_CLASS_NUMBER
-                filters = arrayOf(InputFilter.LengthFilter(15))
-                hint = "0"
-                gravity = Gravity.END or Gravity.CENTER_VERTICAL
-                setTextColor(Color.WHITE); setHintTextColor(MT.gray)
-                background = c.rounded(Color.rgb(44, 44, 46), 8)
-                setPadding(dp(8), 0, dp(8), 0)
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-                    override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
-                    override fun afterTextChanged(s: android.text.Editable?) {
-                        // coins typed pick the chat, a field emptied lets it go
-                        val n = s?.toString()?.toLongOrNull() ?: 0L
-                        if (0L < n) picked[ref] = this@apply else picked.remove(ref)
-                        mark(ref); drawTotal()
-                    }
-                })
-            }
+            val field = amountField(ref)
             fields[ref] = field
             val pick = ImageView(c).apply { setPadding(dp(10), dp(10), dp(10), dp(10)) }
             marks[ref] = pick
@@ -469,29 +474,84 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
             }, lp())
         }
     }
+    // TO ONESELF ON ANOTHER ACCOUNT (iOS MTCoinSendSheet seats, MTWalletScreen.swift 1952-1987; the author's word 11.10.2026, No.62):
+    // every person waiting on this phone's shelf, by the face and the name the drawer shows; the coins ride the pipe the two persons
+    // share, born on this phone when they have none (Seats.pairWithShelf), and the shelf files them in that person's own book.
+    val shelf = if (group == null) Seats.active.let { now -> Seats.seats.filter { it.id != now && it.id.isNotEmpty() } } else emptyList()
+    if (shelf.isNotEmpty()) {
+        body.addView(c.text(c.getString(R.string.coin_own_header), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
+        body.addView(c.plate {
+            shelf.forEachIndexed { i, s ->
+                if (0 < i) divider()
+                val key = SEAT_KEY + s.id
+                val field = amountField(key)
+                fields[key] = field
+                val pick = ImageView(c).apply { setPadding(dp(10), dp(10), dp(10), dp(10)) }
+                marks[key] = pick
+                addView(c.hstack {
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(16), dp(8), dp(8), dp(8))
+                    addView(c.hstack {
+                        gravity = Gravity.CENTER_VERTICAL
+                        addView(c.avatar(Seats.face(c, s.id), s.glyph.ifEmpty { "M" }, 40), lp(dp(40), dp(40)))
+                        gap(12)
+                        addView(c.text(s.name.ifBlank { "Montana" }, 16f).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the person's own name
+                        minimumHeight = dp(44)
+                        pressable { toggle(key) }
+                    }, lp(0, WRAP, 1f))
+                    addView(field, lp(dp(96), dp(44)))
+                    addView(pick, lp(dp(44), dp(44)).apply { marginStart = dp(4) })
+                    pick.pressable { toggle(key) }
+                }, lp())
+                mark(key)
+            }
+        }, lp())
+        body.addView(c.text(c.getString(R.string.coin_own_footer), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
+    }
     body.addView(c.text(c.getString(if (group == null) R.string.coin_choose_chats else R.string.coin_choose_members), 13f, MT.gray).apply { setPadding(dp(16), dp(22), dp(16), dp(6)) }, lp())
     body.addView(list, lp())
     if (group != null) body.addView(c.text(c.getString(R.string.coin_group_note), 13f, MT.gray).apply { setPadding(dp(16), dp(6), dp(16), dp(6)) }, lp())
     drawTotal()
     lateinit var close: () -> Unit
     var sending = false
-    val go = c.icon(R.drawable.ic_paperplane, MT.blue).apply {
-        setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.coin_send)
-        pressable {
+    var linkAgreed = false
+    fun send() {
             val to = picked.filter { 0L < coinsOf(it.value) }
             var sum = 0L
             for (f in to.values) sum += coinsOf(f)
             // the sum weighed against the available, the one number every transfer page shows (iOS send, MTWalletScreen.swift 2192)
             if (to.isEmpty() || CoinSplit.available < sum) {
                 AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub).setPositiveButton(R.string.ok, null).show()
-                return@pressable
+                return
             }
-            if (sending) return@pressable
+            val seats = to.keys.filter { it.startsWith(SEAT_KEY) }
+            // A TRANSFER TO ONE'S OWN ACCOUNT LINKS THE TWO FOREVER, asked first (iOS ask .link)
+            if (seats.isNotEmpty() && !linkAgreed) {
+                AlertDialog.Builder(act).setTitle(R.string.coin_link_title).setMessage(R.string.coin_link_sub)
+                    .setPositiveButton(R.string.coin_link_go) { _, _ -> linkAgreed = true; send() }
+                    .setNegativeButton(android.R.string.cancel, null).show()
+                return
+            }
+            if (sending) return
             sending = true
             // each pick by the pair's own SEND, off the main thread: the nodes are asked (iOS send's Task, 2196-2234)
             Thread {
-                val went = to.keys.filter { ref -> CoinSend.transfer(ref, coinsOf(to.getValue(ref))) }
-                Log.i("Montana", "coin_send_many chats=" + to.size + " total=" + sum + " went=" + went.size)
+                val went = ArrayList<String>()
+                // ONE PAIR, SENT AND RECEIVED (No.66, point 0): the SEND names my other key, and its RECV is laid at once by this phone
+                for (key in seats) {
+                    val id = key.removePrefix(SEAT_KEY)
+                    val sum1 = coinsOf(to.getValue(key))
+                    val conv = Seats.pairWithShelf(id) ?: continue
+                    val name = shelf.firstOrNull { it.id == id }?.name.orEmpty()
+                    if (Book.chat(conv) == null) Book.open(conv, name, false)
+                    if (name.isNotBlank() && Book.admitName(conv, name.trim(), System.currentTimeMillis(), "seat")) Book.edit(conv) { it.name = name.trim() }   // iOS setPeerName source «seat»
+                    CoinTx.knowOwn(id, conv)
+                    val tx = CoinSend.transferId(conv, sum1) ?: continue
+                    CoinTx.landOwn(id, tx, sum1, conv)
+                    went += conv
+                }
+                for (ref in to.keys) if (!ref.startsWith(SEAT_KEY) && CoinSend.transfer(ref, coinsOf(to.getValue(ref)))) went += ref
+                Log.i("Montana", "coin_send_many chats=" + (to.size - seats.size) + " own=" + seats.size + " total=" + sum + " went=" + went.size)
                 MainThread.post {
                     sending = false
                     if (went.isEmpty()) {
@@ -504,7 +564,10 @@ fun sendCoinsPage(act: MainActivity, onClose: () -> Unit, group: String? = null,
                     if (group == null && went.size == 1) act.push { back -> conversationPage(act, went[0], back) }
                 }
             }.start()
-        }
+    }
+    val go = c.icon(R.drawable.ic_paperplane, MT.blue).apply {
+        setPadding(dp(10), dp(10), dp(10), dp(10)); contentDescription = c.getString(R.string.coin_send)
+        pressable { send() }
     }
     close = onClose
     return walletFrame(act, c.getString(R.string.coin_send_title), onClose, true, go, body)
