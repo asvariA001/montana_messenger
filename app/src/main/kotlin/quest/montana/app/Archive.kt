@@ -190,7 +190,7 @@ object Archive {
         // from ERASE_DAY the head carries the floor, never the secret (iOS archiveHead): a form of its own, so it is written once
         // more; a restore walks forward from that floor, so it need not follow the floor's later days
         val form = if (sec == null) "a" else if (Wire.isFloor(sec)) "f" else "s"
-        val content = if (sec != null) "s:" + Base64.encodeToString(sec, Base64.NO_WRAP) else "a:" + ref
+        val content = if (sec != null) headForm(sec) else "a:" + ref
         val heads = map(HEADS)
         if (heads.optString(folder) == form) return
         keep(HEADS, heads.put(folder, form))
@@ -772,6 +772,37 @@ object Archive {
     private val copyHeld = HashSet<String>()
     /** A head's pipe, read on the archive's day (iOS headPipe): the one reading of an «s:» head for a restore and for a copy's block. */
     private fun headSecret(s: String, day: Long): ByteArray? = headPipe(s)?.let { Wire.floored(it, day) }
+    /** The form of a pipe's head as a folder's log writes it (iOS headForm): the one writing of it, for headIn and for the keepers' book. */
+    private fun headForm(sec: ByteArray) = "s:" + Base64.encodeToString(sec, Base64.NO_WRAP)
+    /**
+     * THE KEEPERS' BOOK (iOS keepersBook, f60c68c4, OZ 1 p.1.1, the author's words 24507, 24552: on a restore the chats first, each
+     * empty at once, then each correspondent's letters): the pipe head and the given name of each conversation, no letter and no
+     * face. The owner seals it under the seed and hands it with every part (KeepCopy.hand); a keeper holds it unread.
+     */
+    fun keepersBook(convs: List<String>): ByteArray? {
+        val rows = org.json.JSONArray()
+        for (conv in convs) {
+            val sec = Book.secret(conv)?.takeIf { Wire.reference(it) == conv } ?: continue
+            val r = JSONObject().put("h", headForm(sec))
+            Book.chat(conv)?.name?.takeIf { it.isNotBlank() }?.let { r.put("n", it) }
+            rows.put(r)
+        }
+        return if (rows.length() == 0) null else rows.toString().toByteArray()
+    }
+    /** The keepers' book opened on a device of the words (iOS keepersPipes): each head re-establishes its pipe as restore does
+     *  (headSecret, read on the restore's day), and its conversation comes back with the name it was given. */
+    fun keepersPipes(book: ByteArray): List<Pair<String, String?>> {
+        val rows = runCatching { org.json.JSONArray(String(book, Charsets.UTF_8)) }.getOrNull() ?: return emptyList()
+        val day = FloorGuard.recoveryDay()
+        val out = ArrayList<Pair<String, String?>>()
+        for (i in 0 until rows.length()) {
+            val r = rows.optJSONObject(i) ?: continue
+            val sec = headSecret(r.optString("h"), day) ?: continue
+            val ref = Book.establish(sec) ?: continue
+            out.add(ref to r.optString("n").takeIf { it.isNotEmpty() })
+        }
+        return out
+    }
     /** The conversation a block's own pipe head names, when it is the block's conversation (iOS headRef). */
     private fun headRef(k: Keys, sealed: ByteArray): String? {
         val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return null

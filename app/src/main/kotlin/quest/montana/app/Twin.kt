@@ -40,7 +40,7 @@ object Keeping {
     }
 
     /** The file comes back piece by piece (iOS fetch 688-714): the list checked by its name, each piece by its own, the length whole. */
-    fun fetch(o: JSONObject, dest: File): Boolean {
+    fun fetch(o: JSONObject, dest: File, progress: (Float) -> Unit = {}): Boolean {
         val size = o.optLong("z", 0L)
         val bk = o.optString("bk"); val mref = o.optString("mref")
         val mk = runCatching { Base64.decode(o.optString("mk"), Base64.DEFAULT) }.getOrNull()
@@ -48,15 +48,16 @@ object Keeping {
         val list = Wire.getBlob(mref)?.takeIf { Wire.hex(Wire.sha(it)) == mref } ?: return false
         val chunks = Wire.open(mk, list)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: return false
         dest.delete()
-        if (!Media.download(JSONObject().put("bk", bk).put("chunks", chunks), dest)) return false
+        if (!Media.download(JSONObject().put("bk", bk).put("chunks", chunks), dest, progress)) return false
         return dest.length() == size
     }
 
     /** A road's name and key alone (iOS roadsOf, c22a497d at 2418): enough to find its pieces again and take them off the nodes. */
     fun roadsOf(roads: Collection<JSONObject>): JSONArray = JSONArray().apply {
         for (r in roads) {
+            // a road with no key is one piece named alone -- the keepers' book (iOS roadsOf keeps it, f60c68c4): unlay drops its name
             val mref = r.optString("mref"); val mk = r.optString("mk")
-            if (mref.isNotEmpty() && mk.isNotEmpty()) put(JSONObject().put("mref", mref).put("mk", mk))
+            if (mref.isNotEmpty() && r.has("mk")) put(JSONObject().put("mref", mref).put("mk", mk))
         }
     }
     /** Two lists of roads as one (an absent list is empty). */

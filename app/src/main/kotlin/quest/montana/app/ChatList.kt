@@ -28,8 +28,72 @@ fun chatRows(): List<Chat> = listedChats().filter { !Groups.isKey(it.ref) }
 
 fun archivedChats(): List<Chat> = Book.listed().filter { stands(it) && ChatMarks.isArchived(it.ref) }
 
-/** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once). */
-private fun stands(c: Chat) = c.msgs.any { !OldRecordings.hidden(it) } || Groups.isKey(c.ref)
+/** A row stands on letters; a group stands from its invitation, by the moment it stood here (iOS MTGroup.stand: the row at once);
+ *  a chat of a restore stands empty while its letters are on their way (Restoring, iOS standRestoring). */
+private fun stands(c: Chat) = c.msgs.any { !OldRecordings.hidden(it) } || Groups.isKey(c.ref) || (c.msgs.isEmpty() && Restoring.marked(c.ref) && !Book.hasGraves(c.ref))
+
+/**
+ * THE CHATS OF A RESTORE STAND AT ONCE, EMPTY (iOS ChatStore.standRestoring, restoreShare, restoringLine; f60c68c4, OZ 1 p.1.1-1.2,
+ * the author's words 24507, 24552: «every chat in the list has its own share of loading»). A person's conversation the keepers' book
+ * names, holding no letter here, stands in the list with its name and the mark until its first letter comes; the row says its share
+ * of the given letters as they come down, or that none came. A chat is still born by a letter (OZ 1 p.1.9): these were born on the
+ * person's other phone, and the mark says their letters are on the way.
+ */
+object Restoring {
+    private const val MARK = "restoring."   // NOT-UI: the mark of a restored chat, per conversation
+    private const val ON_WAY = "w"          // NOT-UI: the letters are on their way (iOS restoringMark)
+    private const val NONE = "e"            // NOT-UI: none came back (iOS restoringNone)
+    /** The share of each restoring chat come back, 0 to 1 (memory only, iOS restoreShare). */
+    private val share = java.util.concurrent.ConcurrentHashMap<String, Double>()
+
+    fun marked(ref: String) = Prefs.str(MARK + ref, "").isNotEmpty()
+
+    /** The chats of the keepers' book stand in the list (iOS standRestoring): those stood, whose letters are now asked for. */
+    fun stand(chats: List<Pair<String, String?>>): List<String> {
+        val stood = ArrayList<String>()
+        for ((ref, name) in chats) {
+            if (Book.erased(ref) || Groups.isKey(ref) || Book.hasGraves(ref) || Book.chat(ref)?.msgs?.isNotEmpty() == true) continue
+            val n = name?.trim()?.takeIf { it.isNotEmpty() && it.length <= 64 && !Book.isOwnName(it) } ?: ""
+            Book.open(ref, n, false)
+            if (n.isNotEmpty()) Book.edit(ref) { c -> if (c.name.isEmpty()) c.name = n }
+            if (marked(ref)) continue
+            Prefs.setStr(MARK + ref, ON_WAY)
+            stood.add(ref)
+        }
+        Log.d("Montana", "restore_rows stood=${stood.size} of ${chats.size}")
+        if (stood.isNotEmpty()) Book.redraw()
+        return stood
+    }
+    /** The correspondent gave nothing back: the row says so and stays on its name (iOS restoringEnded). */
+    fun ended(ref: String) {
+        val rs = Prefs.str(MARK + ref, "")
+        if (rs.isEmpty() || rs == NONE) return
+        Prefs.setStr(MARK + ref, NONE); Book.redraw()
+    }
+    /** The share of a chat come back (iOS MTKeeping.noteBack): a step of five percent redraws the list, null when laid or none came. */
+    fun note(ref: String, f: Double?) {
+        val was = share[ref]
+        if (f != null) {
+            if (was != null && (was * 20).toInt() == (f * 20).toInt()) return
+            share[ref] = f
+        } else {
+            if (was == null) return
+            share.remove(ref)
+        }
+        Book.redraw()
+    }
+    /** The words of a restoring chat's row (iOS restoringLine): its share while its letters come, or that none came. */
+    fun line(c: Context, ch: Chat): String? {
+        val rs = Prefs.str(MARK + ch.ref, "")
+        if (rs.isEmpty()) return null
+        // its first letter makes it the chat's own row, and the mark goes with it (iOS listRecord writes the record anew)
+        if (ch.msgs.isNotEmpty()) { Prefs.setStr(MARK + ch.ref, ""); share.remove(ch.ref); return null }
+        if (rs == NONE) return c.getString(R.string.keep_row_restoring_none)
+        return c.getString(R.string.keep_row_restoring, Math.round((share[ch.ref] ?: 0.0) * 100).toString() + "%")
+    }
+    /** For the list's record: a changed share is a row drawn anew. */
+    fun tag(ref: String): String = Prefs.str(MARK + ref, "") + ((share[ref] ?: -1.0) * 20).toInt()
+}
 
 /**
  * THE LIST'S WORK, MEASURED (iOS MTListWork, MontanaChatsList.swift:2094-2120 at 2155; atom 4cbf30023edb): the chats list lives
@@ -52,7 +116,7 @@ object ListWork {
     }
     /** The record a pass draws, as one number: the same number twice is a pass that drew nothing new. */
     fun print(rows: List<Chat>, head: Boolean): Int = rows.fold(if (head) 1 else 0) { h, ch ->
-        31 * h + (ch.ref + "|" + ch.shown + "|" + ch.unread + "|" + ChatMarks.pinPlace(ch.ref) + "|" + ch.last?.mid + "|" + (ch.last?.text?.length ?: 0)).hashCode()
+        31 * h + (ch.ref + "|" + ch.shown + "|" + ch.unread + "|" + ChatMarks.pinPlace(ch.ref) + "|" + ch.last?.mid + "|" + (ch.last?.text?.length ?: 0) + "|" + Restoring.tag(ch.ref)).hashCode()
     }
     fun note(ms: Double, rows: Int, print: Int) {
         val now = android.os.SystemClock.elapsedRealtime()

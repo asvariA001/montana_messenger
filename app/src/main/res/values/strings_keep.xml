@@ -30,4 +30,6 @@
     <string name="keep_walk_broken">A copy did not come whole. Asking again</string>
     <string name="keep_walk_downloading">Downloading your history</string>
     <string name="keep_walk_laying">Laying your history on this device</string>
+    <string name="keep_row_restoring">Restoring the history: %1$s</string>
+    <string name="keep_row_restoring_none">No letters came back to this chat</string>
 </resources>

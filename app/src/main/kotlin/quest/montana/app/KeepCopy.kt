@@ -226,6 +226,8 @@ object KeepDerive {
     fun keepKey(master: ByteArray) = expand(master, "mt-keep-key")
     /** light_secret = HKDF-Expand(master_seed, "mt-keep-light", 32): the pipe of light, the owner's alone, in which the road of the light copy is named. */
     fun lightSecret(master: ByteArray) = expand(master, "mt-keep-light")
+    /** book_key = HKDF-Expand(master_seed, "mt-keep-book", 32): it seals the keepers' book (iOS bookKey, f60c68c4, OZ 1 p.1.1); a keeper holds the sealed book and cannot open it. */
+    fun bookKey(master: ByteArray) = expand(master, "mt-keep-book")
 
     /** head = k_1B || n_1B || generation_8B_LE || length_8B_LE || SHA-256(container) || SHA-256(share): eighty-two bytes. */
     class Head(val slot: Int, val n: Int, val generation: Long, val length: Long, val copyDigest: ByteArray, val shareDigest: ByteArray) {
@@ -314,11 +316,13 @@ object KeepCopy {
     // ── the keeper's side (iOS MTKeeping 365-372, 796-914) ──
     /** A part held for a correspondent: its slot of n, the slot's pipe secret, the head and its seal, and the owner's road on the nodes. */
     class Held(val slot: Int, val n: Int, val secret: ByteArray, val head: ByteArray, val seal: ByteArray, val bytes: Long, val at: Double,
-               var answeredAt: Double = 0.0, val road: Map<String, String>? = null, val roadAt: Double? = null) {
+               var answeredAt: Double = 0.0, val road: Map<String, String>? = null, val roadAt: Double? = null,
+               /** THE OWNER'S BOOK, SEALED UNDER THE OWNER'S SEED (iOS Held.book, f60c68c4, OZ 1 p.1.1): held unread, given back with every answer. */
+               val book: ByteArray? = null) {
         val generation: Long get() = KeepDerive.Head.of(head)?.generation ?: 0L
         fun json(): JSONObject = JSONObject().put("slot", slot).put("n", n).put("secret", Wire.hex(secret)).put("head", Wire.hex(head))
             .put("seal", Wire.hex(seal)).put("bytes", bytes).put("at", at).put("answeredAt", answeredAt)
-            .apply { road?.let { put("road", JSONObject(it)) }; roadAt?.let { put("roadAt", it) } }
+            .apply { road?.let { put("road", JSONObject(it)) }; roadAt?.let { put("roadAt", it) }; book?.let { put("book", Wire.hex(it)) } }
         companion object {
             fun of(o: JSONObject): Held? {
                 val secret = unhex(o.optString("secret")) ?: return null
@@ -326,7 +330,8 @@ object KeepCopy {
                 val seal = unhex(o.optString("seal")) ?: return null
                 val road = o.optJSONObject("road")?.let { r -> r.keys().asSequence().associateWith { r.optString(it) } }
                 return Held(o.optInt("slot"), o.optInt("n"), secret, head, seal, o.optLong("bytes"), o.optDouble("at", 0.0),
-                    o.optDouble("answeredAt", 0.0), road, if (o.has("roadAt")) o.optDouble("roadAt") else null)
+                    o.optDouble("answeredAt", 0.0), road, if (o.has("roadAt")) o.optDouble("roadAt") else null,
+                    o.optString("book").takeIf { it.isNotEmpty() }?.let { unhex(it) })
             }
         }
     }
@@ -644,6 +649,19 @@ object KeepCopy {
      * THE COPY HANDED AROUND THE RING (iOS hand): cut at the sixteen slots of a group, every share laid on the nodes ONCE and its road
      * handed to each keeper of its slot -- the ring costs the network a copy and a third, whatever the number of keepers.
      */
+    /** The keepers' book sealed under the book key and put on the nodes as one piece, named by its digest (iOS putBook, f60c68c4). */
+    private fun putBook(master: ByteArray, convs: List<String>): String? {
+        val key = KeepDerive.bookKey(master) ?: return null
+        val plain = Archive.keepersBook(convs) ?: return null
+        val sealed = Wire.seal(key, plain)?.takeIf { it.size <= BOOK_MOST } ?: return null
+        val id = Wire.hex(Wire.sha(sealed))
+        if (!Wire.putBlob(id, sealed)) return null
+        Log.i("Montana", "keep_book put people=${convs.size} bytes=${sealed.size}")
+        return id
+    }
+    /** A book past this measure is no book of names: the keeper does not hold it (iOS bookMost). */
+    private const val BOOK_MOST = 262_144
+
     private fun hand(copy: File, g: Long, keepers: List<String>, urgent: Boolean) {
         val n = KeepCode.GROUP
         val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) } ?: return
@@ -662,6 +680,10 @@ object KeepCopy {
                 if (why != null) { Log.i("Montana", "keep_hand held at share $k of $n: $why -- the rest waits for the next renewal"); return }
                 Keeping.lay(cut.shares[k])?.let { roads[k] = it }
             }
+            // THE KEEPERS' BOOK RIDES WITH THE PARTS (iOS hand, f60c68c4, OZ 1 p.1.1): sealed under the seed, put once on the nodes and
+            // named in every part; it leaves the nodes with the shares (owner.laid, unlay)
+            val book = putBook(master, people())
+            if (book != null) roads[-1] = JSONObject().put("mref", book).put("mk", "")
             val sent = LinkedHashMap<String, Keeper>()
             var parts = 0
             for ((i, conv) in keepers.withIndex()) {
@@ -673,6 +695,7 @@ object KeepCopy {
                     val o = JSONObject().put("w", "part").put("k", k).put("n", n).put("s", Base64.encodeToString(secret, Base64.NO_WRAP))
                         .put("h", Wire.hex(head.bytes)).put("e", Wire.hex(KeepDerive.seal(key, head)))
                     for (a in road.keys()) o.put(a, road.get(a))
+                    if (book != null) o.put("b", book)
                     say(conv, o)
                     parts++
                 }
@@ -831,12 +854,14 @@ object KeepCopy {
         if (!Keeping.fetch(o, landing) || shaHex(landing) != Wire.hex(head.shareDigest)) { landing.delete(); return refuse("the part did not come whole") }
         dest.delete()
         if (!landing.renameTo(dest)) { landing.delete(); return }
+        // THE OWNER'S BOOK, HELD UNREAD (iOS takePart, f60c68c4, OZ 1 p.1.1): sealed under the owner's seed, it goes back with every answer
+        val book = o.optString("b").takeIf { it.isNotEmpty() }?.let { b -> Wire.getBlob(b)?.takeIf { it.size <= BOOK_MOST && Wire.hex(Wire.sha(it)) == b } }
         val t = now()
         val road = HashMap<String, String>().apply { put("z", size.toString()); for (name in listOf("bk", "mref", "mk")) put(name, o.optString(name)) }
         synchronized(lock) {
             // A RENEWAL REPLACES (Network): this person's parts of an older copy leave as the newer one arrives
             for ((old, h) in held().toList()) if (convOf(old) == conv && old != key && h.generation < head.generation) dropKey(old)
-            held()[key] = Held(k, n, secret, hd, seal, size, t, road = road, roadAt = t)
+            held()[key] = Held(k, n, secret, hd, seal, size, t, road = road, roadAt = t, book = book)
             roads.remove(key)
             saveHeld()
         }
@@ -878,6 +903,8 @@ object KeepCopy {
             JSONObject(fresh.toString())
         }
         road.put("w", "answer").put("h", Wire.hex(h.head)).put("e", Wire.hex(h.seal))
+        // the owner's book rides beside the part, put again: the nodes' term may have taken it (iOS answerCall, f60c68c4, OZ 1 p.1.1)
+        h.book?.let { b -> val id = Wire.hex(Wire.sha(b)); if (Wire.putBlob(id, b)) road.put("b", id) }
         val twin = MontanaSeed.twin ?: return
         if (!Keeping.knock(h.secret, road, twin)) return Unit.also { Log.d("Montana", "keep_answer no door boxed it") }
         synchronized(lock) { h.answeredAt = t; saveHeld() }
@@ -1064,6 +1091,20 @@ object KeepCopy {
         Log.i("Montana", "keep_call slots=${secrets.size} boxed=$boxed")
     }
 
+    /** THE KEEPERS' BOOK LAID HERE (iOS layBook, f60c68c4, OZ 1 p.1.1): its pipes re-established, each chat it names standing empty in
+     *  the list with its share (Restoring.stand), and each correspondent asked at once for the letters (askBack). */
+    private fun layBook(id: String, master: ByteArray): Boolean {
+        val key = KeepDerive.bookKey(master) ?: return false
+        val sealed = Wire.getBlob(id)?.takeIf { Wire.hex(Wire.sha(it)) == id } ?: return false
+        val plain = Wire.open(key, sealed) ?: return false
+        val chats = Archive.keepersPipes(plain)
+        val stood = Restoring.stand(chats)
+        for (ref in stood) Restoring.note(ref, 0.0)
+        askBack()
+        Log.i("Montana", "keep_book laid pipes=${chats.size} stood=${stood.size}")
+        return true
+    }
+
     private fun callAndBuild(): CopyResult {
         val master = MontanaSeed.mnemonic?.let { MtBindings.nativeMnemonicToMasterSeed(it) }
         val key = master?.let { KeepDerive.keepKey(it) }
@@ -1078,6 +1119,7 @@ object KeepCopy {
         var lastCall = 0.0
         var lastLoud = 0.0
         val began = now()
+        var bookLaid = false   // the keepers' book of this walk is laid (layBook): the next answers carry the same book
         taking = Taking.Fetching(0.0)
         walked { Walk() }
         // THE LIGHT COPY FIRST (Network «The light copy»): the pipe of light is read before any call, and the person is let in;
@@ -1121,6 +1163,8 @@ object KeepCopy {
                     val head = unhex(o.optString("h"))?.let { KeepDerive.Head.of(it) }?.takeIf { it.slot == k } ?: continue
                     val seal = unhex(o.optString("e")) ?: continue
                     if (!seal.contentEquals(KeepDerive.seal(key, head))) continue
+                    // THE CHATS FIRST (iOS f60c68c4, OZ 1 p.1.1): the first answer that carries the owner's book stands every chat it names, empty
+                    if (!bookLaid) o.optString("b").takeIf { it.isNotEmpty() }?.let { if (layBook(it, master)) bookLaid = true }
                     val id = Wire.hex(head.copyDigest) + "." + k
                     if (id in answers) continue
                     val f = File(dir, UUID.randomUUID().toString() + ".keep")
@@ -1234,12 +1278,15 @@ object KeepCopy {
      */
     private fun takeGiven(conv: String, o: JSONObject) {
         val at = askedBack()[conv] ?: return
-        if (now() - at >= 7 * 86_400 || o.optInt("c", 0) <= 0) return
+        if (now() - at >= 7 * 86_400) return
+        // NOTHING TO GIVE BACK (iOS takeGiven, f60c68c4, OZ 1 p.1.2): the chat's row says so and stands on its name
+        if (o.optInt("c", 0) <= 0) { Restoring.note(conv, null); Restoring.ended(conv); return }
         val d = o.optString("d").ifEmpty { null } ?: return
         val dir = MontanaBackup.shelf(Book.ctx) ?: return
+        Restoring.note(conv, 0.01)
         val f = File(dir, UUID.randomUUID().toString() + ".given")
         try {
-            val list = if (Keeping.fetch(o, f) && shaHex(f) == d) runCatching { org.json.JSONArray(f.readText(Charsets.UTF_8)) }.getOrNull() else null
+            val list = if (Keeping.fetch(o, f) { p -> Restoring.note(conv, 0.01 + p * 0.94) } && shaHex(f) == d) runCatching { org.json.JSONArray(f.readText(Charsets.UTF_8)) }.getOrNull() else null
             if (list == null) return Unit.also { Log.i("Montana", "keep_back the given letters did not come whole") }
             // The copies' last letter is the last one older than the request: a letter that came live after it is no measure.
             val atMs = (at * 1000).toLong()
@@ -1282,6 +1329,8 @@ object KeepCopy {
                 rows.add(Msg(Archive.GIVEN_MID + (wire ?: t.toString()), x, claimedMine, ms, state = if (claimedMine) 1 else 3))
             }
             val laid = Book.layGivenBack(conv, rows)
+            Restoring.note(conv, null)
+            if (Book.chat(conv)?.msgs.isNullOrEmpty()) Restoring.ended(conv)
             Log.i("Montana", "keep_back took=$laid of ${list.length()} unproven_mine=$unproven conv=" + conv.take(10))
         } finally { f.delete() }
     }

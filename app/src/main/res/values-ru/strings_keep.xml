@@ -30,4 +30,6 @@
     <string name="keep_walk_broken">Копия пришла не целиком. Спрашиваем снова</string>
     <string name="keep_walk_downloading">Загружаем вашу историю</string>
     <string name="keep_walk_laying">Раскладываем вашу историю на этом устройстве</string>
+    <string name="keep_row_restoring">Восстановление истории: %1$s</string>
+    <string name="keep_row_restoring_none">Переписка этого чата не вернулась</string>
 </resources>

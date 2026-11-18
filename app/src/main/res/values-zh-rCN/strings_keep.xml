@@ -30,4 +30,6 @@
     <string name="keep_walk_broken">副本未完整到达，正在重新请求</string>
     <string name="keep_walk_downloading">正在下载您的历史记录</string>
     <string name="keep_walk_laying">正在将您的历史记录放到此设备上</string>
+    <string name="keep_row_restoring">正在恢复聊天记录：%1$s</string>
+    <string name="keep_row_restoring_none">此聊天没有取回任何消息</string>
 </resources>

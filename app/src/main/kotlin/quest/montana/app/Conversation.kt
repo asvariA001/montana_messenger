@@ -590,7 +590,8 @@ fun chatRow(act: MainActivity, chat: Chat): View {
                 val kind = shown?.let { rowKind(it) }
                 if (shown != null && kind != null) addView(c.letterThumb(shown, kind), lp(dp(20), dp(20)).apply { marginEnd = dp(6); gravity = Gravity.CENTER_VERTICAL })
                 // a letter the filter hides is told as hidden in the row, opened or not (iOS ChatStore 159)
-                val words = shown?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
+                // a chat of a restore says its share of the given letters, or that none came (iOS restoringLine, f60c68c4)
+                val words = Restoring.line(c, chat) ?: shown?.let { if (ContentFilter.hides(it.mine, it.text)) c.getString(R.string.filter_hidden) else letterWords(c, it) } ?: ""
                 addView(c.text(if (kind != null) bareWords(words) else words, 16f, MT.gray).apply { singleLineEllipsis() }, lp(0, WRAP, 1f))   // USER-DATA: the last letter
                 }
                 // THE ROW'S END (iOS ChatRow 2200-2214): the hand's mark first -- the blue dot 11; else the count, caption2 bold on the
