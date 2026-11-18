@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The copy kept by the people one writes to (iOS MTKeepingSection, the question at the opening; Localizable.xcstrings at mainline-2074 d28805b6). -->
 <resources>
-    <string name="keep_ask_title">Turn on a backup of your history?</string>
-    <string name="keep_ask_yes">Keep with my contacts</string>
+    <string name="keep_ask_title">Keep an encrypted copy with your contacts?</string>
+    <string name="keep_ask_yes">Keep</string>
     <string name="keep_ask_not_now">Not now</string>
-    <string name="keep_ask_msg">A backup brings your conversations back on a new phone by your 24 words; it is sealed with them, and nobody else can open it. The people you write to keep it: each keeps a sealed part and sees only its size. Montana\'s nodes only pass messages on and keep no copy. This phone also keeps sealed parts for your contacts, up to 1 GB, and cannot open them. This is asked once; both are in Settings → Data and Storage.</string>
+    <string name="keep_ask_msg">Your history is sealed with your 24 words and cut into parts; the people you write to keep the parts and see only their size, never a word. On a new phone your 24 words bring your conversations back from them. This phone also keeps sealed parts for your contacts, up to 1 GB, and cannot open them. Montana\'s nodes keep no copy. It is in Settings → Data and Storage.</string>
     <string name="keep_header">Copy with contacts</string>
     <string name="keep_mine">Keep my copy with my contacts</string>
     <string name="keep_asking">Asking the people you write to…</string>

@@ -493,6 +493,8 @@ object MontanaBackup {
         var tail: JSONObject? = null
         var ofMany = false
         var placed = 0
+        /** The blocks that came before their conversation's head: filed once the whole copy is read (iOS late, finish). */
+        private val late = ArrayList<ByteArray>()
         private var sink: FileOutputStream? = null
         private var dropping = false
 
@@ -564,11 +566,11 @@ object MontanaBackup {
         }
 
         /**
-         * A sealed block of history, BY THE TWIN'S OWN ROAD (iOS Taker → MontanaArchive.absorb): filed into the folder its conversation
-         * is already filed under (a copy taken back on the device that made it laid every block a second time in a folder named by the
-         * conversation's hash), a block of a conversation deleted here is not filed, and a filed one is read into the feed.
+         * A sealed block of history, BY THE COPY'S OWN ROAD (iOS Taker → MontanaArchive.absorbFromCopy, 2452): filed into the folder its
+         * conversation is filed under, its own head making a person's chat held; a block of a conversation deleted here is not filed,
+         * and a filed one is read into the feed. A block before its head waits for the copy's end (late, finish).
          */
-        private fun absorb(sealed: ByteArray) { Archive.absorb(sealed) }
+        private fun absorb(sealed: ByteArray) { if (!Archive.absorbFromCopy(sealed)) late.add(sealed) }
 
         /** The copy has been read to its end: it is whole only if its tail meets the stream it closes. */
         fun finish(): CopyResult {
@@ -580,6 +582,13 @@ object MontanaBackup {
             // The card and the feed are laid only once the whole copy has proved itself.
             if (card != null && !Card.lay(c, card!!, ofMany)) return CopyResult.Refused(Refusal.NoVault)
             if (card != null) Prefs.setBool(Archive.COPY_LAID, true)   // this device's history is no source (iOS copyLaidKey, OZ 1 p.1.2)
+            // THE BLOCKS BEFORE THEIR HEAD (iOS finish, 2452): every head of the copy is read now, and the card's tombstones stand --
+            // a block of a deleted conversation stays unfiled
+            if (late.isNotEmpty()) {
+                val filed = late.count { Archive.absorbFromCopy(it) }
+                Log.d("Montana", "backup_late blocks=${late.size} filed=$filed")
+                late.clear()
+            }
             feed?.let { if (!Card.keep(c, "feed", it)) return CopyResult.Refused(Refusal.NoVault) }
             tally.chats = MontanaPaths.chats(c).listFiles { f -> f.isDirectory }?.size ?: 0
             tally.skipped = t.optJSONObject("tally")?.optInt("skipped") ?: 0

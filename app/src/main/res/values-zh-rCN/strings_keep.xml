@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- The copy kept by the people one writes to (iOS MTKeepingSection, the question at the opening; Localizable.xcstrings at mainline-2074 d28805b6). -->
 <resources>
-    <string name="keep_ask_title">开启历史记录备份？</string>
-    <string name="keep_ask_yes">由联系人保管</string>
+    <string name="keep_ask_title">由联系人保管加密备份？</string>
+    <string name="keep_ask_yes">保管</string>
     <string name="keep_ask_not_now">暂不</string>
-    <string name="keep_ask_msg">备份可凭您的 24 个单词在新手机上取回您的对话；它用这些单词加密，其他人无法打开。由与您通信的人保管：每个人保管一个加密部分，只能看到其大小。Montana 的节点只转发消息，不保存任何副本。此手机也为您的联系人保管加密的部分，最多 1 GB，且无法打开它们。此问题只问一次；两个开关都在“设置 → 数据和存储”中。</string>
+    <string name="keep_ask_msg">您的聊天记录以您的 24 个词加密并分成若干部分；与您聊天的人保管这些部分，只能看到大小，看不到任何内容。在新手机上，您的 24 个词会从他们那里取回您的对话。这部手机也为您的联系人保管加密部分，最多 1 GB，且无法打开。Montana 的节点不保存任何副本。可在 设置 → 数据和存储 中更改。</string>
     <string name="keep_header">联系人保管的副本</string>
     <string name="keep_mine">让联系人保管我的副本</string>
     <string name="keep_asking">正在询问与您通信的人…</string>

@@ -386,7 +386,7 @@ object Archive {
                     val s = String(r.content, Charsets.UTF_8)
                     if (r.dir == HEAD_DIR) {
                         when {
-                            s.startsWith("s:") -> runCatching { Base64.decode(s.drop(2), Base64.DEFAULT) }.getOrNull()?.takeIf { Wire.isWhole(it) }?.let { secret = Wire.floored(it, backDay); hs++ }
+                            s.startsWith("s:") -> headSecret(s, backDay)?.let { secret = it; hs++ }
                             s.startsWith("x:") -> closedThere = true
                             s.startsWith("a:") -> { ha++; val n = s.drop(2); if (ref == null && (Book.secret(n) != null || Book.isLocal(n) || Groups.isKey(n))) ref = n }
                             s.startsWith("n:") -> { hn++; name = s.drop(2) }
@@ -494,7 +494,10 @@ object Archive {
             Log.d("Montana", "archive_gone past sealed rows=" + seal.sumOf { it.second.size } + " chats=" + seal.size)
         }
         Post.adoptRestored()   // the pipes stand: a laid copy's letters join the queue only now (iOS afterPipes → adoptRestored, cc147308)
-        if (Book.refs().size > pipesBefore) Presence.peersGrew()   // the grown book is greeted and asked for its faces at once (iOS 3ed661fa)
+        if (Book.refs().size > pipesBefore) {
+            Presence.peersGrew()   // the grown book is greeted and asked for its faces at once (iOS 3ed661fa)
+            Book.redraw()   // the rows of the pipes just re-established are drawn now (iOS afterPipes objectWillChange, 2452)
+        }
         Log.d("Montana", "archive_restore chats=" + chats + " rows=" + added + " headed=" + headed + " heads=s" + hs + "/a" + ha + "/n" + hn + " faces=" + faces)
         if (face != null) Prefs.setStr(FACE_KEY, if (eraseOrphans(k, chatsDir, folders) > 0) face(chatsDir, chatFolders(chatsDir)) else face)
     }
@@ -565,6 +568,7 @@ object Archive {
     private fun convBook(): HashMap<String, String> {
         val all = LinkedHashSet<String>()
         all.addAll(Book.refs()); all.addAll(Book.held()); all.addAll(Groups.keys()); all.add(Book.SAVED)
+        synchronized(copyHeld) { all.addAll(copyHeld) }
         val m = HashMap<String, String>()
         for (c in all) if (c.isNotEmpty() && !isTranscript(c)) m[Wire.hex(conv(c))] = c
         return m
@@ -753,6 +757,32 @@ object Archive {
      */
     @Volatile private var refusedAt = 0L
     fun absorb(sealed: ByteArray): Boolean = fileBlock(sealed).first
+    /**
+     * A BLOCK OF THE PERSON'S OWN COPY NAMES ITS CONVERSATION BY ITS OWN HEAD (iOS absorbFromCopy, 21f1a6b8 at 2452, OZ 1 p.1.3): the
+     * pipe that makes a conversation held is re-established only from its folder's head, and the head rode in the very block refused,
+     * so every person's chat of a restored copy was taken unfiled. On the copy's road alone (never the twin's, which carries other
+     * lives' chats) a head whose pipe is this block's conversation makes it held, and the block files under its label. False: no
+     * conversation held here and no head of its own yet -- the copy files it once more at its end (Backup.finish).
+     */
+    fun absorbFromCopy(sealed: ByteArray): Boolean {
+        keys()?.let { k -> headRef(k, sealed)?.let { synchronized(copyHeld) { copyHeld.add(it) } } }
+        return fileBlock(sealed).second != null
+    }
+    /** The conversations a copy's own heads made held this run (iOS heldHint at absorbFromCopy): convBook names them. */
+    private val copyHeld = HashSet<String>()
+    /** A head's pipe, read on the archive's day (iOS headPipe): the one reading of an «s:» head for a restore and for a copy's block. */
+    private fun headSecret(s: String, day: Long): ByteArray? = headPipe(s)?.let { Wire.floored(it, day) }
+    /** The conversation a block's own pipe head names, when it is the block's conversation (iOS headRef). */
+    private fun headRef(k: Keys, sealed: ByteArray): String? {
+        val conv = MtBindings.nativeArchivePeekConv(k.hk, k.owner, sealed) ?: return null
+        val day = FloorGuard.recoveryDay()
+        for (r in MtBindings.nativeArchiveOpenBlock(k.hk, k.owner, sealed)?.let(::opened) ?: emptyList()) {
+            if (r.dir != HEAD_DIR || !r.conv.contentEquals(conv)) continue
+            val ref = headSecret(String(r.content, Charsets.UTF_8), day)?.let(Wire::reference) ?: continue
+            if (conv(ref).contentEquals(conv)) return ref
+        }
+        return null
+    }
     /** The filing itself, with the folder a block of this person's history now stands in (null when it was taken unfiled; iOS fileBlock). */
     fun fileBlock(sealed: ByteArray): Pair<Boolean, String?> {
         val k = keys() ?: return false to null
@@ -814,7 +844,7 @@ object Archive {
         q.execute { runCatching { dropSecretHeadsIn(day) }.onFailure { Log.w("Montana", "archive_secret_heads " + it.javaClass.simpleName) } }
     }
     /** The seat leaves: the next person's archive is passed again (iOS SeedScope.seatKeys). */
-    fun forgetPurge() { purgeAsked = 0L; DeviceVault.delete(PURGED) }
+    fun forgetPurge() { purgeAsked = 0L; DeviceVault.delete(PURGED); synchronized(copyHeld) { copyHeld.clear() } }
 
     /** Queue-only: the pass, once per archive from the floor day (again after a seat change brings an older archive). */
     private fun dropSecretHeadsIn(day: Long) {
