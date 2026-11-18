@@ -336,11 +336,11 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         val count = c.text("", 17f, Color.WHITE, bold = true, center = true).apply { typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }.also { sideTexts.add(it) }
         LinearLayout(c).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
-            background = c.glassPlate(); setPadding(dp(8), dp(8), dp(8), dp(8)); alpha = 0f
+            background = c.glassPlate(); setPadding(c.dp(8), c.dp(8), c.dp(8), c.dp(8)); alpha = 0f
             isClickable = false; importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-            addView(coin, LinearLayout.LayoutParams(dp(30), dp(30)).apply { bottomMargin = dp(4) })
+            addView(coin, LinearLayout.LayoutParams(c.dp(30), c.dp(30)).apply { bottomMargin = c.dp(4) })
             addView(count, LinearLayout.LayoutParams(WRAP, WRAP))
-            holder.addView(this, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or edge).apply { marginStart = dp(10); marginEnd = dp(10) })
+            holder.addView(this, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.CENTER_VERTICAL or edge).apply { marginStart = c.dp(10); marginEnd = c.dp(10) })
         }
     }
     // one clock of 0.9 s: the rise eases out over all of it (iOS easeOut 0.9, 40 → -40), the fade eases in over its last 0.3 s (easeIn
@@ -351,7 +351,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         for (t in sideTexts) t.text = "+" + CoinText.count(coins)
         for (k in sideCoins) k.turnOnce()
         sideRun?.cancel(); holder.removeCallbacks(sideFade)
-        val lift = dp(40).toFloat()
+        val lift = c.dp(40).toFloat()
         for (s in sides) { s.animate().cancel(); s.translationY = lift; s.alpha = 1f }
         if (ValueAnimator.areAnimatorsEnabled()) {
             sideRun = ValueAnimator.ofFloat(0f, 1f).apply {
