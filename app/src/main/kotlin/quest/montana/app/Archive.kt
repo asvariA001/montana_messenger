@@ -772,7 +772,19 @@ object Archive {
             if (now - refusedAt >= 60_000) { refusedAt = now; Log.d("Montana", "archive_refused a head with the established secret is not filed from the floor day") }
             return true to null
         }
-        val folder = map(FOLDERS).optString(c).ifEmpty { c }
+        // A BLOCK FILES ONLY UNDER A CONVERSATION THIS DEVICE HOLDS (iOS fileBlock, 17b1f7c4 at 2446, OZ 1 p.1.3): the twin's blocks of
+        // other lives' chats were filed under the chat's hash -- folders no row answered for. A conversation the book names (its pipe,
+        // a held chat, a group, Saved Messages) files under its label; a block of no conversation held here is taken unfiled.
+        val folder = map(FOLDERS).optString(c).ifEmpty {
+            val ref = convBook()[c]
+            if (ref == null) {
+                val now = System.currentTimeMillis()
+                if (now - refusedAt >= 60_000) { refusedAt = now; Log.d("Montana", "archive_refused a block of no conversation held here is not filed") }
+                return true to null
+            }
+            q.execute { keys()?.let { kk -> folder(kk, ref) } }
+            label(k, ref)
+        }
         val base = root()?.path ?: return false to null
         val rc = synchronized(logLock) { MtBindings.nativeArchiveIngest(base, folder, k.hk, k.owner, sealed) }
         if (rc == 1) { Log.d("Montana", "history_rx block filed"); restoreSoon(listOf(folder)) }

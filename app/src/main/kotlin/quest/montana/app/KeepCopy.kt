@@ -492,19 +492,31 @@ object KeepCopy {
      * THE OWNER'S RHYTHM (iOS tick): a renewal is due a day after the last; it asks the people I write to, waits ten minutes for
      * one yes at least (a full ring goes at once), and an hour without one leaves the copy where it stands until tomorrow.
      */
+    /**
+     * THE PICTURE LAID FOR AN ASKING DEVICE IS A RELAY'S LETTER, NOT A COPY (iOS unlayLight, 61694b15 at 2447, the author's words
+     * 24371, 24376): ten minutes after it was named it leaves the nodes, taken or not; the copies an older build laid by its daily
+     * rhythm leave at this build's first look.
+     */
+    private fun unlayLight(t: Double) {
+        val laid = synchronized(lock) {
+            val o = owner()
+            val l = o.lightLaid?.takeIf { it.length() > 0 } ?: return
+            if (t - o.light.optDouble("lightAt", 0.0) < 600) return
+            o.light.remove("lightLaid"); saveOwner()
+            l
+        }
+        Thread({ Keeping.unlay(laid) }, "keep-unlay").apply { isDaemon = true }.start()
+        Log.i("Montana", "keep_light relayed taken off roads=" + laid.length())
+    }
     private fun tick() {
-        if (!mine || !told || !agrees || !MontanaSeed.hasSeed) return
         val t = now()
+        unlayLight(t)   // first, whatever the person chose: an older build's copies leave the nodes too
+        if (!mine || !told || !agrees || !MontanaSeed.hasSeed) return
         val o = owner()
-        // THE LIGHT COPY'S RHYTHM (iOS tick 513-521): once a day; one's own name or face moved -- a minute; the people and the
-        // groups -- ten minutes; a light engine older than the card's -- once more at once (iOS 0be1c720)
-        val (face, name) = profileTags()
-        val l = synchronized(lock) { JSONObject(o.light.toString()) }
-        val moved = l.optString("lightFace", "") != face || l.optString("lightName", "") != name || l.optInt("lightEngine", -1) != Card.ENGINE
-        val since = t - maxOf(l.optDouble("lightAt", 0.0), l.optDouble("lightTriedAt", 0.0))
-        val people = peopleTag()
-        val met = l.optString("lightPeople", "") != people
-        if (!lighting && (since >= 86_400 || (moved && since >= 60) || (met && since >= 600))) layLight(face, name, people)
+        // NO COPY OF THE HISTORY STANDS ON THE NODES (iOS tick, 61694b15 at 2447, the author's words 24369-24371 and 24376: «the nodes
+        // are relays only and must hold nothing»; «copies only at the users, only current ones, and the restore only by them»): no
+        // light copy is laid by a rhythm -- not daily, not for one's own new name or face, not for a new person. A picture of now is
+        // laid only for a device that asks it and leaves the nodes once taken (takeLight) or ten minutes after (unlayLight).
         if (renewing) return
         val g = synchronized(lock) { o.asking }
         if (g != null) {
@@ -753,19 +765,16 @@ object KeepCopy {
         // The sender of the pipe of light is named «light», never this person's own reference: a phone opening the same words reads
         // the box under that reference, and a letter of its own name the node would keep from it.
         if (!Keeping.knock(secret, road, LIGHT_NAME)) return Unit.also { Log.i("Montana", "keep_light no door boxed the road") }
-        val older = synchronized(lock) {
+        synchronized(lock) {
             val o = owner()
             o.light.put("lightGen", g).put("lightAt", now()).put("lightFace", face).put("lightName", name)
                 .put("lightPeople", people).put("lightEngine", Card.ENGINE)
-            // THE LAST TWO LIGHT COPIES STAY (iOS 2418): a device in the middle of taking the one before still finds it whole.
-            val lights = Keeping.roadsJoin(o.lightLaid, Keeping.roadsOf(listOf(road)))
-            val keep = org.json.JSONArray(); val gone = org.json.JSONArray()
-            for (i in 0 until lights.length()) (if (i < lights.length() - 2) gone else keep).put(lights.get(i))
-            o.light.put("lightLaid", keep)
+            // THE PICTURE IS A RELAY'S LETTER (iOS layLight, 61694b15 at 2447): it stands ten minutes for the device that asked it, then
+            // leaves the nodes (unlayLight); the device that takes it takes it off at once (takeLight).
+            o.light.put("lightLaid", Keeping.roadsJoin(o.lightLaid, Keeping.roadsOf(listOf(road))))
             saveOwner()
-            gone
         }
-        Keeping.unlay(older)
+        later(610)
         Log.i("Montana", "keep_light named g=$g bytes=${made.file.length()} chats=${made.tally.chats}")
     }
 
@@ -948,6 +957,10 @@ object KeepCopy {
                     lightSeen.add(d)
                     Log.i("Montana", "keep_light a light copy did not come whole"); continue
                 }
+                // TAKEN, IT LEAVES THE RELAY (iOS takeLight, 61694b15 at 2447): the pieces go from the nodes the moment they are here
+                lightSeen.add(d)
+                val taken = Keeping.roadsOf(listOf(road))
+                Thread({ Keeping.unlay(taken) }, "keep-unlay").apply { isDaemon = true }.start()
                 taking = Taking.Laying(0.0)
                 val r = MontanaBackup.restore(Book.ctx, f, ofMany = true) { taking = Taking.Laying(it) }
                 reread()

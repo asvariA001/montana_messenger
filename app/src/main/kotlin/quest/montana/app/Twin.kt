@@ -860,6 +860,9 @@ object Twin {
         for (ch in Book.rooms()) {
             // A DELETED CHAT IS TOLD TO NO DEVICE (iOS chatPrints, 34ce186e, 2443, the author's word 24302): its print would stand it again
             if (Book.erased(ch.ref)) continue
+            // THE MONTANA ROOM IS EACH DEVICE'S OWN (iOS chatPrints, 17b1f7c4 at 2446, OZ 1 p.1.4): its rows are this build's words;
+            // told as a print, another device took the rows of other devices' builds
+            if (Book.isMontana(ch.ref)) continue
             val rows = ch.msgs.toList()
             if (rows.isEmpty()) continue
             val keys = Archive.archiveKeys(rows.filter { it.at < settled })
@@ -931,6 +934,7 @@ object Twin {
      * gap; a row buried there is never laid over its tombstone.
      */
     private fun heal(chat: String, theirs: Set<String>) {
+        if (Book.isMontana(chat)) return   // the Montana room is each device's own (iOS healTwin, 2446, OZ 1 p.1.4)
         val mine = HashSet<String>()
         var given = 0
         for (m in Book.chat(chat)?.msgs?.toList().orEmpty()) {
@@ -1180,6 +1184,7 @@ object Twin {
      */
     private fun takeRow(chat: String, mid: String, own: Boolean, at: Double, body: String) {
         val o = runCatching { JSONObject(body) }.getOrNull()
+        if (Book.isMontana(chat)) return rowDropped(chat, mid, "the Montana room is each device's own")   // iOS takeTwinRow, 2446
         if (o == null || at <= 0 || mid.isEmpty()) return rowDropped(chat, mid, "a letter that names no row")
         // SAVED MESSAGES IS BORN BY THE TWIN'S ROW (iOS 4bff00b3 savedBirth, the critic of 22541): a device that never wrote to itself
         // holds no Saved Messages, and the row its twin gave left silently; a person's conversation is born only by its pipe
