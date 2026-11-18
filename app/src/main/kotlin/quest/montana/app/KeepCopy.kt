@@ -588,7 +588,7 @@ object KeepCopy {
     private fun tookHeld(conv: String, w: JSONObject) {
         val g = (w.opt("g") as? Number)?.toLong() ?: return
         val s = (w.opt("k") as? Number)?.toInt()
-        synchronized(lock) {
+        val laid = synchronized(lock) {
             val o = owner()
             val k = o.keepers[conv] ?: return
             if (g != o.generation) return
@@ -599,7 +599,16 @@ object KeepCopy {
             } else k.held = true   // a keeper of an older build holds one part and names no slot
             saveOwner()
             Log.i("Montana", "keep_held slot=${s ?: k.slot} whole=${k.held}")
-        }
+            // THE SHARES ARE A RELAY'S LETTER, NOT A COPY (iOS a6223d33, OZ 1 p.1.2, decision 1058): once every keeper of the ring
+            // holds its slots whole, the shares leave the nodes -- the copy lives on the keepers' phones alone, and a keeper who
+            // stays silent leaves them to the node's own term of seven days.
+            val l = o.laid
+            if (o.keepers.isNotEmpty() && o.keepers.values.all { it.held } && l != null && l.length() > 0) {
+                o.laid = null; saveOwner(); l
+            } else null
+        } ?: return
+        Thread({ Keeping.unlay(laid) }, "keep-unlay").apply { isDaemon = true }.start()
+        Log.i("Montana", "keep_held every keeper holds: shares taken off roads=" + laid.length())
     }
     private fun renew(g: Long) {
         if (renewing) return
@@ -859,12 +868,11 @@ object KeepCopy {
         if (!others) return
         val t = now()
         if (t - h.answeredAt < 600) return   // a call repeats every two minutes; one answer serves ten
-        val r = h.road; val at = h.roadAt
-        // The owner's road is ridden while it stands (iOS 2418): a newer generation takes the older off the nodes (unlay), and a
-        // keeper that missed the newer part lays its own.
-        val road: JSONObject = if (r != null && at != null && t - at < 6 * 86_400 && r["z"]?.toLongOrNull() == h.bytes && Keeping.stands(r["mref"] ?: "")) {
-            JSONObject().put("z", h.bytes).put("bk", r["bk"] ?: "").put("mref", r["mref"] ?: "").put("mk", r["mk"] ?: "")   // the owner's pieces, alive a week
-        } else synchronized(lock) { roads[key]?.takeIf { t - it.first < 86_400 }?.second }?.let { JSONObject(it.toString()) } ?: run {
+        // THE KEEPER LAYS ITS OWN PART FOR A CALL, A RELAY'S LETTER (iOS a6223d33, OZ 1 p.1.2, decision 1058): the owner's shares
+        // left the nodes once every keeper held them, and the device that takes an answer takes it off the nodes at once
+        // (callAndBuild); a day's answers share one road only while it still stands.
+        val road: JSONObject = synchronized(lock) { roads[key]?.takeIf { t - it.first < 86_400 }?.second }
+            ?.takeIf { Keeping.stands(it.optString("mref")) }?.let { JSONObject(it.toString()) } ?: run {
             val fresh = Keeping.lay(file) ?: return Unit.also { Log.d("Montana", "keep_answer the part did not reach the nodes") }
             synchronized(lock) { roads[key] = t to fresh }
             JSONObject(fresh.toString())
@@ -1081,6 +1089,9 @@ object KeepCopy {
                     if (!Keeping.fetch(o, f) || shaHex(f) != Wire.hex(head.shareDigest)) { f.delete(); continue }
                     answers[id] = head to f
                     Log.i("Montana", "keep_took slot=$k of ${head.n} generation=${head.generation}")
+                    // The answer was a letter to this device alone: taken, it leaves the nodes at once (iOS a6223d33, decision 1058).
+                    val taken = Keeping.roadsOf(listOf(o))
+                    Thread({ Keeping.unlay(taken) }, "keep-unlay").apply { isDaemon = true }.start()
                 }
                 // The copies in hand, the newest first; a copy stands when its parts hold twelve cells of every group.
                 val ranked = answers.values.groupBy { Wire.hex(it.first.copyDigest) }.values.sortedByDescending { it.first().first.generation }
