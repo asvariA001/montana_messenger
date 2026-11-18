@@ -432,6 +432,7 @@
     <string name="coin_group_note">Each member you pick gets a transfer of their own in your chat with them. The group is told only how many members you sent coins to.</string>
     <string name="coin_total">Total</string>
     <string name="coin_give">Give a coin</string>
+    <string name="wall_coins">Coins</string>
     <string name="auto_react_title">Auto-reactions</string>
     <string name="auto_react_header">Coins on each new letter</string>
     <string name="auto_react_footer">Paid by itself as a reaction on every letter the person writes from now on, while your coins last.</string>

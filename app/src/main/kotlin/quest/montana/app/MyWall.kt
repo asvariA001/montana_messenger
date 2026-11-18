@@ -342,6 +342,17 @@ object MyWall {
             "keep" -> if (WallRule.admits(ref, WallRule.Act.SEE)) mutate(w.optString("id")) { toggle(it, "keepers", ref, w.optBoolean("on", true)) }
             "dl" -> if (WallRule.admits(ref, WallRule.Act.SEE)) mutate(w.optString("id")) { toggle(it, "downloads", ref, true) }
             "rp" -> if (WallRule.admits(ref, WallRule.Act.SEE)) mutate(w.optString("id")) { toggle(it, "reposts", ref, true) }
+            // COINS GIVEN ON MY POST (iOS apply «coin», MontanaBoard.swift 1058-1068; the author's word 03.10 13:40): a SEND of the
+            // chain -- the word names it and the post, the coins come by the scan alone (CoinTx.heard); a build before still carries
+            // the coins in the word, credited once by the gift's name on the post's own row of the book.
+            "coin" -> if (GooglePlay.COINS && WallRule.admits(ref, WallRule.Act.SEE)) {
+                val id = w.optString("id")
+                val tx = w.optString("sd")
+                val c = w.optLong("c", 0L)
+                val r = w.optString("r")
+                if (id.isNotEmpty() && tx.isNotEmpty()) CoinTx.heard(tx, "post:" + id)
+                else if (id.isNotEmpty() && 0L < c && r.isNotEmpty()) CoinBook.receive(c, ref, "post:" + r, on = "post:" + id)
+            }
             // A POST SEEN: a person counts once on a post, its writer never, and nobody is shown who (iOS 899-909)
             "view" -> if (WallRule.admits(ref, WallRule.Act.SEE)) {
                 val vs = w.optJSONArray("vs") ?: JSONArray()

@@ -879,6 +879,28 @@ object Board {
         return x
     }
     /** A like given or taken back (iOS like): the word to the wall's owner and the page here at once; the owner's next page says it exact. */
+    /**
+     * COINS ON ANOTHER'S POST ARE A SEND OF THE CHAIN (iOS MTBoard.coin, MontanaBoard.swift 1305-1325; the author's words 03.10 10:40
+     * and 23.10.2026 00:27 and 00:37 UTC): the coins leave by the pair's version 3 SEND under the post's name -- a wall's correspondence
+     * is a pipe already -- and the wall's word only names that SEND; the owner's book takes the coins from the chain alone (CoinTx.heard,
+     * receive3). A short chain, an owner without a key or a record that did not stand refuses, and nothing leaves. Off the main thread.
+     */
+    fun coin(wall: String, p: JSONObject, coins: Long): Boolean {
+        if (WallGlobal.isRef(wall)) return false   // a post of the table answers nobody (iOS 18.10)
+        val id = p.optString("id")
+        if (wall.isEmpty() || id.isEmpty() || p.optBoolean("mine") || coins <= 0L || Groups.isKey(wall) || Book.secret(wall) == null) return false
+        if (!CoinTx.reactionRoom) {
+            Log.i("Montana", "coin_refused wall pace laid=" + CoinTx.laidThisMinute() + " coins=" + coins)
+            return false
+        }
+        return when (val r = CoinTx.send3(coins, wall, on = "post:" + id)) {
+            is CoinTx.Send3.Sent -> { send(wall, JSONObject().put("t", "coin").put("id", id).put("sd", r.id)); changed(); true }
+            is CoinTx.Send3.Pending -> { changed(); true }   // a SEND waiting for its node's word has left the book; the owner's scan credits it
+            is CoinTx.Send3.NotApplicable -> { Log.i("Montana", "coin_refused wall v3 why=" + r.why + " coins=" + coins); false }
+            else -> false   // no node took it, or the key's node took its records for this minute and the next
+        }
+    }
+
     fun like(wall: String, p: JSONObject) {
         if (WallGlobal.isRef(wall)) {   // a post of the table: this phone's own like, it goes nowhere (the author's word «my own for now»)
             val id = p.optString("id")
@@ -1839,6 +1861,37 @@ private fun postCounts(act: MainActivity, it: Board.Item, whole: Boolean, openCo
         val reposts = it.wall.isNotEmpty() && !p.optBoolean("reposted") && !p.optBoolean("mine")
         mark(R.drawable.ic_repost, p.optInt("reposts"), if (p.optBoolean("reposted")) android.graphics.Color.WHITE else MT.gray, R.string.wall_repost,
             onTap = if (!reposts) null else ({ Thread { Board.repost(it.wall, p) }.start() }))
+    }
+    // THE COINS ON THE POST (iOS coinMark, MontanaBoardViews.swift 502-534; the author's word 03.10 13:40): a tap gives one, the hold
+    // offers one, five or ten; my own post only shows what came. The count is this phone's book: what I gave here, or what came to my post.
+    if (GooglePlay.COINS) {
+        val n = CoinBook.coins("post:" + id)
+        val gives = wall.isNotEmpty() && !p.optBoolean("mine") && !WallGlobal.isRef(wall)   // a table post takes no coins yet
+        if (gives || 0L < n) addView(c.hstack {
+            gravity = Gravity.CENTER_VERTICAL
+            minimumWidth = dp(48)
+            contentDescription = c.getString(if (gives) R.string.coin_give else R.string.wall_coins)
+            addView(MintCoin(c, 16), lp(dp(16), dp(16))); gap(4)
+            addView(c.text(n.toString(), 13f, MT.gray, bold = true))   // USER-DATA: a count, digits only
+            if (gives) {
+                val give = { coins: Long ->
+                    Thread {
+                        val ok = Board.coin(wall, p, coins)
+                        if (!ok) MainThread.post {
+                            android.app.AlertDialog.Builder(act).setTitle(R.string.coin_not_enough).setMessage(R.string.coin_not_enough_sub)
+                                .setPositiveButton(R.string.ok, null).show()
+                        }
+                    }.start()
+                }
+                pressable { give(1L) }
+                setOnLongClickListener { v ->
+                    android.widget.PopupMenu(c, v).apply {
+                        for (k in listOf(1L, 5L, 10L)) menu.add("🪙 " + k).setOnMenuItemClickListener { give(k); true }   // USER-DATA: coins to give
+                    }.show()
+                    true
+                }
+            }
+        }, lp(WRAP, dp(44)).apply { marginEnd = dp(14) })
     }
     spacer()
     if (p.has("views")) {

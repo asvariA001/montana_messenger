@@ -427,6 +427,7 @@
     <string name="coin_group_note">Каждый выбранный участник получает свой перевод в вашем чате с ним. Группа узнаёт только, скольким участникам вы перевели монеты.</string>
     <string name="coin_total">Итого</string>
     <string name="coin_give">Подарить монету</string>
+    <string name="wall_coins">Монеты</string>
     <string name="auto_react_title">Автореакции</string>
     <string name="auto_react_header">Монеты на каждое новое письмо</string>
     <string name="auto_react_footer">Платится само реакцией на каждое письмо, которое человек напишет с этой минуты, пока хватает ваших монет.</string>
