@@ -92,7 +92,8 @@ object HomeShelf {
     /** True only on the node's «held». */
     fun put(bid: String, sealed: ByteArray, over: Boolean = false): Boolean {
         val (code, j) = post("/home-put", JSONObject().put("bid", bid).put("data", Base64.encodeToString(sealed, Base64.NO_WRAP)).put("over", over)) ?: return false
-        if (code != 200) Log.i("Montana", "home_put refused code=$code ${j.optString("error")}")
+        // decision 1060 = a: the nodes answer 403 «a relay keeps no copy» to every piece -- one line a minute, as iOS markFolded
+        if (code != 200) Diary.folded("home_put", "refused code=$code ${j.optString("error")}", windowMs = 60_000)
         return code == 200 && j.optBoolean("held")
     }
 
