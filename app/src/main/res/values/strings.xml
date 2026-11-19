@@ -448,6 +448,12 @@
     <string name="coin_available">Available</string>
     <string name="coin_available_n">Available %s</string>
     <string name="coin_gathering">Gathering your coins</string>
+    <string name="coin_show">Show my coins</string>
+    <string name="coin_show_sub">Your name and coins stand in the Montana top for everyone, and your correspondents see your coins. Off, you are not in the top.</string>
+    <string name="top_13">Top 13</string>
+    <string name="top_footer_on">Your name and coins are shown to everyone in the Montana top. Privacy settings turn it off.</string>
+    <string name="top_footer_off">You are not in the Montana top. Privacy settings turn it on.</string>
+    <string name="top_no_name">No name</string>
     <string name="close">Close</string>
     <string name="yt_full_screen">Full Screen</string>
     <string name="yt_small_screen">Exit Full Screen</string>

@@ -973,14 +973,15 @@ object CoinFlash {
  * that the coins told to correspondents ask (Presence.coinTail). Android has no page that turns it yet.
  */
 object CoinShow {
-    val on: Boolean get() = Prefs.bool("coins.shown", true)
+    const val KEY = "coins.shown"   // NOT-UI: the owner's balance privacy preference
+    val on: Boolean get() = Prefs.bool(KEY, true)
 }
 
 /**
  * THE PEOPLE IN THE APP HEAR MY BALANCE MOVE (iOS MTCoinTell, MTWalletCore.swift:565-581; the author's words 04.10.2026 03:03 and 04:19
  * MSK: «the update instant, as by a web socket»): a move of the book says the balance again to the correspondents in the app now, in
- * the app word itself (Presence.coinBeacon) — one round in two seconds however fast the coins come. The one table of the Montana top
- * on the nodes (MTTopNet.put, iOS 578) is not on Android.
+ * the app word itself (Presence.coinBeacon) — one round in two seconds however fast the coins come; the one table of the Montana top
+ * hears it in the same round (TopNet.put, iOS 526).
  */
 object CoinTell {
     private const val PACE_MS = 2000L
@@ -992,6 +993,7 @@ object CoinTell {
             due = false
             val peers = Presence.appOnline()
             if (peers.isNotEmpty()) Thread { for (p in peers) Presence.coinBeacon(p) }.start()
+            TopNet.put()   // the one table hears it in the same round (iOS MTCoinTell.tell)
         })
     }
 }
@@ -1025,6 +1027,8 @@ object CoinBoard {
         if (moved) keep(t)
     }
     @Synchronized fun forget() { told = HashMap(); Prefs.remove(KEY) }
+    /** The balances the pairs told, by conversation (iOS told): the wallet's rating before the nodes keep the table. */
+    @Synchronized fun told(): Map<String, Long> = book().mapValues { it.value.coins }
     /** A word of the peer, live or swept, told its balance: «C» and its digits after «N», «A», «W» and «G» and theirs (iOS coinsSaid 599-609). */
     fun heard(peer: String, payload: String, atMs: Long) {
         var i = payload.indexOf('N')

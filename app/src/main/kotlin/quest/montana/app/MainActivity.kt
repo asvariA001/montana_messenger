@@ -59,6 +59,7 @@ class MainActivity : Activity() {
         DeviceVault.init(this)
         Prefs.init(this)
         NothingLeft.again(this, "launch")   // a phone erased whole is swept again before any owner is born, until a seed comes (iOS MTNothingLeft)
+        TopNet.noteFirstLaunch()   // whether an earlier build had published this device's top row (iOS MTCoinsDoor .launching)
         Seats.launch(this)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         forgetContactCard()

@@ -19,7 +19,7 @@ import javax.crypto.spec.SecretKeySpec
  * on every device of the seed. A node answers with the names of the pieces it keeps, and each node is sent the moves its pieces lack.
  * Past `FOLD` pieces on a node the whole book is laid there anew and the old pieces go in the same breath. `heard` says a node
  * answered this seed's book since the launch: a device that has not gathered its seed's book never tells the table a balance it does
- * not hold (iOS MTTopNet waits for it).
+ * not hold (TopNet waits for it).
  *
  * A NODE THAT KEEPS NO COPY IS NOT SENT THE BOOK AGAIN (decision 1060 = a, 17.11.2026, montana-node-store.py: «/vault-put is refused,
  * the sweep empties the table»): a row that answered 403 takes no piece until the seat moves or the app starts anew; its /vault-get
@@ -243,6 +243,7 @@ object CoinVault {
             pieces = HashMap(pieces.filterKeys { it in live })   // a piece no node keeps is forgotten here too
             if (held != heldBefore || pieces.keys != piecesBefore) writeKept(token)
             Log.i("Montana", "coins_vault why=$why rows=${answered.size}/${rows.size} got=${got.size} joined=$joined laid=$laid whole=$whole relay=${relay.size} moves=${book.size}")
+            MainThread.post { TopNet.put() }   // the row tells the union just gathered (iOS 1058)
         } catch (t: Throwable) {
             Log.w("Montana", "coins_vault why=$why ${t.javaClass.simpleName}")
         } finally {

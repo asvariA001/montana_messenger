@@ -443,6 +443,12 @@
     <string name="coin_available">Доступно</string>
     <string name="coin_available_n">Доступно %s</string>
     <string name="coin_gathering">Собираю ваши монеты</string>
+    <string name="coin_show">Показывать мои монеты</string>
+    <string name="coin_show_sub">Ваше имя и монеты стоят в топе Montana для всех, и собеседники видят ваши монеты. Выключено — вас нет в топе.</string>
+    <string name="top_13">Топ 13</string>
+    <string name="top_footer_on">Ваше имя и монеты видны всем в топе Montana. Выключить можно в настройках приватности.</string>
+    <string name="top_footer_off">Вас нет в топе Montana. Включить можно в настройках приватности.</string>
+    <string name="top_no_name">Без имени</string>
     <string name="close">Закрыть</string>
     <string name="yt_full_screen">Во весь экран</string>
     <string name="yt_small_screen">Выйти из полноэкранного режима</string>

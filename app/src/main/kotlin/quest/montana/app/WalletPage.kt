@@ -185,6 +185,11 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     var headsAt = -1
     var windows: List<WallWindows.Row> = emptyList()   // the wall's comment windows, read at the opening, at the pull and at the return (iOS refresh 418-419)
     val windowRows = c.vstack(Gravity.NO_GRAVITY)
+    // THE TOP THIRTEEN PEOPLE UNDER THE HEAD (iOS MTCoinTop13, MTWalletScreen 245-252, 366-430): the one table the nodes keep, the same
+    // on every phone, once a node answered (TopNet); before that the person among the pairs that told their balance (CoinBoard). What
+    // showing does is said where the table stands, and the row is put only after this page has said it (TopNet.TOLD_KEY).
+    val topRows = c.vstack(Gravity.NO_GRAVITY)
+    var topOpen = true
 
     fun capsule(word: Int, glyph: Int?, filled: Boolean, onTap: () -> Unit) = c.hstack {
         gravity = Gravity.CENTER
@@ -248,6 +253,54 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     }
     // THE COMMENT WINDOWS OF THE WALL (iOS MTWalletScreen.swift:292-313): each window's minutes, its span, every comment's moment, its
     // post, whether it is open and its right to a share; none stands — «No comments yet». Drawn when the windows are read, not at every coin.
+    fun topRow(place: Int, face: View, name: String, gray: Boolean, coins: Long): View = c.hstack {
+        setPadding(dp(16), dp(6), dp(16), dp(6)); minimumHeight = dp(44)
+        // USER-DATA: the place in the table, a number
+        addView(c.text(place.toString(), 17f, MT.gray, bold = true).apply { minWidth = dp(24); typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }, lp(WRAP, WRAP))
+        addView(face, lp(dp(40), dp(40)).apply { marginStart = dp(12); marginEnd = dp(12) })
+        // USER-DATA: the name its owner shows
+        addView(c.text(name, 16f, if (gray) MT.gray else Color.WHITE).apply { maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }, lp(0, WRAP, 1f))
+        // USER-DATA: the coins the row's owner shows
+        addView(c.text(CoinText.count(coins), 17f, Color.WHITE, bold = true).apply { typeface = android.graphics.Typeface.create("monospace", android.graphics.Typeface.BOLD) }, lp(WRAP, WRAP))
+    }
+    fun drawTop13() {
+        topRows.removeAllViews()
+        if (!GooglePlay.COINS) return
+        val header = c.hstack {
+            setPadding(dp(16), dp(12), dp(16), dp(12)); isClickable = true
+            addView(c.text(c.getString(R.string.top_13), 17f, Color.WHITE, bold = true), lp(0, WRAP, 1f))
+            addView(c.icon(if (topOpen) R.drawable.ic_chevron_down else R.drawable.ic_chevron_right, MT.gray, 16), lp(WRAP, WRAP))
+            setOnClickListener { topOpen = !topOpen; drawTop13() }
+        }
+        val list = ArrayList<View>().apply { add(header) }
+        if (topOpen) {
+            val selfFace = SelfFace.bytes(c)?.let { runCatching { android.graphics.BitmapFactory.decodeByteArray(it, 0, it.size) }.getOrNull() }
+            val myName = Prefs.userName
+            if (TopNet.answered) {
+                // THE ONE TABLE: the person's own row wears their own face, every other row the letter of the name its owner shows
+                val mine = TopNet.myRow()
+                TopNet.rows.take(13).forEachIndexed { i, r ->
+                    list.add(when {
+                        r.id == mine -> topRow(i + 1, c.avatar(selfFace, myName, 40), myName, false, r.coins)
+                        r.name.isEmpty() -> topRow(i + 1, c.avatar(null, " ", 40), c.getString(R.string.top_no_name), true, r.coins)
+                        // A STRANGER'S NAME PASSES THE ONE FILTER (Guideline 1.2): the table shows names the person never chose
+                        ContentFilter.on && ContentFilter.flags(r.name) -> topRow(i + 1, c.avatar(null, " ", 40), c.getString(R.string.filter_hidden), true, r.coins)
+                        else -> topRow(i + 1, c.avatar(null, r.name, 40), r.name, false, r.coins)
+                    })
+                }
+            } else {
+                // the pairs' rating: the person and the pairs whose chat stands, the most coins first (iOS rows(store), board.rating)
+                val me = if (CoinSplit.spoke) CoinSplit.available else CoinBook.balance
+                val places = (CoinBoard.told().mapNotNull { (conv, coins) -> Book.chat(conv)?.let { Triple(conv, it.name, coins) } } +
+                    Triple("", myName, me)).sortedByDescending { it.third }.take(13)
+                places.forEachIndexed { i, p ->
+                    list.add(if (p.first.isEmpty()) topRow(i + 1, c.avatar(selfFace, myName, 40), myName, false, p.third)
+                             else topRow(i + 1, c.avatar(null, p.second, 40), p.second, false, p.third))
+                }
+            }
+        }
+        topRows.section(null, c.getString(if (CoinShow.on) R.string.top_footer_on else R.string.top_footer_off), *list.toTypedArray())
+    }
     fun drawWindows() {
         windowRows.removeAllViews()
         val shown: List<View> = if (windows.isEmpty()) listOf(c.text(c.getString(R.string.wall_no_comments), 16f, MT.gray).apply { setPadding(dp(16), dp(14), dp(16), dp(14)) })
@@ -304,6 +357,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         }, lp(MATCH, WRAP))
     }
     body.addView(head, lp())
+    body.addView(topRows, lp())
     body.addView(rows, lp())
     body.addView(windowRows, lp())
     // THE WALL'S COMMENT WINDOWS ARE READ OFF THE SCREEN'S THREAD (iOS refresh, MTWalletScreen.swift:418-419): at the opening, at the
@@ -316,7 +370,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     var asking = 0
     fun askNodes(round: Int) {
         if (round != asking || !holder.isAttachedToWindow) return
-        Thread { runCatching { Signal.sweep(quiet = true) }; MainThread.later(3000, Runnable { askNodes(round) }) }.start()
+        Thread { runCatching { Signal.sweep(quiet = true) }; runCatching { TopNet.read() }; MainThread.later(3000, Runnable { askNodes(round) }) }.start()
     }
     // THE PULL READS THE TOPS AGAIN (iOS MTWalletPage.pulled, MTWalletScreen.swift:404-417): let go past the trigger, the coin turns
     // once a second from now on (WalletPull), minting nothing, and the page reads its windows again; the book's own change redraws it (CoinBook.listen).
@@ -398,16 +452,19 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         override fun onViewAttachedToWindow(v: View) {
             CoinBook.listen(again); CoinBook.listen(moved); Pantheon.listen(again); WalletPull.listen(again); CoinSplit.listen(top); draw(); coin.turnOnce()
             CoinFlash.listen(flashed); CoinFlash.beats = true
+            TopNet.changed = { drawTop13() }; drawTop13()
             if (!Pantheon.lit) WalletPull.fire()   // the wallet opened: the auto minting on (iOS .onAppear, MTWalletScreen.swift:314)
             CoinTx.beHere()   // the chain hears the person (iOS .task MTVPNWallMint.count, MTWalletScreen.swift:310)
             MainThread.later(1000, beat)
         }
         // the page left: the auto minting stops with it and the nodes are asked no more (iOS .onDisappear, MTWalletScreen.swift:387)
-        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); MainThread.cancel(riseNow); CoinFlash.beats = false; CoinFlash.unlisten(flashed); CoinFlash.rise(); sideRun?.cancel(); asking++; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
+        override fun onViewDetachedFromWindow(v: View) { CoinBook.unlisten(again); CoinBook.unlisten(moved); Pantheon.unlisten(again); WalletPull.unlisten(again); CoinSplit.unlisten(top); MainThread.cancel(beat); MainThread.cancel(riseNow); CoinFlash.beats = false; CoinFlash.unlisten(flashed); CoinFlash.rise(); sideRun?.cancel(); asking++; TopNet.changed = null; WalletPull.stop("page"); Pantheon.released(); CoinBook.closeWindows() }
     })
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     // then the transfers' records of every pipe, whatever build sent them (iOS .task, MTWalletScreen.swift 322: MTCoinTx.scan «wallet»)
     Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() }; if (GooglePlay.COINS) CoinTx.scan("wallet") }.start()
+    Prefs.setBool(TopNet.TOLD_KEY, true)   // what the table does stands on this page: the row may be put now (iOS MTCoinShow.toldKey)
+    TopNet.put()
     TimeChainTip.gatherSoon("wallet")   // the other devices' tips in one round trip (iOS MTWalletScreen 320)
     CoinVault.gatherSoon("wallet")   // the seed's book first: the row tells what the seed holds (iOS MTWalletScreen 321)
     return holder

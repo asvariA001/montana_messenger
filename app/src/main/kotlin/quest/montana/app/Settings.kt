@@ -361,6 +361,9 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
         section(null, null,
             // the switch speaks: hidden, one farewell word; shown, «here» at once (iOS MontanaPresencePrivacy.setSharing)
             c.switchLine(R.drawable.ic_set_eye, SysColor.teal, c.getString(R.string.online_status), Presence.sharing, c.getString(R.string.online_status_sub)) { Presence.setSharing(it) },
+            // THE OWNER SHOWS OR HIDES THEIR COINS (iOS MTCoinShowSwitch): one switch for the Montana top, the coins told to correspondents
+            // and the coin's badge; the table and the pairs hear its turn at once. the wallet glyph stands for the iPhone's trophy, which the set lacks
+            *(if (GooglePlay.COINS) arrayOf<View>(c.switchLine(R.drawable.ic_app_wallet, SysColor.orange, c.getString(R.string.coin_show), CoinShow.on, c.getString(R.string.coin_show_sub)) { Prefs.setBool(CoinShow.KEY, it); TopNet.showChanged(it) }) else emptyArray<View>()),
             sw(R.drawable.ic_set_check_circle, SysColor.green, R.string.read_receipts, "readReceiptsEnabled", R.string.read_receipts_sub),
             // «Live chat» is not a switch of Privacy: it lives inside a chat's Money Flow alone (iOS MontanaSettings, 03.10; MoneyFlow)
             // «Sync contacts» (iOS ContactsTabView.upsertSystemCard 2463-2476) writes a person's Montana name into the phone's
@@ -385,7 +388,7 @@ fun privacyPage(act: MainActivity, onForget: () -> Unit, onBack: () -> Unit): Vi
                 // leaves here toward it, not past the edge.
                 AlertDialog.Builder(act).setTitle(R.string.forget_q).setMessage(R.string.forget_msg)
                     .setNeutralButton(R.string.show_seed) { _, _ -> act.push { seedPage(act, it) } }
-                    .setPositiveButton(R.string.forget_device) { _, _ -> onForget() }   // «Delete account», iOS decision 974
+                    .setPositiveButton(R.string.forget_device) { _, _ -> TopNet.withdraw(); onForget() }   // «Delete account», iOS decision 974
                     .setNegativeButton(R.string.cancel, null).show()
             }
         })
