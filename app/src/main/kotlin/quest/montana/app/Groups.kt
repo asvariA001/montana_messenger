@@ -2898,7 +2898,7 @@ object Groups {
         }
         stand(g, null, revive = true)   // a letter
         val sp = speaker(g.id, seat)
-        val at = Marks.birthMs(id) ?: System.currentTimeMillis()
+        val at = Marks.moment(id)   // the letter's birth, no further ahead than the clock allows (iOS MTMid.moment, 2454)
         val quote = w.optString("qt").ifEmpty { null }
         val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
         var landed = false

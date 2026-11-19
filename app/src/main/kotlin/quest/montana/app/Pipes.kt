@@ -1004,6 +1004,12 @@ object Wire {
         // hands nothing on, so the phone lays a quiet piece's copies itself.
         if (bulk && quiet) {
             for ((id, door) in copies(bid, taken)) {
+                // A MACHINE AT REST IS PASSED, NOT WAITED OUT (iOS db738aca, 2455, the law of one witness part 3): a machine whose
+                // every door was dead from this network took each quiet copy, and the lane waited out the silence of every piece
+                // while the person's media stood behind it (some 2900 failed copies in a day on an iPhone). copies() names a resting
+                // door only when no door of the machine lives; the quiet lane passes that machine -- a failed copy costs the
+                // redundancy alone. A letter's copies (mirror) still go to a resting machine.
+                if (!Signal.doorAlive(door)) { Log.d("Montana", "blob_copy passed copy=" + bid.take(8) + " to=" + id + " -- the machine rests"); continue }
                 if (!BulkPuts.yieldToPerson("copy")) break
                 val code = putBlobAt(door, bid, data, cargo, last)
                 if (code != 200) Log.d("Montana", "blob_copy FAIL id=" + bid.take(8) + " to=" + id + " code=" + code)
@@ -1302,6 +1308,18 @@ object Marks {
         if (ms <= lastMs) ms = lastMs + 1
         lastMs = ms
         return "t$ms-" + UUID.randomUUID().toString().uppercase()
+    }
+    /**
+     * THE MOMENT OF A CORRESPONDENT'S LETTER, DECIDED IN ONE PLACE (iOS MTMid.moment, 2454, the law of one witness part 1): the row
+     * wears the birth in the letter's name, never the minute this phone took it; and the name's millisecond is the sender's
+     * claim, so it stands no further ahead than this phone's clock and the tolerance (spec Stage 9 §Ordering, audit S9-F2: two
+     * minutes) -- a claim of a far year would stand under every later letter of the chat. A letter of mine keeps its own moment.
+     */
+    const val BIRTH_TOLERANCE_MS = 120_000L
+    fun moment(mid: String, own: Boolean = false): Long {
+        val now = System.currentTimeMillis()
+        val claimed = birthMs(mid) ?: now
+        return if (own) claimed else minOf(claimed, now + BIRTH_TOLERANCE_MS)
     }
     fun birthMs(mid: String): Long? {
         val core = mid.removePrefix("mid:")
@@ -3591,7 +3609,7 @@ object Post {
                     }
                     if (had == null && Book.isBuried(ref, mid)) { Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed"); forgetInBox(mid) }
                     else if (had == null) {
-                        val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
+                        val at = Marks.moment(mid)   // the letter's birth, no further ahead than the clock allows (iOS MTMid.moment)
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
                         // A LOCKED PHONE DOES NOT READ WHAT IT CANNOT SHOW (iOS placeRow, MontanaChatStore.swift:184 at 2155): a letter
                         // landing with the chat left open while the app itself is backgrounded used to be born read, and the icon never
