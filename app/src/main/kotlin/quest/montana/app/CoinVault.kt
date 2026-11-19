@@ -31,6 +31,7 @@ object CoinVault {
     private val sealLabel = "mt-coins-vault-key-v1".toByteArray()   // NOT-UI: the seal's derivation label (iOS MTSeedVault.seal)
     private val ownerLabel = "mt-coins-vault-owner-v1".toByteArray()   // NOT-UI: the row's derivation label (iOS MTSeedVault.owner)
     private val nodeLabel = "mt-coins-vault-node-v1".toByteArray()  // NOT-UI: a node's own row label (nodeToken)
+    private val tipLabel = "mt-timechain-tip-token".toByteArray()   // NOT-UI: the tips' row label (TimeChainTip)
     private const val KEPT = "coin-vault-pieces"                    // NOT-UI: the file's own name
     /** How many pieces a node keeps for a seed before the whole book is laid there as one; a piece carries `SPAN` moves at most. */
     const val FOLD = 192
@@ -64,6 +65,8 @@ object CoinVault {
         return Keys(Hkdf.sha256(entropy, ByteArray(0), sealLabel), Hkdf.hmac(owner, tokenLabel)).also { owner.fill(0) }
     }
     private fun owner(entropy: ByteArray) = Hkdf.sha256(entropy, ByteArray(0), ownerLabel)
+    /** The tips' row (iOS keys().tip): HMAC-SHA-256 under the owner key over «mt-timechain-tip-token» (TimeChainTip). */
+    fun tipToken(entropy: ByteArray): ByteArray { val owner = owner(entropy); return Hkdf.hmac(owner, tipLabel).also { owner.fill(0) } }
     /** EVERY NODE HOLDS THE BOOK UNDER A ROW OF ITS OWN (iOS nodeToken): HMAC-SHA-256 under the owner key over the label and the
      *  node's host; a node learns its own row and no other. The common row stays beside it. */
     fun nodeToken(entropy: ByteArray, host: String): ByteArray {

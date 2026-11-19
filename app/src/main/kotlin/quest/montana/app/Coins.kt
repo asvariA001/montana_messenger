@@ -252,6 +252,7 @@ object CoinBook {
         ownPeers.addAll(own(listOf(e), taken))
         write(listOf(e))
         TimeChain.append(e, now = true)   // every move joins its source's chain in the same turn it is on disk (iOS keep)
+        TimeChainTip.add(listOf(e), balance)   // and this device's lane, whose tip rides one round trip (iOS keep)
         reached(e.at)
         changed()
         CoinVault.soon("move", 1.0)   // a move between people reaches the seed's devices at once (iOS keep now)
@@ -378,6 +379,7 @@ object CoinBook {
         CoinBoard.forget()   // and the balances their correspondents told them (iOS SeedScope.seatKeys «coinBoard.told», MontanaChatStore.swift:6269)
         generation++
         CoinVault.forget()   // the vault's memory leaves with the person (iOS reread)
+        TimeChainTip.reread()   // and the lane of the person who left (iOS MTTimeChainTip.reread)
         entries.clear(); taken.clear(); onTarget.clear(); ownPeers.clear()
         balance = 0; earned = 0; tapped = 0; received = 0; sent = 0; spent = 0; burned = 0; level = 0
         changed()

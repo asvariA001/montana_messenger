@@ -174,6 +174,8 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     // THE AVAILABLE, AND NOTHING MORE BENEATH (iOS MTWalletScreen.swift 170-174): what the person's chain holds for its one owner,
     // once the chain has spoken; the Time Balance above it rises with the seconds on their way (CoinSplit.growing)
     val availableLine = c.text("", 15f, MT.gray, center = true)
+    // THE SEED'S BOOK IS ON ITS WAY (iOS MTWalletScreen 167): a device restored by its words says it is gathering until the nodes answer
+    val gathering = c.text(c.getString(R.string.coin_gathering), 13f, MT.gray, center = true)
     val pi = c.text("", 13f, MT.gray, center = true)
     val rows = c.vstack(Gravity.NO_GRAVITY)
     // THE TIMECHAINS (iOS MTTimeChainRows): each source's chain, its length, the first letters of its head and its seal, every chain read
@@ -199,9 +201,11 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         // THE PERSON'S COINS ARE THE CHAIN'S (iOS total, MTWalletScreen.swift 34-46): once the chain has spoken the Time Balance is
         // its available and the seconds the person is here (growing); before it ever spoke, every coin the book holds
         val spoke = CoinSplit.spoke
-        val b = if (spoke) CoinSplit.growing else CoinBook.balance
+        // before the seed's book was heard, no less than the freshest tip of another device told (iOS total: max(book, tipNet.seen))
+        val b = if (spoke) CoinSplit.growing else if (CoinVault.heard) CoinBook.balance else maxOf(CoinBook.balance, TimeChainTip.seen ?: 0L)
         val spendable = if (spoke) CoinSplit.available else b
         availableLine.visibility = if (spoke) View.VISIBLE else View.GONE
+        gathering.visibility = if (GooglePlay.COINS && !CoinVault.heard && (CoinBook.balance == 0L || TimeChainTip.seen != null)) View.VISIBLE else View.GONE
         if (spoke) availableLine.text = c.getString(R.string.coin_available_n, CoinText.count(spendable))   // USER-DATA: the coins the chain holds
         val place = PiLevels.place(spendable)
         val lit = Pantheon.lit
@@ -226,7 +230,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     }
     fun draw() {
         drawTop()
-        val b = if (CoinSplit.spoke) CoinSplit.available else CoinBook.balance
+        val b = if (CoinSplit.spoke) CoinSplit.available else if (CoinVault.heard) CoinBook.balance else maxOf(CoinBook.balance, TimeChainTip.seen ?: 0L)
         rows.removeAllViews()
         val chains = TimeChain.SOURCES.mapNotNull { s ->
             heads[s]?.takeIf { 0 < it.n }?.let { h -> c.settingsRow(null, 0, c.chainName(s), value = c.chainHead(h, 8)) { act.push { back -> timeChainPage(act, s, back) } } }
@@ -289,6 +293,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
         addView(balance, lp(MATCH, WRAP))
         addView(inMontana, lp(WRAP, WRAP))
         addView(availableLine, lp(WRAP, WRAP))
+        addView(gathering, lp(WRAP, WRAP))
         gap(4)
         addView(pi, lp(WRAP, WRAP))
         gap(16)
@@ -373,7 +378,15 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     lateinit var beat: Runnable
     // the beat raises the flash a fifth of a second after it, with that second's sum (iOS MTMintBeat: beat, gather, rise)
     val riseNow = Runnable { CoinFlash.rise() }
-    beat = Runnable { CoinSplit.beat(); MainThread.later(CoinFlash.GATHER_MS, riseNow); if (holder.isAttachedToWindow) MainThread.later(1000, beat) }
+    // THE SEED'S OTHER DEVICES SWING IN (iOS .task loop, MTWalletScreen 324-336): a tip every three seconds, the book every fifteen
+    var turn = 0
+    beat = Runnable {
+        CoinSplit.beat(); MainThread.later(CoinFlash.GATHER_MS, riseNow)
+        turn++
+        if (turn % 3 == 0) TimeChainTip.gatherSoon("live")
+        if (turn % 15 == 0) CoinVault.gatherSoon("live")
+        if (holder.isAttachedToWindow) MainThread.later(1000, beat)
+    }
     fun readHeads() { headsAt = CoinBook.size(); TimeChain.heads { h -> heads = h; if (page.isAttachedToWindow) draw() } }
     val moved: () -> Unit = {
         if (!headsDue && CoinBook.size() != headsAt) {
@@ -395,6 +408,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     // then the transfers' records of every pipe, whatever build sent them (iOS .task, MTWalletScreen.swift 322: MTCoinTx.scan «wallet»)
     Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() }; if (GooglePlay.COINS) CoinTx.scan("wallet") }.start()
+    TimeChainTip.gatherSoon("wallet")   // the other devices' tips in one round trip (iOS MTWalletScreen 320)
     CoinVault.gatherSoon("wallet")   // the seed's book first: the row tells what the seed holds (iOS MTWalletScreen 321)
     return holder
 }

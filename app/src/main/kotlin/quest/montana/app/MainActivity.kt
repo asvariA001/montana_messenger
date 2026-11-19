@@ -568,6 +568,7 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { Book.healFacesFromCards() }.start()   // a faceless correspondent is read from their card at once (iOS MontanaChatStore.swift:1916, atom 796a76a34ae0)
         if (hasSeed && termsAccepted) Thread { MontanaCard.keepLiveCardsUp(applicationContext) }.start()   // the live cards turn and top up on every return (iOS MontanaApp.swift:297)
         Thread { CoinBook.warm(); CoinSend.settle() }.start()
+        TimeChainTip.gatherSoon("active")   // their tips first, in one round trip (iOS MTCoinsDoor .active)
         CoinVault.soon("active", 1.0)   // the seed's other devices, gathered at the return (iOS moment .active)
         // THE WALLS AT A RETURN (iOS ContentView.swift:474-477 at 2155): every wall never seen is asked (Board.sweep), and the owner carries
         // my wall to whoever speaks it -- at a return only while the presence is shown (the critic's N6)

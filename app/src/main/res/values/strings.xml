@@ -447,6 +447,7 @@
     <string name="coin_key">Coin</string>
     <string name="coin_available">Available</string>
     <string name="coin_available_n">Available %s</string>
+    <string name="coin_gathering">Gathering your coins</string>
     <string name="close">Close</string>
     <string name="yt_full_screen">Full Screen</string>
     <string name="yt_small_screen">Exit Full Screen</string>
