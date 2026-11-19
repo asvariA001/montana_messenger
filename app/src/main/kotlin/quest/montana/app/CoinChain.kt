@@ -794,8 +794,11 @@ object CoinTx {
             Log.i(TAG, "coin_own seat=$seat coins=$coins $said -- the receiver takes it when seated, or it comes back")
             return
         }
-        val laid = Seats.shelfLay(seat, CoinEntry(CoinEntry.RECEIVE, coins, REF_PREFIX + id, conv, null, System.currentTimeMillis() / 1000.0))
-        Log.i(TAG, "coin_own seat=$seat coins=$coins $said book=" + (if (laid) 1 else 0) + " id=" + id.take(12))
+        val move = CoinEntry(CoinEntry.RECEIVE, coins, REF_PREFIX + id, conv, null, System.currentTimeMillis() / 1000.0)
+        val laid = Seats.shelfLay(seat, move)
+        // and on the nodes under their words' rows, as the iPhone lays it (iOS MTCoinVault.lay): any device of their words gathers it
+        val rows = MtBindings.nativeMnemonicToEntropy(shelf.first)?.takeIf { it.size == 32 }?.let { e -> CoinVault.lay(listOf(move), e).also { e.fill(0) } } ?: 0
+        Log.i(TAG, "coin_own seat=$seat coins=$coins $said book=" + (if (laid) 1 else 0) + " rows=" + rows + " id=" + id.take(12))
     }
 
     /** An untaken SEND comes back after a day by a REFUND on my chain (iOS refundDue, 3632; section 5): its node's clock decides, one fate a SEND. */

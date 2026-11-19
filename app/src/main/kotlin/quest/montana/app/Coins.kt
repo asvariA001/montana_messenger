@@ -164,6 +164,9 @@ object CoinBook {
     private fun dir(): File = File(Book.ctx.filesDir, "Coins").apply { mkdirs() }
     private fun file(): File = File(dir(), FILE)
     private fun nowS(): Double = System.currentTimeMillis() / 1000.0
+    /** THE SEAT'S TURN (iOS MTCoinBook.generation, MTSeatTurn.now): raised when the person leaves, so a gather that waited on the
+     *  nodes writes nothing of them (CoinVault.moved). */
+    @Volatile var generation = 0; private set
 
     /** The book is read once, off the screen's thread, at the app's start (iOS warm). */
     @Synchronized fun warm() { ensure() }
@@ -192,6 +195,7 @@ object CoinBook {
         TimeChain.appendPast(entries.toList())
         ownPeers.addAll(own(entries, taken))
         said = balance
+        CoinVault.soon("read", 1.0)   // the seed's other devices, gathered once the book is read (iOS landed)
     }
 
     /**
@@ -250,8 +254,35 @@ object CoinBook {
         TimeChain.append(e, now = true)   // every move joins its source's chain in the same turn it is on disk (iOS keep)
         reached(e.at)
         changed()
+        CoinVault.soon("move", 1.0)   // a move between people reaches the seed's devices at once (iOS keep now)
         return true
     }
+
+    /**
+     * THE MOVES OF THE SEED'S OTHER DEVICES (iOS MTLocalCoinLedger.join, MTWalletCore 1775-1798): taken once by their names into this
+     * book and this phone's file, in one stroke -- a device restored by its words takes the whole book here; they are on the nodes
+     * already and ride no piece back. A name a restore gave a letter («arc:», «given:») names no move (iOS restoredName).
+     */
+    @Synchronized fun join(moves: List<CoinEntry>): Int {
+        ensure()
+        val fresh = ArrayList<CoinEntry>()
+        for (e in moves) {
+            if (e.c <= 0 || Archive.holds(e.ref) || e.id in taken) continue
+            balance = plus(balance, e.signed) ?: continue
+            entries.add(e); taken.add(e.id); count(e)
+            fresh.add(e)
+        }
+        if (fresh.isEmpty()) return 0
+        ownPeers.addAll(own(fresh, taken))
+        reached(nowS())
+        write(fresh)
+        TimeChain.appendPast(fresh)
+        Log.i("Montana", "coin_book joined moves=" + fresh.size + " balance=" + balance)
+        changed()
+        return fresh.size
+    }
+    /** The moves in the book's order, oldest first (iOS entries): what each node's pieces lack is reckoned from it. */
+    @Synchronized fun entries(): List<CoinEntry> { ensure(); return entries.toList() }
 
     /** A LEVEL OF π REACHED IS A LINK (iOS reached): the first time the balance fills a level, the level joins its chain at the move's moment. */
     private fun reached(at: Double) {
@@ -345,6 +376,8 @@ object CoinBook {
         if (d.exists()) d.renameTo(place)
         TimeChain.setAside(place)   // the person's chains leave with their book
         CoinBoard.forget()   // and the balances their correspondents told them (iOS SeedScope.seatKeys «coinBoard.told», MontanaChatStore.swift:6269)
+        generation++
+        CoinVault.forget()   // the vault's memory leaves with the person (iOS reread)
         entries.clear(); taken.clear(); onTarget.clear(); ownPeers.clear()
         balance = 0; earned = 0; tapped = 0; received = 0; sent = 0; spent = 0; burned = 0; level = 0
         changed()

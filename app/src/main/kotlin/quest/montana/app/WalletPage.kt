@@ -395,6 +395,7 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
     // the book read first, so its past is in the chains before their heads are read (one queue, in order)
     // then the transfers' records of every pipe, whatever build sent them (iOS .task, MTWalletScreen.swift 322: MTCoinTx.scan «wallet»)
     Thread { CoinBook.warm(); MainThread.post { draw(); readHeads() }; if (GooglePlay.COINS) CoinTx.scan("wallet") }.start()
+    CoinVault.gatherSoon("wallet")   // the seed's book first: the row tells what the seed holds (iOS MTWalletScreen 321)
     return holder
 }
 

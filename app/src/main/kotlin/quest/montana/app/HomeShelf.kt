@@ -343,7 +343,7 @@ object HomeKeep {
         launched = true
         val c = act.applicationContext
         Log.i("Montana", "home_shelf kat=${if (HomeShelf.keyKAT()) "ok" else "FAIL"} bringing=${if (HomeShelf.bringing) 1 else 0}")
-        Log.i("Montana", "lzfse kat=${if (Lzfse.kat()) "ok" else "FAIL"}")
+        Log.i("Montana", "lzfse kat=${if (Lzfse.kat()) "ok" else "FAIL"} coins_vault kat=${if (CoinVault.keyKAT()) "ok" else "FAIL"}")
         if (!HomeShelf.bringing) return
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             Thread {
