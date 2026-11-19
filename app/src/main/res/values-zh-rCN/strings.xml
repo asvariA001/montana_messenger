@@ -605,6 +605,7 @@
     <string name="mesh_findable">可在网格中被发现</string>
     <string name="mesh_findable_off">已关闭：本设备不在任何地方宣告自身，也不为任何人传递内容。</string>
     <string name="mesh_title">网格</string>
+    <string name="mesh_room_line">网格上的每个人，手机对手机</string>
     <string name="mesh_none">这里暂时没有人。同一 Wi-Fi 网络或蓝牙范围内的联系人会自动出现 — 无需开启任何设置。</string>
     <string name="mesh_d_nodes">节点</string>
     <string name="mesh_d_now">当前可达</string>
