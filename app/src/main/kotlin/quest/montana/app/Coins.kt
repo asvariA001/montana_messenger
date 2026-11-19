@@ -137,6 +137,9 @@ object CoinBook {
     private val entries = ArrayList<CoinEntry>()
     private val taken = HashSet<String>()
     private val onTarget = HashMap<String, Long>()
+    /** The pairs whose other end holds these words, as the book says (iOS ownPeers, MTOwnWords): read from the moves at the
+     *  reading and kept with every move taken. */
+    private val ownPeers = HashSet<String>()
     var balance = 0L; private set
     var earned = 0L; private set
     var tapped = 0L; private set
@@ -187,8 +190,32 @@ object CoinBook {
             if (level < place) { for (n in level + 1..place) TimeChain.note("pi", "level", n.toLong(), "level:" + n, e.at); level = place }
         }
         TimeChain.appendPast(entries.toList())
+        ownPeers.addAll(own(entries, taken))
         said = balance
     }
+
+    /**
+     * THE BOOK SAYS WHICH PAIRS HOLD THESE WORDS (iOS MTLocalCoinLedger.own, MTWalletCore 1825-1841, the author's words 06.10.2026):
+     * one move of coins seen from both its ends -- a coin letter sent and credited under its one name, a paid reaction given and
+     * credited under its one name -- lies in one book only when both ends hold the same words, for the book is the union of one
+     * seed's devices; the pair of such a move is the words' own.
+     */
+    private fun own(moves: List<CoinEntry>, names: Set<String>): Set<String> {
+        val out = HashSet<String>()
+        for (e in moves) {
+            val peer = e.peer?.takeIf { it.isNotEmpty() } ?: continue
+            val twin = when (e.k) {
+                CoinEntry.SEND -> "receive:" + e.ref
+                CoinEntry.RECEIVE -> if (e.ref.startsWith("rc:")) "spend:" + e.ref.removePrefix("rc:") else "send:" + e.ref   // COMPAT-LOCAL: the book's own names
+                CoinEntry.SPEND -> "receive:rc:" + e.ref   // COMPAT-LOCAL: the book's own names, never a word on the wire
+                else -> continue
+            }
+            if (twin in names) out.add(peer)
+        }
+        return out
+    }
+    /** Whether the book says this pair's other end holds my words (iOS whole.ownPeers.contains). */
+    @Synchronized fun ownPeer(conv: String): Boolean { ensure(); return conv in ownPeers }
 
     private fun adopt(e: CoinEntry) {
         if (e.c <= 0 || e.id in taken) return
@@ -218,6 +245,7 @@ object CoinBook {
         entries.add(e); taken.add(e.id)
         balance = next
         count(e)
+        ownPeers.addAll(own(listOf(e), taken))
         write(listOf(e))
         TimeChain.append(e, now = true)   // every move joins its source's chain in the same turn it is on disk (iOS keep)
         reached(e.at)
@@ -317,7 +345,7 @@ object CoinBook {
         if (d.exists()) d.renameTo(place)
         TimeChain.setAside(place)   // the person's chains leave with their book
         CoinBoard.forget()   // and the balances their correspondents told them (iOS SeedScope.seatKeys «coinBoard.told», MontanaChatStore.swift:6269)
-        entries.clear(); taken.clear(); onTarget.clear()
+        entries.clear(); taken.clear(); onTarget.clear(); ownPeers.clear()
         balance = 0; earned = 0; tapped = 0; received = 0; sent = 0; spent = 0; burned = 0; level = 0
         changed()
     }
@@ -464,6 +492,43 @@ object CoinLetter {
 }
 
 /**
+ * A COIN TO ONE'S OWN WORDS IS NO MOVE (iOS MTOwnWords, MTWalletCore 2050-2080; the author's words 06.10.2026): two phones of the
+ * same 24 words keep one book, and coins sent between them were taken out of it and laid back -- debited, not credited. Such a move
+ * is refused at its birth: the transfer, the paid reaction, the bubble's coin, the call's seconds (CoinSend.canPay). Two witnesses say
+ * a pair is mine: the book (CoinBook.ownPeer) and the pair's word about itself, carrying a tag only the same words make. A coin letter
+ * of an older build still lands and is credited: the book holds both ends to stand whole.
+ */
+object OwnWords {
+    private val ownerLabel = "mt-coins-vault-owner-v1".toByteArray()   // NOT-UI: the owner key's label (iOS MTSeedVault.owner)
+    private val ownLabel = "mt-own-words-v1".toByteArray()             // NOT-UI: the own-words tag's label (iOS MTCoinVault.ownLabel)
+    private fun key(conv: String) = "ownWords." + conv                 // NOT-UI: the mark's key
+    /** HMAC-SHA-256 under the owner key over the label and the conversation's name (iOS MTCoinVault.ownTag): a pair of other words
+     *  reads 32 bytes it can neither check nor tie to any other conversation; no node sees them (the word rides end to end). */
+    private fun tagOf(e: ByteArray, conv: String): ByteArray {
+        val owner = Hkdf.sha256(e, ByteArray(0), ownerLabel)
+        return Hkdf.hmac(owner, ownLabel + conv.toByteArray()).also { owner.fill(0) }
+    }
+    /** The tag my word about myself carries to this pair; null while no words stand on the phone. */
+    fun tag(conv: String): String? {
+        if (conv.isEmpty()) return null
+        val e = HomeShelf.entropy() ?: return null
+        return Base64.encodeToString(tagOf(e, conv), Base64.NO_WRAP).also { e.fill(0) }
+    }
+    /** The pair's word told its tag: the pair is mine when my words make the same one; a tag of other words lets the mark go. */
+    fun heard(tag: String, conv: String) {
+        if (conv.isEmpty()) return
+        val t = runCatching { Base64.decode(tag, Base64.DEFAULT) }.getOrNull()?.takeIf { it.size == 32 } ?: return
+        val e = HomeShelf.entropy() ?: return
+        val mine = java.security.MessageDigest.isEqual(t, tagOf(e, conv)).also { e.fill(0) }
+        if (Prefs.bool(key(conv), false) == mine) return
+        if (mine) Prefs.setBool(key(conv), true) else Prefs.remove(key(conv))
+        Log.i("Montana", "own_words pair=" + conv.take(10) + " mine=" + (if (mine) 1 else 0) + " by=word")
+    }
+    /** Whether the other end of this pair holds my words: by the pair's word or by the book. */
+    fun mine(conv: String): Boolean = conv.isNotEmpty() && (Prefs.bool(key(conv), false) || CoinBook.ownPeer(conv))
+}
+
+/**
  * THE COINS LEAVE BY THE CHAT'S OWN ROAD (iOS MTCoinSend): a transfer is a letter of the pair; the book is asked first, and a
  * short balance refuses here so nothing leaves. A coin letter of mine holds its coins while it is not red: red, they come back
  * by one move; on its way again, they are taken again by one move — each by its own name, so a door asked twice moves nothing twice.
@@ -477,8 +542,9 @@ object CoinSend {
     /** The coin letter a row is in its own right: a forward, a reply, an edited row or a file pays nothing. */
     fun coinOf(m: Msg): CoinLetter.Coin? = if (m.qt != null || m.edited || m.file != null) null else CoinLetter.parse(m.text)
 
-    /** A pair's own conversation, open to letters: where coins can go. */
+    /** A pair's own conversation, open to letters, of other words than mine (iOS pairOpen, MTOwnWords): where coins can go. */
     fun canPay(ref: String): Boolean = !Groups.isKey(ref) && Book.chat(ref) != null && Book.secret(ref) != null && !PeerSafety.isBlocked(ref)
+        && !OwnWords.mine(ref)
 
     /**
      * A FIELD TRANSFER'S HONEST OUTCOMES (iOS MTCoinSend.TransferResult): only the available may call it short (CoinSplit.available,
@@ -499,8 +565,8 @@ object CoinSend {
     fun transferId(ref: String, coins: Long): String? = transferOutcome(ref, coins).takeIf { it.first == Sent.SENT }?.second
     private fun transferOutcome(ref: String, coins: Long): Pair<Sent, String?> {
         val available = CoinSplit.available
-        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance); return Sent.REFUSED to null }
-        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance); return Sent.SHORT to null }
+        if (!canPay(ref) || coins <= 0) { Log.i("Montana", "coin_refused transfer invalid coins=" + coins + " balance=" + CoinBook.balance + " own=" + (if (OwnWords.mine(ref)) 1 else 0)); return Sent.REFUSED to null }
+        if (available < coins) { Log.i("Montana", "coin_refused transfer coins=" + coins + " available=" + available + " balance=" + CoinBook.balance + " own=" + (if (OwnWords.mine(ref)) 1 else 0)); return Sent.SHORT to null }
         var result = chainSend(coins, ref)
         if (result.first == Sent.NO_KEY) {
             MyAbout.sendIfNeeded(ref, askKey = true)

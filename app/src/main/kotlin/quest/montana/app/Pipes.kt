@@ -3465,6 +3465,7 @@ object Post {
                     // 21.10.2026): the word they hold is lost or never came -- told again now
                     if (GooglePlay.COINS) {
                         o.optString("k").takeIf { it.isNotEmpty() }?.let { CoinTx.notePeerFrom(ref, it) }
+                        o.optString("o").takeIf { it.isNotEmpty() }?.let { OwnWords.heard(it, ref) }   // the pair holds my words: no coin goes to it (iOS MTOwnWords)
                         if (o.has("q")) { CoinTx.forgetToldKey(ref); Thread { MyAbout.sendIfNeeded(ref) }.start() }
                     }
                 }
@@ -3820,6 +3821,7 @@ object MyAbout {
         val word = JSONObject().put("at", System.currentTimeMillis() / 1000.0)
         if (wordsHeld) word.put("b", b).put("l", l)
         if (coinKey != null) word.put("k", coinKey)
+        if (GooglePlay.COINS) OwnWords.tag(ref)?.let { word.put("o", it) }   // a tag only my words make: a pair of my words knows itself (iOS MTOwnWords)
         if (askKey) word.put("q", 1)
         val mid = Marks.mintMid()
         if (wordsHeld) Post.flight("A", ref, t, mid)   // only a word that carries the words is receipted as them
