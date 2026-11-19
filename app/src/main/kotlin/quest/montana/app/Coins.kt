@@ -970,11 +970,18 @@ object CoinFlash {
 
 /**
  * THE OWNER SHOWS OR HIDES THEIR COINS (iOS MTCoinShow, MTWalletCore.swift:655-663): one switch, on unless its owner turned it off,
- * that the coins told to correspondents ask (Presence.coinTail). Android has no page that turns it yet.
+ * that the coins told to correspondents ask (Presence.coinTail, MyAbout's «c») and Privacy turns (Settings, TopNet.showChanged).
  */
 object CoinShow {
     const val KEY = "coins.shown"   // NOT-UI: the owner's balance privacy preference
     val on: Boolean get() = Prefs.bool(KEY, true)
+    /** My balance as the pairs are told it (iOS MTCoinBalance.now): nothing before the book is read; the chain's available once it spoke. */
+    val balance: Long? get() {
+        val book = CoinBook.said ?: return null
+        return if (CoinSplit.spoke) CoinSplit.available else book
+    }
+    /** What the word about myself tells (iOS the coin door's about, MTWalletCore.swift 407): the balance, or -1 when the owner hid it. */
+    val told: Long? get() = if (on) balance else -1L
 }
 
 /**

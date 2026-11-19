@@ -295,7 +295,8 @@ fun walletPage(act: MainActivity, onClose: () -> Unit): View {
                     Triple("", myName, me)).sortedByDescending { it.third }.take(13)
                 places.forEachIndexed { i, p ->
                     list.add(if (p.first.isEmpty()) topRow(i + 1, c.avatar(selfFace, myName, 40), myName, false, p.third)
-                             else topRow(i + 1, c.avatar(null, p.second, 40), p.second, false, p.third))
+                             // a pair wears the face its chat shows (iOS MTCoinTop13: «with avatars and names»), the letter only without one
+                             else topRow(i + 1, c.avatar(Notify.faceOf(p.first), p.second, 40), p.second, false, p.third))
                 }
             }
         }

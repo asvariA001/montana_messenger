@@ -3464,6 +3464,8 @@ object Post {
                     // the pair's coin key: v3 sends commit to it (iOS heardAbout, COIN-TX-V3); THEIR SEND FOUND NO KEY OF MINE («q»,
                     // 21.10.2026): the word they hold is lost or never came -- told again now
                     if (GooglePlay.COINS) {
+                        // the pair's balance, -1 when they hid it: the newer word wins (iOS heardAbout, MTCoinBoard.note, 03.10/04.10)
+                        if (o.has("c")) CoinBoard.note(ref, o.optLong("c"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
                         o.optString("k").takeIf { it.isNotEmpty() }?.let { CoinTx.notePeerFrom(ref, it) }
                         o.optString("o").takeIf { it.isNotEmpty() }?.let { OwnWords.heard(it, ref) }   // the pair holds my words: no coin goes to it (iOS MTOwnWords)
                         if (o.has("q")) { CoinTx.forgetToldKey(ref); Thread { MyAbout.sendIfNeeded(ref) }.start() }
@@ -3817,9 +3819,21 @@ object MyAbout {
         if (!wordsHeld && !keyDue) return
         val b = bio(); val l = link(); val t = tag(b, l)
         val held = Prefs.str("annAbout2.$ref", "")
-        if (!keyDue && (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t))) return
-        val word = JSONObject().put("at", System.currentTimeMillis() / 1000.0)
+        // THE BALANCE RIDES THE SAME WORD (iOS the coin door's about/word/told, MTWalletCore.swift 401-421; MTCoinBoard 03.10): told
+        // again when it changed, once in ten minutes at most; HIDDEN IS SAID, NOT LEFT UNSAID (04.10, MTCoinShow): an owner who hid
+        // the coins tells -1 once, and the pair's rating drops the row -- silence would leave the last balance standing on their screen
+        val now = System.currentTimeMillis() / 1000.0
+        val coins = if (GooglePlay.COINS) CoinShow.told else null
+        val said = runCatching { JSONObject(Prefs.str("aboutCoins.$ref", "{}")) }.getOrNull() ?: JSONObject()
+        val coinsDue = coins != null && (!said.has("c") || said.optLong("c") != coins) && 600 <= now - said.optDouble("at", 0.0)
+        val wordsSame = held == t || (held.isEmpty() && t == "0")
+        if (!keyDue && !coinsDue && (wordsSame || Post.inFlight("A", ref, t))) return
+        // A BALANCE ALONE RIDES A ROAD THAT STANDS, NEVER A BELL (iOS 18.10.2026, sendAboutIfNeeded 1670-1682): the people in the
+        // app hear it in the app word (coinBeacon); the word about myself takes it to the others when a live road to them stands
+        if (wordsSame && !keyDue && ref !in Channels.nearRefs()) return
+        val word = JSONObject().put("at", now)
         if (wordsHeld) word.put("b", b).put("l", l)
+        if (coins != null) word.put("c", coins)
         if (coinKey != null) word.put("k", coinKey)
         if (GooglePlay.COINS) OwnWords.tag(ref)?.let { word.put("o", it) }   // a tag only my words make: a pair of my words knows itself (iOS MTOwnWords)
         if (askKey) word.put("q", 1)
@@ -3827,7 +3841,13 @@ object MyAbout {
         if (wordsHeld) Post.flight("A", ref, t, mid)   // only a word that carries the words is receipted as them
         Post.send(ref, mid, Marks.ABOUT + word)
         if (coinKey != null) CoinTx.noteToldKey(ref, coinKey)
-        Log.d("Montana", "about_tx to=" + ref.take(10) + " words=" + (if (wordsHeld) 1 else 0) + " key=" + (if (coinKey != null) 1 else 0) + " ask=" + (if (askKey) 1 else 0))
+        if (coins != null) Prefs.setStr("aboutCoins.$ref", JSONObject().put("c", coins).put("at", now).toString())   // NOT-UI: the pace's mark
+        Log.d("Montana", "about_tx to=" + ref.take(10) + " words=" + (if (wordsHeld) 1 else 0) + " key=" + (if (coinKey != null) 1 else 0) + " ask=" + (if (askKey) 1 else 0) + " c=" + (coins ?: "-"))
+    }
+    /** The balance told now, past the word's ten minutes (iOS E2E.tellBalance 1696-1700): the pace's mark is let go and the word goes. */
+    fun tellBalance(ref: String) {
+        Prefs.remove("aboutCoins.$ref")
+        sendIfNeeded(ref)
     }
     fun broadcast() { Book.refs().forEach { sendIfNeeded(it) } }
 }

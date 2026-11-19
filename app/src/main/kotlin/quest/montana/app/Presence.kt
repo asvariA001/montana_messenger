@@ -612,8 +612,7 @@ object Presence {
      * Nothing before the book is read, nothing when the owner hid the coins (CoinShow); Android's balance rode no word at all.
      */
     private fun coinTail(): String {
-        val book = CoinBook.said ?: return ""
-        val coins = if (CoinSplit.spoke) CoinSplit.available else book   // the chain's available once it spoke (iOS MTCoinBalance.set(available))
+        val coins = CoinShow.balance ?: return ""   // the chain's available once it spoke (iOS MTCoinBalance.set(available))
         return if (CoinShow.on) "C" + coins else ""
     }
     /** App-level presence for one correspondence (iOS appBeacon 731-738): the word, my moment, what I hold of them, their letters I hold whole. */

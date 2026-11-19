@@ -102,7 +102,8 @@ object TopNet {
     /** The owner's switch moved: the table and the correspondents hear it now, not at the next coin. */
     fun showChanged(on: Boolean) {
         if (on) put() else withdraw()
-        CoinTell.moved()
+        // every pair hears it now in the word about myself, past its ten minutes (iOS showChanged + E2E.tellBalance 1696-1700)
+        Thread { Book.refs().forEach { MyAbout.tellBalance(it) } }.start()
         Log.i("Montana", "coins_shown " + if (on) "on" else "off")
     }
 
