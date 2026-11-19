@@ -854,4 +854,6 @@
     <string name="save_words">保存 24 个词</string>
     <string name="save_words_footer">请写下并保管好这 24 个词：在新手机上，你的身份和已保存的历史记录只能凭它们打开。</string>
     <string name="privacy_policy">隐私政策</string>
+    <!-- the mesh wall (iOS meshRoomKey, MTMeshRoom.name) -->
+    <string name="mesh_someone">某人</string>
 </resources>

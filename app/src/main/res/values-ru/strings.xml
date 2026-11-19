@@ -854,4 +854,6 @@
     <string name="save_words">Сохранить 24 слова</string>
     <string name="save_words_footer">Запишите 24 слова и храните их: на новом телефоне ваша личность и сохранённая история открываются только из них.</string>
     <string name="privacy_policy">Политика конфиденциальности</string>
+    <!-- the mesh wall (iOS meshRoomKey, MTMeshRoom.name) -->
+    <string name="mesh_someone">Кто-то</string>
 </resources>

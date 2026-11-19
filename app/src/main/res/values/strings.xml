@@ -859,4 +859,6 @@
     <string name="save_words">Save 24 words</string>
     <string name="save_words_footer">Write the 24 words down and keep them: on a new phone your identity and your saved history open only from them.</string>
     <string name="privacy_policy">Privacy Policy</string>
+    <!-- the mesh wall (iOS meshRoomKey, MTMeshRoom.name) -->
+    <string name="mesh_someone">Someone</string>
 </resources>

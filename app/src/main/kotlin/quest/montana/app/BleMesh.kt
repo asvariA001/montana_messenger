@@ -46,7 +46,7 @@ import java.util.UUID
  *    a cell not ours is passed on and carried (DTN, 256, two windows).
  * send/sendBlob are here as in iOS; iOS calls seek and sendBlob from nowhere (only its mesh door), and send only when a letter
  * finds no road (Channels.meshFallback), so ours does the same.
- *  7/8/9 the mesh room: part 3.
+ *  7 a word of the mesh wall (MeshRoom), 8 an item's piece, 9 an ask for pieces: addressed to nobody, passed on once while fresh.
  * The position names this window only (Wire.windowPos of the device's overlay tag): nothing on the air joins two windows.
  * The person's switch «visible in the mesh» (Mesh.KEY) governs it, the same switch as the local network (iOS meshDiscoverable).
  */
@@ -472,6 +472,14 @@ object BleMesh {
         return known.contentEquals(pk)
     }
 
+    /** A cell of the mesh wall (iOS sayInRoom 140-151): addressed to nobody, heard by every neighbour, only while this phone is on the mesh. */
+    fun sayInRoom(payload: ByteArray, type: Int = 7) {
+        val id = random(16)
+        val pkt = packet(type, id, BROADCAST, payload)
+        h.post { if (started && Mesh.discoverable) { markSeen(id); broadcast(pkt, null) } }
+        if (type == 7) Log.d("Montana", "mesh_room tx bytes=" + payload.size) else Diary.folded("mesh_room", "tx type=$type", 10_000)
+    }
+
     // ---------------------------------------------------------------- the seal of a letter to a node, the path seals
 
     /** ct1088 ‖ the blob sealed under the shared secret (iOS seal(to:)): only the node that holds the key opens it. */
@@ -691,7 +699,10 @@ object BleMesh {
                     Log.d("Montana", "ble_blob_rx id=" + bid.take(8) + " bytes=" + sealed.size)
                 } else { relay(c, link); carry(c) }
             }
-            else -> {}   // 7/8/9 the mesh room: part 3
+            7 -> { if (Mesh.discoverable && MeshRoom.heard(body(p))) relay(c, link) }       // a word of the mesh wall (iOS 541-543)
+            8 -> { if (Mesh.discoverable && MeshRoom.heardPiece(body(p))) relay(c, link) }  // an item's piece: passed on within the measure
+            9 -> {}   // an ask for an item's pieces: answered by whoever holds the item whole -- part 3b
+            else -> {}
         }
     }
 }

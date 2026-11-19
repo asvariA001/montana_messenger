@@ -1757,13 +1757,40 @@ object Book {
     /** Every feed this phone holds, the local room with them -- for the searches that find a file or a letter wherever it lies. */
     fun rooms(): List<Chat> = all() + listOfNotNull(chat(SAVED), chat(MONTANA))
     /** The chat list's feeds: the correspondences and, among them by its moment, the Montana room (iOS: an ordinary row of the list). */
-    fun listed(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) || isMontana(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
+    fun listed(): List<Chat> = synchronized(lock) {
+        ensure()
+        val rest = chats.values.filter { !isLocal(it.ref) || isMontana(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() }
+        // the mesh wall stands first while this phone is on the mesh (iOS ChatStore 6941-6949)
+        if (!Mesh.discoverable) rest
+        else listOf((chats[MESH] ?: Chat(MESH, ctx.getString(R.string.app_mesh_wall), true).also { chats[MESH] = it; save(it); saveIndex() }).shot()) + rest
+    }
+
+    /**
+     * A WORD OF THE MESH WALL ARRIVED (iOS appendMeshRoom 3436-3447): laid under the name its sender spoke under, once per word, while
+     * this phone is on the mesh; theirs and unread until the room is opened, as every letter is.
+     */
+    fun appendMeshRoom(mid: String, from: String, text: String, at: Long) {
+        if (!Mesh.discoverable || text.isEmpty()) return
+        if (chat(MESH)?.msgs?.any { it.mid == mid } == true) return
+        open(MESH, ctx.getString(R.string.app_mesh_wall), true)
+        edit(MESH) { c ->
+            if (c.msgs.any { it.mid == mid }) return@edit
+            c.msgs.add(Msg(mid, text, false, at, state = 2, from = from))
+            if (openChat != MESH || !Presence.shown) c.unread++
+        }
+        Log.d("Montana", "mesh_room laid chars=" + text.length)
+    }
 
     // ── THE ROOM WITHOUT AN ADDRESS (iOS savedMessagesKey, MontanaAvatarKit.swift:6; ChatStore.isLocalRoom, MontanaChatStore.swift:433-437
     // at 2155): Saved Messages is this device writing to itself, a feed like any other opened by the one conversation page; nothing
     // there is sent, waits or fails -- every road that would reach the wire asks isLocal and stops (the author's word 11.09) ──
     const val SAVED = "Saved Messages"   // the storage key is English and never translated, as iOS keeps it
-    fun isLocal(ref: String) = ref == SAVED || ref == MONTANA
+    fun isLocal(ref: String) = ref == SAVED || ref == MONTANA || ref == MESH
+    // ── THE MESH WALL (iOS meshRoomKey, ContentView.swift:3318; ChatStore.isMeshRoom 567, appendMeshRoom 3436-3447): the room the
+    // Bluetooth mesh speaks in (MeshRoom). Its row stands first in the list while the switch «visible in the mesh» is on and is gone
+    // while it is off -- its words stay on the phone ──
+    const val MESH = "Mesh wall"   // COMPAT-LOCAL: a key of this device's list, never a word on the wire
+    fun isMesh(ref: String) = ref == MESH
     // ── THE MONTANA ROOM (iOS montanaRoomKey, ContentView.swift:3228-3246; the author's word 29.09): the room without an address where
     // Montana itself speaks -- a new build, what changed, the button to update. Nobody writes into it; it stands among the chats by
     // its moment, «👑 Montana» under the app's glass icon, and an erased room comes back at once: it stands for everyone (standMontanaRoom) ──
@@ -2308,7 +2335,11 @@ object Post {
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
         if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
         // THE ROOM WITHOUT AN ADDRESS HAS NO WIRE (iOS isLocalRoom): its own letter is settled where it was written, never queued
-        if (Book.isLocal(to0)) { Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; Twin.born(to0, mid); return }
+        if (Book.isLocal(to0)) {
+            Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; Twin.born(to0, mid)
+            if (Book.isMesh(to0)) MeshRoom.say(text)   // the mesh wall's words ride the radio to everyone on the mesh (iOS ChatStore 7519)
+            return
+        }
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         var refused = false
         synchronized(outLock) {
