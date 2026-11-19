@@ -40,7 +40,12 @@ import java.util.UUID
  *    three minutes, its endpoint only when global.
  *  5 knock `pos32 | n | tag16 × n`, n fixed at four (noise pads it), once a window per conversation, never passed on;
  *  6 the answer `pos32 | kem1184`, addressed to the tag it answers, back on the link it came by.
- *  2 letter / 4 blob piece: opened in part 2; until then a cell not ours is passed on and carried (DTN, 256, two windows).
+ *  2 letter `sealed to the neighbour's key ( signPk1952 | sig3309 | envelope )`, addressed by the pipe's tag (or the point of first
+ *    contact while the introduction is unanswered); believed only when the key inside is the one the book of keys holds;
+ *  4 blob piece `sealed( blobId utf8 | 0 | sealed )`, no signature — the name is the bytes;
+ *    a cell not ours is passed on and carried (DTN, 256, two windows).
+ * send/sendBlob are here as in iOS; iOS calls seek and sendBlob from nowhere (only its mesh door), and send only when a letter
+ * finds no road (Channels.meshFallback), so ours does the same.
  *  7/8/9 the mesh room: part 3.
  * The position names this window only (Wire.windowPos of the device's overlay tag): nothing on the air joins two windows.
  * The person's switch «visible in the mesh» (Mesh.KEY) governs it, the same switch as the local network (iOS meshDiscoverable).
@@ -67,6 +72,8 @@ object BleMesh {
     private var kemPk = ByteArray(0)
     private var kemSk = ByteArray(0)
     private var overlay = ByteArray(0)
+    private var signPk = ByteArray(0)   // the account's key: signs a letter INSIDE the seal, never on the air (iOS 84-93)
+    private var signSk = ByteArray(0)
 
     private var server: BluetoothGattServer? = null
     private var serverChar: BluetoothGattCharacteristic? = null
@@ -134,6 +141,11 @@ object BleMesh {
         val kem = NodeKem.device() ?: return Unit.also { Log.d("Montana", "ble_off why=kem") }
         val ident = NodeIdentity.device() ?: return Unit.also { Log.d("Montana", "ble_off why=identity") }
         kemPk = kem.first; kemSk = kem.second; overlay = ident.tag
+        // the account key signs a letter inside the sealed blob, where only its recipient reads it (iOS MontanaSeed.keys())
+        if (signSk.isEmpty()) {
+            val acct = MontanaSeed.mnemonic?.let { SeedKeys.from(it) } ?: return Unit.also { Log.d("Montana", "ble_off why=keys") }
+            signPk = acct.pubkey; signSk = acct.seckey
+        }
         started = true
         openServer(c, bm)
         advertise(ad)
@@ -156,6 +168,7 @@ object BleMesh {
         }
         runCatching { server?.close() }; server = null; serverChar = null
         peers.clear(); publishPeers(); carryStore.clear(); assembly.clear(); assemblyAt.clear()
+        signPk = ByteArray(0); signSk.fill(0); signSk = ByteArray(0)   // the account's key is the person's, not the device's: read again at the next start
         Log.d("Montana", "ble_power_down")
     }
 
@@ -407,6 +420,58 @@ object BleMesh {
         if (seen.size > 512) seenSet.remove(seen.removeFirst())
     }
 
+    // ---------------------------------------------------------------- a letter and a blob piece of mine
+
+    /** The neighbour within reach that holds this pipe, by its sealing key (iOS peers.first{ref == conv}); none, and the letter waits. */
+    private fun target(conv: String): ByteArray? = sync { peers.values.firstOrNull { it.ref == conv }?.kem?.takeIf { it.size == 1184 } }
+
+    private fun <T> sync(f: () -> T): T {
+        if (android.os.Looper.myLooper() == thread.looper) return f()
+        val q = java.util.concurrent.ArrayBlockingQueue<Any>(1)   // offer, never put: a caller that stopped waiting never holds the radio
+        h.post { q.offer(runCatching(f).getOrNull() ?: NONE) }
+        @Suppress("UNCHECKED_CAST") return q.poll(2, java.util.concurrent.TimeUnit.SECONDS).let { if (it === NONE) null else it } as T
+    }
+    private val NONE = Any()
+
+    /**
+     * A LETTER BY THE RADIO (iOS send 115-138): addressed by the tag the pipe gives this window, sealed to the node that holds it; the
+     * envelope is signed by the account key inside the seal. Nobody near holds the pipe: false, the letter waits where it waits.
+     */
+    fun send(conv: String, envelope: ByteArray): Boolean {
+        if (!started) return false
+        val tag = Channels.outgoingTag(conv) ?: return false
+        val kem = target(conv) ?: return false
+        if (signSk.isEmpty()) return false
+        val sig = MtBindings.nativeSign(signSk, envelope)?.takeIf { it.size == 3309 } ?: return false
+        val sealed = seal(kem, signPk + sig + envelope) ?: return false
+        val id = random(16)
+        val pkt = packet(2, id, tag, sealed)
+        h.post { markSeen(id); broadcast(pkt, null) }
+        Log.d("Montana", "ble_tx bytes=" + sealed.size)
+        return true
+    }
+
+    /** A BLOB PIECE BY THE RADIO (iOS sendBlob 153-172): content-addressed, so unsigned — the recipient checks it by its hash. */
+    fun sendBlob(conv: String, blobId: String, sealed: ByteArray): Boolean {
+        if (!started) return false
+        val tag = Channels.outgoingTag(conv) ?: return false
+        val kem = target(conv) ?: return false
+        val box = seal(kem, blobId.toByteArray() + byteArrayOf(0) + sealed) ?: return false
+        val id = random(16)
+        val pkt = packet(4, id, tag, box)
+        h.post { markSeen(id); broadcast(pkt, null) }
+        Log.d("Montana", "ble_blob_tx bytes=" + sealed.size)
+        return true
+    }
+
+    /** iOS verifySender 213-223: the signature holds, and the key is the one the book of keys holds for this correspondence. */
+    private fun verifySender(env: ByteArray, pk: ByteArray, sig: ByteArray, ref: String): Boolean {
+        if (pk.size != 1952 || sig.size != 3309 || ref.isEmpty()) return false
+        if (!MtBindings.nativeVerify(pk, env, sig)) return false
+        val known = Channels.authPub(ref) ?: return false.also { Log.d("Montana", "BLE ✗ letter from a correspondence whose key is not known — refused") }
+        return known.contentEquals(pk)
+    }
+
     // ---------------------------------------------------------------- the seal of a letter to a node, the path seals
 
     /** ct1088 ‖ the blob sealed under the shared secret (iOS seal(to:)): only the node that holds the key opens it. */
@@ -578,7 +643,7 @@ object BleMesh {
             }
             6 -> {   // the answer to a knock, addressed by the tag it answers
                 if (p.size < 32 + 1184) return
-                val conv = Channels.pipeOf(c.dst) ?: return   // a first contact's answer: part 2 (iOS convAwaiting)
+                val conv = Channels.pipeOf(c.dst) ?: Channels.convAwaiting(c.dst) ?: return   // or an introduction's answer (iOS 436)
                 val node = p.copyOfRange(0, 32)
                 if (mine(node)) return
                 val nk = Wire.hex(node); val kem = p.copyOfRange(32, 32 + 1184)
@@ -586,12 +651,45 @@ object BleMesh {
                 flushCarry(conv)
                 Log.d("Montana", "ble_knock_answer_rx conv=" + conv.take(10))
             }
-            2, 4 -> {   // a letter or a blob piece: ours is opened in part 2; a stranger's is passed on and carried
-                if (Channels.pipeOf(c.dst) != null || Channels.isFirstPoint(c.dst)) {
-                    Log.d("Montana", "ble_rx type=${c.type} owners=" + distinctOwners(p) + " held=part2")
-                    return
-                }
-                relay(c, link); carry(c)
+            2 -> {   // a letter: mine exactly when its tag is a tag of one of my pipes, or a point I listen at (iOS 471-526)
+                val conv = Channels.pipeOf(c.dst)
+                if (conv != null) {
+                    val owners = distinctOwners(p)
+                    val inner = open(body(p))?.takeIf { it.size > 1952 + 3309 } ?: return
+                    val pk = inner.copyOfRange(0, 1952); val sig = inner.copyOfRange(1952, 1952 + 3309)
+                    val env = inner.copyOfRange(1952 + 3309, inner.size)
+                    // iOS parseEnvelope: 0x01 ‖ the pipe's tag ‖ the body sealed with the pipe's key
+                    if (env.size <= 17 || env[0] != 0x01.toByte()) return
+                    val sealed = env.copyOfRange(17, env.size)
+                    if (Book.secret(conv) == null) return
+                    val plain = Book.openLetter(sealed, conv) ?: return
+                    if (!verifySender(env, pk, sig, conv)) return
+                    Log.d("Montana", "ble_rx mid=" + Wire.fields(plain).firstOrNull().orEmpty().take(8) + " dir=in via=bluetooth owners=" + owners)
+                    Thread { Post.fromChannel(conv, plain) }.start()
+                } else if (Channels.isFirstPoint(c.dst)) {
+                    // somebody wrote first at a point this phone listens at: the correspondence FOLLOWS from what only the card opens
+                    val inner = open(body(p))?.takeIf { it.size > 1952 + 3309 } ?: return
+                    val env = inner.copyOfRange(1952 + 3309, inner.size)
+                    // iOS parseFirstEnvelope: 0x02 ‖ ct1088 ‖ the body
+                    if (env.size <= 1 + 1088 || env[0] != 0x02.toByte()) return
+                    val root = Channels.firstRoot(c.dst)
+                    Thread {
+                        val ref = Post.firstOffChannel(root, env.copyOfRange(1, 1 + 1088), env.copyOfRange(1 + 1088, env.size)) ?: return@Thread
+                        Channels.dropFirstPoints()
+                        Log.d("Montana", "ble_first_rx conv=" + ref.take(10))
+                    }.start()
+                } else { relay(c, link); carry(c) }   // opaque: we cannot read it and do not know whose it is
+            }
+            4 -> {   // a blob piece (iOS 528-540)
+                if (Channels.pipeOf(c.dst) != null) {
+                    val inner = open(body(p)) ?: return
+                    val sep = inner.indexOf(0.toByte()).takeIf { it >= 0 } ?: return
+                    val bid = String(inner, 0, sep, Charsets.UTF_8)
+                    val sealed = inner.copyOfRange(sep + 1, inner.size)
+                    if (bid.isEmpty() || sealed.isEmpty()) return
+                    Media.Blobs.put(bid, sealed)
+                    Log.d("Montana", "ble_blob_rx id=" + bid.take(8) + " bytes=" + sealed.size)
+                } else { relay(c, link); carry(c) }
             }
             else -> {}   // 7/8/9 the mesh room: part 3
         }
