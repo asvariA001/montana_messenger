@@ -10,31 +10,28 @@ import android.util.Log
  *   word: [ver 1 | run 8 | at u32 BE | name length 1 | name | words] 0   -- the trailing zero is the mesh's seal count
  * The run is eight random bytes born with the process and gone with it: nothing on the air names a person beyond the word's own name.
  * A word older than ten minutes is neither laid nor passed on; one run passes on at most thirty words a minute, the phone 120.
- * Pictures, voices, files and stickers (version 2, cells 8 and 9) are part 3b: until then their pieces are passed on within the
- * phone's measure and nothing of them is laid.
+ * Pictures, voices, files and stickers ride as their word (version 2) and their pieces (cell 8); a missed piece is asked for (cell 9)
+ * and whoever holds the item whole answers: MeshItems.kt.
  */
 object MeshRoom {
     private const val VERSION: Byte = 1
     const val MEDIA_VERSION: Byte = 2
-    private const val NAME_BYTES = 96
-    private const val WORD_BYTES = 1024
-    private const val FRESH_FOR = 600L
+    internal const val NAME_BYTES = 96
+    internal const val WORD_BYTES = 1024
+    internal const val FRESH_FOR = 600L
     private const val PASS_PER_MINUTE = 30
     private const val PASS_ALL_PER_MINUTE = 120
-    private const val PIECE_BYTES = 960
-    private const val PASS_BYTES_PER_MINUTE = 384 * 1024
 
     /** This run's mark: eight random bytes, born with the process and gone with it (iOS MTMeshRoom.run). */
     val run: ByteArray = MtBindings.nativeRandom(8) ?: ByteArray(8).also { java.security.SecureRandom().nextBytes(it) }
 
-    private val lock = Any()
+    internal val lock = Any()
     private val passed = HashMap<String, MutableList<Long>>()
     private val passedAll = ArrayList<Long>()
-    private val passedBytes = ArrayList<Pair<Long, Int>>()
 
     class Word(val run: ByteArray, val at: Long, val name: String, val text: String)
 
-    private fun be32(v: Long) = byteArrayOf((v shr 24).toByte(), (v shr 16).toByte(), (v shr 8).toByte(), v.toByte())
+    internal fun be32(v: Long) = byteArrayOf((v shr 24).toByte(), (v shr 16).toByte(), (v shr 8).toByte(), v.toByte())
 
     /** A string cut at a letter's edge to at most `bytes` bytes of UTF-8 (iOS cut). */
     fun cut(s: String, bytes: Int): String {
@@ -68,7 +65,7 @@ object MeshRoom {
     }
 
     /** iOS String(data:encoding:.utf8): bytes that are not UTF-8 are no word at all. */
-    private fun utf8(b: ByteArray): String? = runCatching {
+    internal fun utf8(b: ByteArray): String? = runCatching {
         Charsets.UTF_8.newDecoder().decode(java.nio.ByteBuffer.wrap(b)).toString()
     }.getOrNull()
 
@@ -94,7 +91,7 @@ object MeshRoom {
     }
 
     /** iOS mayPassWord: a run passes on at most thirty words a minute, the phone at most 120, whatever marks they wear. */
-    private fun mayPassWord(r: ByteArray, now: Long): Boolean = synchronized(lock) {
+    internal fun mayPassWord(r: ByteArray, now: Long): Boolean = synchronized(lock) {
         val k = Wire.hex(r)
         val seen = (passed[k] ?: mutableListOf()).filter { now - it < 60_000 }.toMutableList()
         passedAll.removeAll { now - it >= 60_000 }
@@ -114,7 +111,7 @@ object MeshRoom {
 
     /** A cell of the room came by the radio: the word is laid, and the answer says whether it may be passed on (iOS heard). */
     fun heard(body: ByteArray): Boolean {
-        if (body.firstOrNull() == MEDIA_VERSION) return false   // an item's word: part 3b
+        if (body.firstOrNull() == MEDIA_VERSION) return MeshItems.heardMedia(body)   // the word of a picture, voice, file or sticker
         val w = word(body) ?: return false
         if (w.run.contentEquals(run)) return false
         val now = System.currentTimeMillis()
@@ -123,20 +120,6 @@ object MeshRoom {
         val mid = mid(w)
         Thread { Book.appendMeshRoom(mid, ref(w), w.text, w.at * 1000) }.start()
         return true
-    }
-
-    /** A piece of an item (cell 8): gathering it is part 3b; it is passed on while the phone's minute of bytes allows (iOS heardPiece). */
-    fun heardPiece(body: ByteArray): Boolean {
-        if (body.size < 1 + 16 + 4 + 1 + 1 || body.last() != 0.toByte() || body[0] != 1.toByte()) return false
-        val n = body.size - 1 - (1 + 16 + 4)
-        if (n <= 0 || n > PIECE_BYTES) return false
-        val now = System.currentTimeMillis()
-        return synchronized(lock) {
-            passedBytes.removeAll { now - it.first >= 60_000 }
-            val may = passedBytes.sumOf { it.second } + n <= PASS_BYTES_PER_MINUTE
-            if (may) passedBytes.add(now to n)
-            may
-        }
     }
 
     init { Log.d("Montana", "mesh_room run born") }

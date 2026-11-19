@@ -225,6 +225,9 @@ object Media {
                 Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid && it.file == local.path }?.let { it.text = told } }
             }
             // THE LOCAL ROOM KEEPS ITS FILE (iOS isLocalRoom): nothing is sealed or laid -- the letter is settled with the file beside it
+            // THE MESH WALL'S MEDIA RIDE THE RADIO (iOS ChatStore.setMediaStatus 2022-2034): the room's own row is handed to the radio at the
+            // settle; a file past the radio's measure is not sent, and its row is not turned red -- iOS putOut refuses in a room without a wire
+            if (Book.isMesh(ref) && !MeshItems.share(local, pw.kind, pw.name, caption, pw.du)) { Log.i("Montana", "mesh_room settle -- the radio did not take the row"); return@work }
             if (Book.isLocal(ref)) { Book.edit(ref) { ch -> ch.msgs.find { it.mid == mid }?.advance(2) }; Twin.born(ref, mid); return@work }
             if (deliver(c, ref, mid, pw, caption, local, qt, group)) return@work
             // THE INTENT SURVIVES ITS BROKEN UPLOAD (iOS 1675, 1677): the bubble stands at the clock and the upload waits for the drain

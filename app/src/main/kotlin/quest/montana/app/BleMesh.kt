@@ -700,8 +700,8 @@ object BleMesh {
                 } else { relay(c, link); carry(c) }
             }
             7 -> { if (Mesh.discoverable && MeshRoom.heard(body(p))) relay(c, link) }       // a word of the mesh wall (iOS 541-543)
-            8 -> { if (Mesh.discoverable && MeshRoom.heardPiece(body(p))) relay(c, link) }  // an item's piece: passed on within the measure
-            9 -> {}   // an ask for an item's pieces: answered by whoever holds the item whole -- part 3b
+            8 -> { if (Mesh.discoverable && MeshItems.heardPiece(body(p))) relay(c, link) }  // an item's piece: gathered, passed on within the measure (iOS 524)
+            9 -> { if (Mesh.discoverable) MeshItems.heardAsk(body(p)) }   // an ask for an item's pieces: answered by whoever holds it whole (iOS 527)
             else -> {}
         }
     }

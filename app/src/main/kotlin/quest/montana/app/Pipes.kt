@@ -1780,6 +1780,16 @@ object Book {
         }
         Log.d("Montana", "mesh_room laid chars=" + text.length)
     }
+    /** A picture, voice, file or sticker of the mesh wall laid whole (iOS MTMeshRoom.lay: appendMediaPlaceholder + fillMedia), theirs, unread until the room is opened. */
+    fun appendMeshItem(mid: String, from: String, text: String, meta: String, path: String) {
+        if (!Mesh.discoverable) return
+        open(MESH, ctx.getString(R.string.app_mesh_wall), true)
+        edit(MESH) { c ->
+            if (c.msgs.any { it.mid == mid }) return@edit
+            c.msgs.add(Msg(mid, text, false, System.currentTimeMillis(), state = 2, file = path, meta = meta, from = from))
+            if (openChat != MESH || !Presence.shown) c.unread++
+        }
+    }
 
     // ── THE ROOM WITHOUT AN ADDRESS (iOS savedMessagesKey, MontanaAvatarKit.swift:6; ChatStore.isLocalRoom, MontanaChatStore.swift:433-437
     // at 2155): Saved Messages is this device writing to itself, a feed like any other opened by the one conversation page; nothing
