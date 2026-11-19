@@ -123,11 +123,16 @@ fun meshPane(act: MainActivity): View {
                 addView(c.text(v, 10f, Color.WHITE).apply { typeface = android.graphics.Typeface.MONOSPACE }, lp())   // USER-DATA: a diagnostics value
             }, lp().apply { bottomMargin = c.dp(6) })
             row(R.string.mesh_d_nodes, Channels.nodesHeld().toString())
-            row(R.string.mesh_d_bt, c.getString(R.string.mesh_d_off))
+            row(R.string.mesh_d_bt, if (BleMesh.linkCount > 0) BleMesh.linkCount.toString() else c.getString(R.string.mesh_d_off))
             row(R.string.mesh_d_now, refs.size.toString())
         }
     }
-    sw.setOnCheckedChangeListener { _, v -> Mesh.setDiscoverable(v); draw() }
+    sw.setOnCheckedChangeListener { _, v ->
+        Mesh.setDiscoverable(v)
+        // the radio asks its question at the switch: a yes starts it at once, a no leaves the local network alone on
+        if (v && !BleMesh.granted(c)) (c as? MainActivity)?.askBluetooth { ok -> if (ok) BleMesh.setDiscoverable(true); android.util.Log.d("Montana", "ble_ask granted=" + (if (ok) 1 else 0)) }
+        draw()
+    }
     draw(); drawNear()
     val page = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false

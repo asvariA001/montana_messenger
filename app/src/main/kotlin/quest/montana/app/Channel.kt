@@ -384,7 +384,7 @@ object Channels {
     fun peers(): Int = synchronized(live) { live.values.count { it.ready && it.ref.isNotEmpty() } }
 
     /** Who those people are, one row each however many channels reach them (iOS MontanaMeshCard.nearby: node.peers' neighborRef). */
-    fun nearRefs(): List<String> = synchronized(live) { live.values.filter { it.ready && it.ref.isNotEmpty() }.map { it.ref }.distinct() }
+    fun nearRefs(): List<String> = (synchronized(live) { live.values.filter { it.ready && it.ref.isNotEmpty() }.map { it.ref } } + BleMesh.nearRefs()).distinct()   // and the radio's neighbours (iOS setBTPeers)
 
     /** A door's name, one place for the list, the book and the channel (iOS MontanaNodes.Node.label 42-46, doorKey 60-65). */
     fun labelOf(host: String, port: Int, wss: Boolean): String =
@@ -909,4 +909,12 @@ object Channels {
         }
         pipes
     }
+
+    /** The Bluetooth mesh's doors (iOS MTPipeBook.match, isFirstContactTag, ownerSecretCached): whose pipe a tag is, whether it
+     *  is a point of first contact, and the owner branch a relay seals its step with. */
+    fun pipeOf(tag: ByteArray): String? = myPipes()[Wire.hex(tag)]
+    fun isFirstPoint(tag: ByteArray): Boolean = firstPoints().containsKey(Wire.hex(tag))
+    fun ownerKey(): ByteArray? = ownerSecret()
+    /** The global address a neighbour may dial this phone at (iOS MontanaPhoneNode.reachableEndpoint), or none. */
+    fun publicEndpoint(): String? = candidates().firstOrNull { isGlobal(it) }
 }

@@ -38,6 +38,7 @@ object Mesh {
         started = true
         app = c.applicationContext
         if (discoverable && Channels.listening) advertise()
+        BleMesh.start(c)   // and the radio, while the person lets the phone be found (iOS MontanaBLEMesh.start)
         // iOS startPeerScan: the first scan at 0.2 s, then every twenty; a scan of a phone that is not findable does nothing
         Thread { Thread.sleep(200); while (true) { runCatching { scan() }; Thread.sleep(20_000) } }.start()
     }
@@ -52,6 +53,7 @@ object Mesh {
     fun setDiscoverable(on: Boolean) {
         Prefs.setBool(KEY, on)
         if (on) advertise() else stopAdvertising()
+        BleMesh.setDiscoverable(on)
         Log.d("Montana", "discoverable on=" + (if (on) 1 else 0))
     }
 

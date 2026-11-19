@@ -721,6 +721,13 @@ class MainActivity : Activity() {
         requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_MIC)
     }
 
+    /** The Bluetooth question, asked when the person makes the phone visible in the mesh (iOS CBManager's first use). */
+    private var btDone: ((Boolean) -> Unit)? = null
+    fun askBluetooth(done: (Boolean) -> Unit) {
+        btDone = done
+        requestPermissions(BleMesh.perms(), ASK_BT)
+    }
+
     /** The camera's question, asked by the system; the answer comes back once (iOS AVCaptureDevice.requestAccess). */
     private var cameraDone: ((Boolean) -> Unit)? = null
     fun askCamera(done: (Boolean) -> Unit) {
@@ -731,6 +738,7 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ASK_MIC) { micDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); micDone = null }
         if (requestCode == ASK_MEDIA) { mediaDone?.invoke(grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }); mediaDone = null }
+        if (requestCode == ASK_BT) { btDone?.invoke(grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }); btDone = null }
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
         if (requestCode == ASK_CALL_OUT) pendingCall?.let { pendingCall = null; if (Calls.dial(it, pendingVideo)) CallScreen.show(this, it) }
         if (requestCode == ASK_CALL_MIC) takeTheCall(true)   // refused, the call is still taken: the person hears, the other side does not
@@ -826,7 +834,7 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(pinnedText(AppLanguage.wrap(base)))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15; const val ASK_BT = 16 }
 }
 
 /**
