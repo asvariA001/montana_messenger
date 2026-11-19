@@ -74,7 +74,7 @@ object TopNet {
     }
     /** The seed's coin key signs ASCII mt-top-key-v1 and the row's token: the node verifies it with the core and reads that key's chain. */
     private fun keyProof(token: ByteArray): Pair<String, String>? {
-        val k = CoinChain.keys() ?: return null
+        val k = CoinTx.keys() ?: return null
         val sig = MtBindings.nativeSign(k.sk, "mt-top-key-v1".toByteArray() + token) ?: return null
         return Base64.encodeToString(k.pk, Base64.NO_WRAP) to Base64.encodeToString(sig, Base64.NO_WRAP)
     }
