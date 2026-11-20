@@ -1,7 +1,6 @@
 package quest.montana.app
 
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
@@ -22,7 +21,6 @@ fun p2pPane(act: MainActivity): View {
         gravity = Gravity.CENTER
         val pad = c.dp(5)
         setPadding(pad, pad, pad, pad)
-        minWidth = c.dp(22); minHeight = c.dp(22)
         translationX = c.dp(5).toFloat(); translationY = -c.dp(3).toFloat()   // iOS .offset(x: 5, y: -3)
     }
     val head = c.vstack {
@@ -37,7 +35,8 @@ fun p2pPane(act: MainActivity): View {
             addView(badge, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.TOP or Gravity.END))
         }, lp(c.dp(62), c.dp(62)))
         gap(12)
-        addView(c.text(c.getString(R.string.p2p_wall_caption), 13f, MT.gray, center = true).apply { setPadding(c.dp(28), 0, c.dp(28), 0) }, lp())
+        // iOS 186-188: the wall's line while the VPN app stands beside it (MTApps.vpn), else «P2P network»
+        addView(c.text(c.getString(if (GooglePlay.VPN) R.string.p2p_wall_caption else R.string.p2p_network_caption), 13f, MT.gray, center = true).apply { setPadding(c.dp(28), 0, c.dp(28), 0) }, lp())
     }
     val rows = c.vstack(Gravity.NO_GRAVITY)
     /** One line in the library's measure (iOS row 267-281): the globe on its tile, the title, the word in its colour, the hairline. */
@@ -61,7 +60,7 @@ fun p2pPane(act: MainActivity): View {
     fun draw() {
         val nodes = Channels.nodesHeld()
         badge.text = nodes.toString()   // USER-DATA: a count — the machines held
-        badge.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (nodes > 0) MT.green else MT.red) }
+        badge.background = CircleFill(if (nodes > 0) MT.green else MT.red)   // iOS Circle(): round whatever the count's width
         rows.removeAllViews()
         rows.addView(c.text(c.getString(R.string.p2p_reachable) + " (" + nodes + ")", 12f, MT.gray).apply { setPadding(side, c.dp(12), side, c.dp(12)) }, lp())
         val live = Channels.heldLabels()

@@ -153,8 +153,8 @@ private fun underlapPage(page: View, room: Int) { if (!underlap(page, room)) roo
 /** The glyph inside a bar button (iOS MontanaOctagon.barGlyph: Color(white: 0.8)). */
 private val barGlyph = Color.rgb(204, 204, 204)
 
-/** The pages under the bar (iOS UIState.Pane): the music, the gallery, the mesh and the P2P walls are the drawer's. */
-enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, MESH, P2P }
+/** The pages under the bar (iOS UIState.Pane): the music, the gallery, the VPN, the mesh and the P2P walls are the drawer's. */
+enum class Pane { CHATS, CONTACTS, CALLS, FEED, MUSIC, GALLERY, GROUPS, CHANNELS, VPN, MESH, P2P }
 
 /**
  * WHERE THE TIME PANEL STANDS (iOS MontanaOctagon.barBottomKey, b9b212d4, OZ 1 p.1.8.1, the author's words 21179 and 21207): at the
@@ -171,7 +171,7 @@ object BarPlace {
     fun choose(bottom: Boolean) { Prefs.setBool(KEY, bottom); moved?.invoke(bottom) }
 }
 /** The pages whose word at the head narrows their own rows (iOS searchesItself, MontanaChatsList.swift:515 at a91328e3). */
-private fun searchesItself(p: Pane) = p == Pane.MUSIC || p == Pane.FEED || p == Pane.MESH || p == Pane.P2P || p == Pane.GALLERY
+private fun searchesItself(p: Pane) = p == Pane.MUSIC || p == Pane.FEED || p == Pane.VPN || p == Pane.MESH || p == Pane.P2P || p == Pane.GALLERY
 
 fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val c = act
@@ -181,12 +181,14 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     val music = MusicPage(act)
     val feed = FeedPane(act)
     val chats = ChatsPane(act)
+    val vpn = if (GooglePlay.VPN) VpnWallPage(act) else null   // the globe's page (iOS NetworkTabView on .vpn), the VPN app's alone
     var goContacts: () -> Unit = {}   // the calls' «New call» turns to the contacts (set once choose stands)
     val views = mapOf(Pane.CHATS to chats, Pane.CONTACTS to contactsPane(act), Pane.CALLS to callsPane(act) { goContacts() },
         Pane.FEED to feed, Pane.MUSIC to music.view, Pane.GALLERY to galleryPane(act),
         // THE DRAWER'S GROUPS AND CHANNELS ARE THE CHATS' PAGE ON THE FOLDER OF THEIR KIND (iOS paneFolder at 2242): one page, its tabs
         // over it; a tab tapped there turns it back to the chats (ChatsPane.showKind)
-        Pane.GROUPS to chats, Pane.CHANNELS to chats, Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act))
+        Pane.GROUPS to chats, Pane.CHANNELS to chats, Pane.MESH to meshPane(act), Pane.P2P to p2pPane(act)) +
+        (vpn?.let { mapOf(Pane.VPN to it.view) } ?: emptyMap())
     views.values.distinct().forEach { v -> v.visibility = View.GONE; panes.addView(v, FrameLayout.LayoutParams(MATCH, MATCH)) }
     views.getValue(Pane.CHATS).visibility = View.VISIBLE
     // THE FLOATING PLAYER stands on the chats, the feed and the music while anything plays (iOS playerBar).
@@ -218,6 +220,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         views.values.distinct().forEach { v -> if (v !== chats) v.findViewWithTag<EdgeSink>(EdgeSink.TAG)?.down = !search.active }   // the contacts' and the calls' too (iOS pinned on every time panel list)
         music.query = if (pane == Pane.MUSIC) search.query else ""   // the music page searches its own tracks (iOS ownSearch)
         feed.search(if (pane == Pane.FEED) search.query else "", pane == Pane.FEED && search.active)   // the feed its own posts (iOS ownSearch, 951)
+        vpn?.search(if (search.active && pane == Pane.VPN) search.query else "")   // the VPN wall searches itself (iOS searchesItself)
         if (search.active != searching) {
             searching = search.active
             if (searching) { keepBack = act.back; act.back = { search.clear() } } else { act.back = keepBack; keepBack = null }
@@ -236,6 +239,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
         bar.badges()
         bar.showPane(p)
         if (p == Pane.MUSIC) MusicFolders.walk(act)          // what was put into the lent folders since comes in
+        if (p == Pane.VPN) vpn?.opened()                     // the VPN wall's opening reads the tunnel and the list (iOS onChange(of: ui.pane))
         showPlayer()
         showResults()
     }
@@ -688,6 +692,11 @@ private fun sideDrawer(act: MainActivity, onPane: (Pane) -> Unit, onProfile: () 
         if (GooglePlay.COINS) addView(row(glyph(R.drawable.ic_app_wallet), R.string.app_wallet, onTap = onWallet), lp())   // TimeCoin (iOS MTWalletPage)
         // THE WALLS BESIDE THE FEED (iOS MTApplication .meshWall, .p2pWall; the author's word 29.09): the people around, phone to
         // phone; the nodes this phone reaches
+        // the VPN on its globe on a stand (iOS .vpnWall, MTApplicationLibrary.swift:116: MontanaVPNGlyph 24 in the row's 30), while the VPN
+        // app stands beside the wall (iOS MTApps.vpn?.carried; here GooglePlay.VPN)
+        if (GooglePlay.VPN) addView(row(FrameLayout(c).apply { addView(c.vpnGlyph(Color.WHITE, 24), FrameLayout.LayoutParams(dp(24), dp(24), Gravity.CENTER)) }, R.string.app_vpn_wall) {
+            VpnOpen.tap(); onPane(Pane.VPN)
+        }, lp())
         addView(row(glyph(R.drawable.ic_set_antenna), R.string.app_mesh_wall) { onPane(Pane.MESH) }, lp())
         addView(row(glyph(R.drawable.ic_language), R.string.app_p2p_wall) { onPane(Pane.P2P) }, lp())
         spacer()

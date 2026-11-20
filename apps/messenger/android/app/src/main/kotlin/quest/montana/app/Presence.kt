@@ -45,26 +45,34 @@ object Signal {
             val sealed = Wire.seal(Wire.bodyKey(secret, Wire.minute()), body) ?: return@Thread
             val cw = Wire.convW(secret, Wire.day())
             val req = JSONObject().put("conv", cw).put("from_id", Wire.subId(cw, twin)).put("env", Base64.encodeToString(sealed, Base64.NO_WRAP))
-            // THE PEER NAMED THE DOORS THEY ASK — the word goes to the conversation's door and nowhere else; a peer who has not (an old
-            // build, a fresh chat before its first beacon) gets it on every living door, and whichever it asks, the word is there
-            // (iOS postSignal 3008-3013)
-            val doors = (if (peerDoors(ref) != null) listOf(signalDoor(ref)) else Doors.ordered("signal").filter { doorAlive(it) }).filter { it.isNotEmpty() }.toMutableList()
-            // A CALL KNOCKS EVERY DOOR (iOS 3014-3021, 15.13): a door dead a minute ago is the very door the path may carry again now
-            // a letter on the lane is no call's word: the box is its road that survives (iOS postSignal callWord, 2ca7a3200d4d)
-            if ((epoch != "chat" && epoch != "letter") || Calls.busy() || doors.isEmpty()) for (b in callDoors()) if (b !in doors) doors.add(b)
-            if (doors.isEmpty()) { Log.d("Montana", "sig_tx SKIP no-door"); return@Thread }
-            for (door in doors) {
-                // ONE LANE PER DOOR (iOS 3031-3053): the word waits its turn; a chat word of this conversation replaces the one still waiting
-                onSignalLane(door, if (epoch == "chat") ref else null) {
-                    try {
-                        // a chat word that waited past its door's death does not dial it; a call's word knocks every door (iOS 3033-3037)
-                        if (epoch == "chat" && !doorAlive(door) && !Calls.busy()) return@onSignalLane
-                        val (code, _) = onLane { Wire.post(door, "/signal", req, 8000, it) }
-                        if (code == 200) doorAnswered(door) else if (code != CUT) doorFailed(door, code)
-                    } finally { leaveSignalLane(door) }
-                }
-            }
+            // ONE DOOR (iOS postSignal 3945-3949, OZ 1 p.2.3, the author's word 25277: «I am in the Montana network, and that must be
+            // enough»): the word goes to this phone's own door; the machine there hands it to the machine where the other side listens.
+            // No copy at another door, no guess of the peer's door. A call's word steps on to the next door only when the one before
+            // refused or stayed silent -- one write at a time (iOS MTCallRoute.advance); a chat word knocks its one door.
+            val first = signalDoor()
+            if (first.isEmpty()) { Log.d("Montana", "sig_tx SKIP no-door"); return@Thread }
+            val callWord = (epoch != "chat" && epoch != "letter") || Calls.busy()
+            val doors = if (callWord) listOf(first) + callDoors().filter { it != first } else listOf(first)
+            sendAt(doors, 0, ref, epoch, req)
         }.start()
+    }
+    private fun sendAt(doors: List<String>, i: Int, ref: String, epoch: String, req: JSONObject) {
+        val door = doors.getOrNull(i) ?: return
+        // ONE LANE PER DOOR (iOS 3031-3053): the word waits its turn; a chat word of this conversation replaces the one still waiting
+        onSignalLane(door, if (epoch == "chat") ref else null) {
+            var ok = false
+            try {
+                // A WORD THAT WAITED PAST ITS DOOR'S DEATH dials it only as the minute's probe (iOS postSignal 3967-3971, OZ 1 p.4):
+                // the call's route and the room's words alike -- not 29 dials of dead doors beside the media
+                if (!DoorBook.mayDial(door)) { Log.d("Montana", "sig_tx SKIP dead door=" + host(door)); return@onSignalLane }
+                val (code, _) = onLane { Wire.post(door, "/signal", req, 8000, it) }
+                ok = code == 200
+                if (ok) doorAnswered(door) else if (code != CUT) doorFailed(door, code)
+            } finally {
+                leaveSignalLane(door)
+                if (!ok && i + 1 < doors.size) sendAt(doors, i + 1, ref, epoch, req)
+            }
+        }
     }
 
     /**
@@ -101,136 +109,103 @@ object Signal {
         next?.let { Thread { it() }.start() }
     }
 
-    // ── the doors' life (iOS WakePush baseFailed 318-346, signalDoorAnswered 451-459, the path change 516-528) ──
-    private val doorFails = HashMap<String, Int>()
-    private val deathStreak = HashMap<String, Int>()
-    private val deadUntil = HashMap<String, Long>()
-    /** No answer, or the door's own failure: two in a row and it rests a minute, then two, four, eight at most. A refusal is an answer. */
-    fun doorFailed(door: String, code: Int) {
-        if (code != -1 && code < 500) { doorAnswered(door, proved = false); return }
-        val now = System.currentTimeMillis()
-        var wasChosen = false
-        val rest = synchronized(deadUntil) {
-            if ((deadUntil[door] ?: 0L) > now) return
-            val n = (doorFails[door] ?: 0) + 1
-            doorFails[door] = n
-            if (n < 2) return
-            doorFails[door] = 0
-            val streak = minOf((deathStreak[door] ?: 0) + 1, 4)
-            deathStreak[door] = streak
-            wasChosen = chosen == door
-            if (wasChosen) chosen = null
-            (60_000L shl (streak - 1)).also { deadUntil[door] = now + it }
-        }
-        Log.d("Montana", "sig_door dead " + host(door) + " code=" + code + " — not asked for " + rest / 1000 + "s")
-        // the elected door is left only past its death, and the next live one is elected at the next write (iOS baseFailed 347-350)
-        if (elected() == door) {
-            elected = null
-            Prefs.remove(ELECTED)
-            Log.d("Montana", "door_elected " + host(door) + " died — the next live door is elected")
-        }
-        // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (iOS baseFailed 351-354): the lane is cut and re-elected the same instant
-        if (wasChosen) cut("door " + host(door) + " dead — the standing question leaves it")
-    }
-    fun doorAnswered(door: String, proved: Boolean = true) {
-        val revived = synchronized(deadUntil) {
-            val was = deathStreak.containsKey(door) || deadUntil.containsKey(door)
-            doorFails.remove(door); deathStreak.remove(door); deadUntil.remove(door)
-            if (proved) proof[host(door)] = System.currentTimeMillis()
-            was
-        }
-        if (revived) {
-            Log.d("Montana", "sig_door alive " + host(door))
-            Wire.forgetGone()   // a door that was silent answers: what it holds is new knowledge (iOS door_alive, forgetGoneChunks)
-            // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS 1672): the letters that waited for it leave now
-            if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
-        }
-    }
-    private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
-    /** Alive for me (iOS doorAlive 468-474): not silent in the last round of the doors, not resting dead by my own two silences. */
-    fun doorAlive(door: String) = !Doors.silent(door) && synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
-    /** PROOF OF A DOOR (iOS doorProof): the moment it last answered me with 200 since the path changed — keyed by host. */
-    private val proof = HashMap<String, Long>()
+    // ── the doors' life (iOS WakePush baseFailed 406-430, doorSpoke 432-439; the count and the rest are the one book's, DoorBook) ──
     /**
-     * THE PROVEN DOORS FIRST (iOS MontanaWakePush 484, measured 13.09 15:20: the first knock stood five seconds on a door that had
-     * never answered on this network while three others had answered a second before): proof is what the app already knows — the
-     * freshest first, an unproven door after them, a resting one last; with no proof at all, the network's own order.
+     * No answer, or the door's own failure: two in a row and it rests a minute, then two, four, eight at most; a refusal is an answer.
+     * The health round's silence weighs two (iOS verifyRound 157). A door's death unelects it here, whichever road heard the silence --
+     * a base, or a node's channel to the same endpoint (matched by the book's key).
      */
-    fun byProof(doors: List<String>): List<String> = synchronized(deadUntil) {
-        val now = System.currentTimeMillis()
-        doors.sortedWith(compareBy({ if (now < (deadUntil[it] ?: 0L)) 2 else if (proof.containsKey(host(it))) 0 else 1 }, { -(proof[host(it)] ?: 0L) }))
+    fun doorFailed(door: String, code: Int, weight: Int = 1) {
+        if (code != -1 && code < 500) { doorAnswered(door); return }
+        val rest = DoorBook.silent(door, weight) ?: return
+        val key = DoorBook.door(door)
+        val died = synchronized(this) { (elected?.let { DoorBook.door(it) == key } == true).also { if (it) elected = null } }
+        Log.d("Montana", "sig_door dead " + key + " code=" + code + " — not asked for " + rest + "s")
+        if (died) {
+            Prefs.remove(ELECTED)
+            Log.d("Montana", "door_elected " + DoorBook.host(door) + " died — the next answering door by the book")
+            // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (iOS baseFailed 433-438): the lane is cut and asks the new door the same instant
+            cut("door " + DoorBook.host(door) + " dead — the standing question leaves it")
+        }
     }
+    /** Any answer proves the door alive: its silences, its rest and the streak are forgiven in the one book (iOS doorSpoke 432-439). */
+    fun doorAnswered(door: String) {
+        if (!DoorBook.answered(door)) return
+        // ONE REVIVAL IS ONE PIECE OF NEWS, NOT ONE PER ASKER (iOS doorRevived 449-455)
+        val key = DoorBook.door(door)
+        val now = System.currentTimeMillis()
+        val fresh = synchronized(revivedAt) { (revivedAt[key]?.let { now - it < 10_000L } == true).also { if (!it) revivedAt[key] = now } }
+        if (fresh) return
+        Log.d("Montana", "door_alive " + DoorBook.host(door) + " answered after silence — the queue drains now")
+        Wire.forgetGone()   // a door that was silent answers: what it holds is new knowledge (iOS forgetGoneChunks)
+        // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS drainOnDoorAlive): the letters that waited for it leave now
+        if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
+    }
+    private val revivedAt = HashMap<String, Long>()
+    private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Alive for me (iOS MTDoorBook.alive): not resting after its own silences -- the health round's silence is one of them. */
+    fun doorAlive(door: String) = DoorBook.alive(door)
+    /** THE ORDER OF A WALK (iOS MTDoorBook.ordered, OZ 1 p.3): the door placed by its last word, the resting last. */
+    fun byProof(doors: List<String>): List<String> = DoorBook.ordered(doors)
     private fun host(door: String) = android.net.Uri.parse(door).host ?: door
-    /** The doors alive for me, in the network's order — what I name to the peer with every word (iOS signalDoors 500-503). */
+    /** The doors alive for me, in the network's order — what I name to the peer with every word (iOS signalDoors 525-527). */
     fun aliveHosts(): List<String> = Doors.ordered("signal").filter { doorAlive(it) }.map { host(it) }
-    fun proveDoor(door: String) { synchronized(deadUntil) { proof[host(door)] = System.currentTimeMillis() } }
 
-    // ═══ THE ELECTED DOOR (iOS 1638, the author's word; MontanaWakePush 281-316) ═══
-    // The phone elects ONE live node and works with it: every write starts at the elected door and walks on only past its death; a
-    // read that looks for what another phone wrote — the box, the chunks — sweeps every store, since that phone elected its own.
-    // iOS also sets it first in the order of the signal doors (orderedBases); that order stays the network's here — two phones that
-    // elected different doors would otherwise ask their conversation's door at two places (the finding for iOS, HANDOVER 08.10 11:2x).
+    // ═══ THE DEVICE'S DOOR -- ONE OWNER (iOS deviceDoor, MontanaWakePush 363-412, OZ 1 p.2 N-6; the author's words 25250 and 25256, 19.11.2026) ═══
+    // Two places chose a door of this device, each by its own rule: the elected door of the writes (1638) and the signal lane's door
+    // (15.2) -- and neither asked where the device already stood. iOS T3 on Wi-Fi, 19.11.2026 22:03:54 UTC: its channel stood at
+    // api.montana.quest, every word sent there came back 200, and every refusal came from the choosers that went on dialling door.*.
+    // The law: the door of the device's standing connection IS the device's door. deviceDoor() alone chooses it and `elected` alone
+    // keeps it (kept for the next life); the writes, the signal lane and the walks read it and choose nothing. It stands while the one
+    // book holds it alive and the device stands at it; a connection standing at another door moves it there; with no connection
+    // standing it stays while it answers; dead, it falls to the next answering door by the book (DoorBook.ordered).
+    // Reads that look for what ANOTHER phone wrote (the box, the chunks) keep sweeping every store: the other phone has a door of its own.
     private const val ELECTED = "mt.door.elected"
     @Volatile private var elected: String? = null
     fun elected(): String? = elected ?: Prefs.str(ELECTED, "").ifEmpty { null }?.also { elected = it }
 
-    /** The doors of a write (iOS electedFirst 294-297 over the capability's doors, base 300-316): the elected first, elected now if none stands. */
+    /** The device's door (iOS deviceDoor 384-405): the book, the channels and the kept choice are read outside the lock. */
+    fun deviceDoor(): String {
+        val order = Doors.ordered("signal")
+        val living = DoorBook.ordered(order).filter { DoorBook.alive(it) }
+        val at = Channels.heldLabels().map { DoorBook.host(it.removePrefix("wss/")) }.toSet()
+        val standing = living.filter { host(it) in at }
+        val kept = elected()
+        val (chosen, was) = synchronized(this) {
+            val was = elected ?: kept
+            val c = if (was != null && was in living && (standing.isEmpty() || was in standing)) was
+                else standing.firstOrNull() ?: living.firstOrNull() ?: was?.takeIf { it in order } ?: order.firstOrNull() ?: ""   // nothing answers: no door is exchanged for another silent one
+            if (c.isNotEmpty()) elected = c
+            c to was
+        }
+        if (chosen.isNotEmpty() && chosen != was) {
+            Prefs.setStr(ELECTED, chosen)
+            Log.d("Montana", "door_elected " + host(chosen) + " by=" + (if (chosen in standing) "standing" else "book"))
+        }
+        return chosen
+    }
+
+    /**
+     * The doors of a write (iOS base 407-412 over the capability's doors): the device's door first while its node holds the capability;
+     * else the first living door that does -- read from the map, never kept.
+     */
     fun writeOrder(cap: String, everyDoor: Boolean = false): List<String> {
         val all = if (everyDoor) Doors.bases(cap) else Doors.ordered(cap)
-        val e = elected()
-        if (e != null && e in all) return listOf(e) + all.filter { it != e }
-        val pick = all.firstOrNull { doorAlive(it) } ?: all.firstOrNull() ?: return all
-        elected = pick
-        Prefs.setStr(ELECTED, pick)
-        Log.d("Montana", "door_elected " + host(pick))
-        return listOf(pick) + all.filter { it != pick }
+        val mine = deviceDoor()
+        val first = if (mine in all) mine else all.firstOrNull { doorAlive(it) } ?: all.firstOrNull() ?: return all
+        return listOf(first) + all.filter { it != first }
     }
 
-    // ═══ ONE DOOR FOR SIGNALS (iOS 410-445, 15.2) ═══
-    // Measured 04.09 22:40-23:00: each draft word went to three doors, the question walked a fourth rule — the two sides never shared
-    // one. The lane has one decision point: elected by the network's order among the doors holding the signal, kept while it answers.
-    private var chosen: String? = null
-    fun signalDoor(): String {
-        val order = Doors.ordered("signal")
-        var fresh: String? = null
-        val pick = synchronized(deadUntil) {
-            val now = System.currentTimeMillis()
-            val all = order.filter { (deadUntil[it] ?: 0L) <= now }
-            val c = chosen
-            if (c != null && c in all) c else (all.firstOrNull() ?: order.firstOrNull())?.also { chosen = it; fresh = it } ?: ""
-        }
-        fresh?.let { Log.d("Montana", "sig_door elected " + host(it)) }
-        return pick
-    }
+    // ═══ THE LANE READS THE DEVICE'S DOOR (iOS signalDoor 492-494, OZ 1 p.2 N-6) ═══
+    // The choice moved to its one owner, deviceDoor(); a door's death (doorFailed) and a standing connection move it there, and this
+    // lane chooses nothing.
+    fun signalDoor(): String = deviceDoor()
 
-    // ── where the peer listens (iOS notePeerDoor/peerDoors 554-573) ──
-    private val peerBook = HashMap<String, Pair<List<String>, Long>>()
-    /** The doors alive for the peer, in their order, named in their word — the draft's «d», the beacon's «@» tail. */
-    fun notePeerDoor(ref: String, named: String) {
-        val hs = named.lowercase().split(',').filter { h -> h.isNotEmpty() && h.length <= 64 && h.all { it.isLetterOrDigit() || it == '.' || it == '-' } }
-        if (hs.isEmpty() || hs.size > 16) return
-        val old = synchronized(peerBook) { peerBook.put(ref, hs to System.currentTimeMillis())?.first }
-        if (old != hs) Log.d("Montana", "sig_door peer listens at " + hs.joinToString(","))
-    }
-    /** What they named, while it is fresh — three beats of twenty seconds; else null, and a word knocks every living door. */
-    fun peerDoors(ref: String): List<String>? = synchronized(peerBook) { peerBook[ref]?.takeIf { System.currentTimeMillis() - it.second < 60_000L }?.first }
-    /**
-     * THE DOOR OF A CONVERSATION (iOS signalDoor(for:) 505-518) — one rule both sides compute alike: the first door, in the network's
-     * own order, alive for me and named alive by the peer. Measured 05.09: one phone under its tunnel could not reach the first
-     * door, the other on cellular could not reach the second — each posted into the other's hole. No common door yet — mine.
-     */
-    fun signalDoor(ref: String): String {
-        val mine = signalDoor()
-        val theirs = peerDoors(ref) ?: return mine
-        return Doors.ordered("signal").firstOrNull { doorAlive(it) && host(it) in theirs } ?: mine
-    }
-    /** THE DOORS OF A CALL (iOS callDoors 475-492): alive and proven first, alive after them, the doors resting dead last. */
-    fun callDoors(): List<String> {
-        val all = Doors.ordered("signal")
-        val alive = all.filter { doorAlive(it) }
-        val proven = synchronized(deadUntil) { proof.keys.toSet() }
-        return alive.filter { host(it) in proven } + alive.filter { host(it) !in proven } + all.filter { it !in alive }
-    }
+    // ONE DOOR, WRITTEN AND READ (iOS MontanaWakePush 520-523, OZ 1 p.2.2-2.3, the author's words 25277, 25279, 25281): a phone writes
+    // its words at its own door (signalDoor) and reads at its own door; the machine of that door hands a word in one hop to the machine
+    // where the other side listens (montana-node-store.py, «heard here»). The peer's door is never named, never learnt and never chosen.
+    /** THE DOORS OF A CALL (iOS callDoors): the one book's order -- answered newest first, unasked, faltering, resting last. */
+    fun callDoors(): List<String> = DoorBook.ordered(Doors.ordered("signal"))
 
     // ── the lanes (iOS sigSessions and postLane: networkPathChanged 520-537, cutStandingQuestion 538-551) ──
     private const val CUT = -2
@@ -266,30 +241,57 @@ object Signal {
     fun cutForCall() = cut("call born")
 
     private var pathWatched = false
-    /** THE NETWORK PATH CHANGED (iOS 516-528): dead on one path says nothing of another — every door is forgiven at once. */
+    /**
+     * THE NETWORK PATH CHANGED (iOS 548-566): dead on one path says nothing of another. THE NETWORK'S OWN BOOK (iOS MontanaApp
+     * 1329-1334, OZ 1 p.5): on every carrying path the book of this network is open -- the interface, the transport, the address
+     * families and the gateways name it, under the diary's salted label -- one name in every process of this phone (N-2); a network
+     * returned to opens the book it left, and a book already open stays, before anyone knocks.
+     */
     fun watchPath(c: Context) {
         if (pathWatched) return
         pathWatched = true
         val cm = c.getSystemService(android.net.ConnectivityManager::class.java) ?: return
         runCatching {
             cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onLinkPropertiesChanged(n: android.net.Network, lp: android.net.LinkProperties) {
+                    DoorBook.networkChanged(netName(cm, n, lp))
+                }
                 // THE DOORS ARE JUDGED AGAIN ONCE, ON THE FIRST SATISFIED PATH AFTER THE NETWORK CHANGED (iOS 1989, MontanaNetWitness):
                 // not on the change itself — a path lost and found again inside a second judged every door twice for nothing
                 override fun onAvailable(n: android.net.Network) {
+                    cm.getLinkProperties(n)?.let { DoorBook.networkChanged(netName(cm, n, it)) }
                     val sig = n.toString()
                     if (sig == judgedOn) return
                     judgedOn = sig
                     forgive("path available")
+                    // THE TLS RELAY ROAD, ONCE PER NETWORK, THE PROCESS'S FIRST NETWORK TOO (iOS MontanaApp 1338-1341, OZ 1 p.7, N-3)
+                    if (!Calls.busy()) CallLine.probeRelays()
                 }
                 override fun onLost(n: android.net.Network) = cut("path lost — the questions on its socket are cut", posts = true)
             })
         }
     }
+    /** The network's name for its book (iOS: the interface set and the tunnel, the families, the gateways, under MontanaLog.label). */
+    private fun netName(cm: android.net.ConnectivityManager, n: android.net.Network, lp: android.net.LinkProperties): String {
+        val caps = cm.getNetworkCapabilities(n)
+        val kind = when {
+            caps == null -> "?"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
+            else -> "other"
+        }
+        val v4 = lp.linkAddresses.any { it.address is java.net.Inet4Address }
+        val v6 = lp.linkAddresses.any { it.address is java.net.Inet6Address && !it.address.isLinkLocalAddress }
+        val fam = (if (v4) "v4" else "-") + (if (v6) "v6" else "-")
+        val gws = lp.routes.filter { it.isDefaultRoute && it.hasGateway() }.mapNotNull { it.gateway?.hostAddress }.sorted()
+        return Diary.label((listOf(kind + "/" + (lp.interfaceName ?: ""), fam) + gws).joinToString(" "))
+    }
     @Volatile private var judgedOn: String? = null
     private fun forgive(why: String) {
-        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear(); chosen = null }   // proof on one path says nothing of another
         Wire.forgetGone()   // a new path may reach a store the old one could not
-        cut(why + " — every door forgiven, every lane cut", posts = true)   // the questions in flight stood on the old path's socket (iOS 520-537)
+        cut(why + " — the network's own book, every lane cut", posts = true)   // the questions in flight stood on the old path's socket (iOS 520-537)
     }
 
     /**
@@ -468,7 +470,7 @@ object Signal {
                 if (!go || twin == null || secret == null) return@Thread
                 // ONE QUESTION, AT THE CONVERSATION'S DOOR (iOS fetchSignals 3276-3277): the first door alive for both, or mine
                 // the seed's own lane: one door of every node (iOS seedLaneDoors, 2419, OZ 1 p.4)
-                val door = if (twinLane) seedLaneDoors().first().also { seedLanesBeside(it) } else signalDoor(ref)
+                val door = if (twinLane) seedLaneDoors().first().also { seedLanesBeside(it) } else signalDoor()
                 if (door.isEmpty()) { Thread.sleep(2000); continue }
                 val gen = laneGen.get()
                 val cw = Wire.convW(secret, Wire.day())
@@ -545,7 +547,7 @@ object Presence {
     // a person who hides their presence types in silence, and a person this phone blocked hears no typing of it
     fun sayTyping(ref: String) { if (sharing && !PeerSafety.isBlocked(ref)) Signal.post(ref, TYPING + saidTail()) }
     // «K…» — the peer's letters I hold whole (iOS HeldLetters, chatBeacon 700-701, 23.09): before the door, which every build reads to the end
-    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + faceTail(ref) + saidTail() + heldTail(ref) + HeldLetters.tail(ref) + doorTail()) }
+    fun sayChat(ref: String, open: Boolean) { if (sharing) Signal.post(ref, WATCH + (if (open) "1" else "0") + faceTail(ref) + saidTail() + heldTail(ref) + HeldLetters.tail(ref)) }
 
     /** The tag a word names a thing by (iOS Announced.wireTag, MontanaDeliveryEngine 417-422): SHA-256's first four bytes, big-endian, in digits; none — «0». */
     fun wireTag(d: ByteArray?): String {
@@ -603,8 +605,6 @@ object Presence {
         Log.d("Montana", "held_differs to=" + ref.take(10) + " face=" + (if (faceOff) 1 else 0) + " name=" + (if (nameOff) 1 else 0))   // iOS names the peer too
         Thread { Post.announceAgain(ref, faceOff, nameOff, f, n) }.start()
     }
-    /** «@DOORS» — the doors alive for me, in the chat word's tail (iOS doorTail 685-691): UPPERCASE, so no old reader takes a host's «h» for hiding. */
-    private fun doorTail() = Signal.aliveHosts().joinToString(",").let { if (it.isEmpty()) "" else "@" + it.uppercase() }
     /**
      * THE BALANCE RIDES EVERY PRESENCE WORD (iOS E2E.coinTail, MontanaE2E.swift:588-597; the author's words 04.10.2026 03:03 and 04:19
      * MSK: «the top is a tunnel, a live set as by a web socket, the update instant from the nodes»): «C» and my balance after the ground's
@@ -803,7 +803,6 @@ object Presence {
                 val chat = text.startsWith(WATCH)
                 val payload = text.removePrefix(if (chat) WATCH else APP)
                 // THE DOORS THEY ASK (iOS ChatStore 3910-3912, WakePush 3252): my words for them go there
-                payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
                 hides(ref, payload.drop(1).substringBefore('@').contains('h'), wordAt)
                 // «f»: they hold no face of mine — my profile goes again (iOS ChatStore: payload.dropFirst(1).contains("f"))
                 if (payload.drop(1).substringBefore('@').contains('f')) Thread { Post.resendProfile(ref) }.start()
@@ -883,7 +882,6 @@ object Presence {
             val payload = text.removePrefix(if (app) APP else WATCH)
             CoinBoard.heard(ref, payload, at)   // the balance the node's last word tells (iOS sweepPresence, MontanaWakePush.swift:3246)
             hides(ref, payload.drop(1).contains('h'), at)
-            payload.indexOf('@').takeIf { it >= 0 }?.let { Signal.notePeerDoor(ref, payload.substring(it + 1)) }
             if (app && payload.drop(1).startsWith("B")) gone(ref, at) else if (app) back(ref, at)
         }
         noteSeen(ref, at, "node")
@@ -962,6 +960,7 @@ object Presence {
     fun appShown() {
         if (appOpen) return
         appOpen = true
+        DoorBook.knockNow()   // every opening knocks NOW, but keeps what the doors said (iOS MontanaNodes.openNow 339-345)
         appPresence(true)
         Book.openChat?.let { ref -> if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start() }
     }

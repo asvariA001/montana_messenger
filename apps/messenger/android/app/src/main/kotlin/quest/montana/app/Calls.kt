@@ -417,6 +417,7 @@ object Calls {
         var sawOther = false
         for (door in Signal.byProof(MontanaCard.doors)) {   // the doors that answered on this path first (iOS 484)
             val (code, text) = Wire.post(door, "/wake-voip", req, 8000)
+            if (code == -1 || code >= 500) Signal.doorFailed(door, code) else Signal.doorAnswered(door)   // every answer and silence in the one book (OZ 1 p.2)
             val o = text?.let { runCatching { JSONObject(it) }.getOrNull() }
             val sent = o?.optInt("sent", o.optInt("woken", -1)) ?: -1
             log("wake code=" + code + " sent=" + sent + " offer=" + (offer != null))

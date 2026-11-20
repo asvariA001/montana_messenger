@@ -108,6 +108,7 @@ class OverlayFrame(val type: Int, val dst: ByteArray, val msgId: ByteArray, val 
  */
 class Channel(val host: String, val port: Int, ref: String = "", private val accepted: Socket? = null, private val wsPath: String? = null) {
     val label = (if (accepted != null) "in:" else "") + Channels.labelOf(host, port, wsPath != null)
+    val ws: Boolean get() = wsPath != null   // a web socket is a door of its own in the book (iOS doorKey, OZ 1 p.2.4)
     /** The correspondent this channel is with: given by the dial, or by the first letter that came over it (iOS peerMontanaAddrStr). */
     @Volatile var ref = ref
         private set
@@ -343,9 +344,6 @@ class Channel(val host: String, val port: Int, ref: String = "", private val acc
  */
 object Channels {
     private const val FRAME_MEMORY = 8192   // iOS frameMemory 468
-    private const val STEP_MIN = 2.0
-    private const val STEP_MAX = 15.0
-    private const val STEP_DEAD_MAX = 600.0   // iOS MontanaNodes 249-255
     private const val PATH_STEP_MIN = 5.0
     private const val PATH_STEP_MAX = 60.0   // iOS MontanaP2PNode 526-527
     const val PORT = 8447   // iOS MontanaDirectPort.value: the mesh's direct channel
@@ -354,7 +352,6 @@ object Channels {
     private val pathAt = HashMap<String, Pair<Long, Double>>()
     private val announcedTo = HashMap<String, Long>()
     private val live = HashMap<String, Channel>()   // a door's label → its channel, standing or being greeted
-    private val tried = HashMap<String, Triple<Long, Double, Boolean>>()   // a door's label → (knocked at, the next step in s, refused)
     private val originated = HashSet<String>()
     private val seen = HashSet<String>()
     @Volatile private var owner: ByteArray? = null
@@ -438,14 +435,11 @@ object Channels {
         for (d in doors) {
             val label = d.label
             if (label in skip) continue
+            if (!dialable(d.host)) continue   // a node's literal IPv6 door on a path without IPv6 is not knocked (iOS ensureChannel, N-4)
+            // A DOOR THE BOOK HOLDS DEAD IS NOT DIALLED (iOS MontanaNodes.open 289-292, OZ 1 p.2): the pace and the rest are one book's
             val c = synchronized(live) {
                 if (live.containsKey(label)) return@synchronized null
-                val cur = tried[label]
-                val step = cur?.second ?: STEP_MIN
-                if (now - (cur?.first ?: 0L) < step * 1000) return@synchronized null
-                val spread = 0.8 + Math.random() * 0.6   // the spread of a retry, not a quantity of the protocol
-                val ceiling = if (cur?.third == true) STEP_DEAD_MAX else STEP_MAX
-                tried[label] = Triple(now, minOf(ceiling, step * 2 * spread), cur?.third ?: false)
+                if (!DoorBook.dialDue(label)) return@synchronized null
                 Channel(d.host, d.port, wsPath = d.path).also { live[label] = it }
             } ?: continue
             knockedOnce = true
@@ -460,12 +454,16 @@ object Channels {
             live.remove(c.label)
             // a door that stood is knocked again at once; one that did not keeps its step and is judged refused — unless the fault was
             // this process's own: then the door keeps the fast step and is knocked after it, not judged (iOS MontanaNodes 309-316)
-            if (c.ready) tried.remove(c.label)
-            else if (localFaultRecent()) tried[c.label] = Triple(System.currentTimeMillis(), STEP_MIN, false)
-            else tried[c.label]?.let { tried[c.label] = Triple(it.first, it.second, true) }
+        }
+        // a door that stood answered where it stood (up); one that did not is a silence of the one book -- unless the fault was this
+        // process's own: then the door is not judged and is knocked after the fast step (iOS MontanaNodes 300-316, noteDoorFail 1605)
+        if (!c.ready && c.label in doorLabels()) {
+            val key = DoorBook.door(labelOf(c.host, c.port, c.ws))
+            if (localFaultRecent()) DoorBook.notJudged(key) else Signal.doorFailed(key, -1)
         }
         Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
-            " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt))
+            " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt) +
+            (if (!c.ready && c.label in doorLabels()) " " + DoorBook.record(DoorBook.door(labelOf(c.host, c.port, c.ws))) else ""))   // the book's record (iOS MontanaDirect 1615)
     }
 
     private fun up(c: Channel) {
@@ -475,6 +473,7 @@ object Channels {
         // the door named its machine — the knowledge outlives the channel, or the probing repeats at every opening (iOS 1169-1171);
         // an extra path to a machine already held closes at once
         if (c.label in doorLabels()) {
+            Signal.doorAnswered(DoorBook.door(labelOf(c.host, c.port, c.ws)))   // the answer is written where the channel stands: one writer (iOS path_up)
             c.peerTag?.let { Doors.remember(c.label, Wire.hex(it), c.standMs) }
             fold()
         }
@@ -717,9 +716,26 @@ object Channels {
         }
     }
 
+    /**
+     * A PEER'S ADDRESS OF A FAMILY THIS NETWORK DOES NOT HOLD IS NOT DIALLED (iOS MontanaNet.dialable, ContentView 3615-3623, N-4, the
+     * critic of 19.11.2026: T1 on LTE with v4=1 v6=0 dialled a peer's IPv6 address and met «Network is down»). A literal IPv6 address
+     * needs IPv6 on the path AND an IPv6 of our own; an IPv4 one is reached on an IPv6-only network by the system's synthesis (464XLAT),
+     * so it is never judged here. THE ONE JUDGE of an address -- the walk of the paths, a peer's announce and the dial read it here.
+     */
+    fun dialable(ip: String): Boolean {
+        if (!ip.contains(':')) return true
+        val pathV6 = runCatching {
+            val cm = Book.ctx.getSystemService(android.net.ConnectivityManager::class.java)
+            cm.getLinkProperties(cm.activeNetwork)?.linkAddresses?.any { it.address is java.net.Inet6Address && !it.address.isLinkLocalAddress && !it.address.isLoopbackAddress }
+        }.getOrNull() ?: true
+        return pathV6 && candidates().any { it.contains(':') }
+    }
+
     /** A correspondent's own door, by TCP (iOS ensureChannel): the channel a node gets, bound to the correspondent's name. */
     private fun dialPeer(ip: String, port: Int, ref: String) {
         val ident = NodeIdentity.device() ?: return
+        // THE ONE DIALER IS THE ONE GATE OF THE FAMILY (iOS MontanaDirect 596-603, N-4, the author's word 25181): whichever caller names it
+        if (!dialable(ip)) { Log.d("Montana", "dial_skip family ip=" + (if (ip.contains(':')) "v6" else "v4") + ":" + port); return }
         val c = synchronized(live) {
             val label = labelOf(ip, port, false)
             if (live.containsKey(label)) return@synchronized null
@@ -737,7 +753,6 @@ object Channels {
     private fun keepPaths() {
         val now = System.currentTimeMillis()
         val callPeer = if (Calls.busy()) Calls.peer() else null
-        val v6Here = candidates().any { it.contains(':') }   // iOS 554: any IPv6 of our own interfaces, not only a global one
         val entries = synchronized(book) { book.mapValues { it.value.toList() } }
         var attempts = 0
         for ((ref, eps) in entries) {
@@ -747,7 +762,7 @@ object Channels {
                 continue
             }
             for ((ip, port) in eps) {
-                if (!isGlobal(ip) || !(v6Here || !ip.contains(':'))) continue
+                if (!isGlobal(ip) || !dialable(ip)) continue   // the one judge of the family (iOS MontanaNet.dialable, N-4)
                 if (attempts >= 4) return
                 val key = ip + ":" + port
                 val due = synchronized(pathAt) {
@@ -786,7 +801,9 @@ object Channels {
      * interface with the direct port. A carrier-NAT IPv4 is never named — nobody can dial it. (A port the router forwards: the
      * router's own word is asked by iOS MontanaPortMap — not on this side yet.)
      */
-    private fun selfEndpoint(): String? = selfV6().firstOrNull()?.let { "[" + it + "]:" + PORT }
+    // AN ADDRESS OF A FAMILY THIS NETWORK DOES NOT HOLD IS NOT NAMED (iOS selfEndpoint 29-42, N-7, the author's word 25217): iOS T3 at
+    // v6=0 named its IPv6 to its peer, an interface the path does not carry. The one judge of a dial judges the name too (dialable).
+    private fun selfEndpoint(): String? = selfV6().firstOrNull()?.takeIf { dialable(it) }?.let { "[" + it + "]:" + PORT }
 
     /** My dialable address to a correspondent (iOS MontanaNATService.announce 41-56): a silent word in the pipe, once a minute each. */
     fun announce(ref: String) {

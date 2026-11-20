@@ -126,6 +126,7 @@ object Meeting {
     /** The link as a messenger may have mangled it: percent bytes, glued punctuation, a capitalised scheme (iOS normalizeLink). */
     fun normalize(s: String): String {
         var raw = s.trim()
+        fromQR(raw)?.let { return it }   // a code's own form first: its base45 carries «%», «.» and «:» that the mending below would eat
         if (raw.contains('%')) raw = runCatching { java.net.URLDecoder.decode(raw, "UTF-8") }.getOrDefault(raw)
         while (raw.isNotEmpty() && ".,;:!?)]}>»›\"'’”…".contains(raw.last())) raw = raw.dropLast(1)
         val i = raw.indexOf("://")
@@ -157,6 +158,44 @@ object Meeting {
         val inv = invite(link) ?: return
         Thread { wearCardFace(ref, inv) }.start()
     }
+    /**
+     * THE CARD AS A CODE A CAMERA READS QUICKLY (iOS MontanaCard.qrText / text(fromQR:), MontanaFirstContact 889-952): an iPhone draws
+     * a long card as «MTC1:» and the contact key (with the name) in base45, five and a half bits a character instead of eight; an older
+     * one drew a short invitation as «MTR1:» and its 32 bytes. The scanner's side turns them back into the text every node reads:
+     * MTR1 -> the site's /r/ link, MTC1 -> montana://c/. A short link itself goes into today's codes as it is.
+     */
+    private const val B45 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
+    private fun b45decode(text: String): ByteArray? {
+        val out = java.io.ByteArrayOutputStream()
+        var i = 0
+        while (i < text.length) {
+            val left = text.length - i
+            val c0 = B45.indexOf(text[i]); val c1 = if (left >= 2) B45.indexOf(text[i + 1]) else -1
+            if (left < 2 || c0 < 0 || c1 < 0) return null
+            val c2 = if (left >= 3) B45.indexOf(text[i + 2]) else -1
+            if (c2 >= 0) {
+                val v = c0 + c1 * 45 + c2 * 2025
+                if (v > 0xFFFF) return null
+                out.write(v shr 8); out.write(v and 0xFF); i += 3
+            } else {
+                val v = c0 + c1 * 45
+                if (v > 0xFF) return null
+                out.write(v); i += 2
+            }
+        }
+        return out.toByteArray()
+    }
+    fun fromQR(scanned: String): String? {
+        val s = scanned.trim()
+        if (s.startsWith("MTR1:")) {
+            val b = b45decode(s.removePrefix("MTR1:"))?.takeIf { it.size == 32 } ?: return null
+            return "https://montana.xxx/r/" + MontanaCard.b64url(b)   // iOS webPrefix = MTEdition.site + "/r/"
+        }
+        if (!s.startsWith("MTC1:")) return null
+        val b = b45decode(s.removePrefix("MTC1:"))?.takeIf { it.size in 1184..(1184 + 64) } ?: return null
+        return "montana://c/" + MontanaCard.b64url(b)
+    }
+
     /** A whole card in the link (the old long form montana://c/…): the key and the name themselves. */
     private fun longCard(link: String): ByteArray? {
         val t = normalize(link)
@@ -243,6 +282,34 @@ object Meeting {
         Log.w("Montana", "meet: the invitation did not unfold")
         return null
     }
+    // ── dead knocks: giving up on a gravestone (iOS MontanaMeeting firstKnockAllowed / auditFirst, MontanaFirstContact 1620-1672) ──
+    // A first letter whose card was spent by ANOTHER encapsulation knocks for ever and holds the queue ahead of the living. Death is
+    // proven by the node's gravestone: two «spent» answers in a row, asked about once in five minutes; a break or a card resets the
+    // count, only a «no» silences. No horizon of age: an introduction the other side has not opened yet is no refusal. The verdict
+    // lives in this process, as iOS keeps it.
+    private val deadLock = Any()
+    private val spentSeen = HashMap<String, Int>()
+    private val spentCheckedAt = HashMap<String, Long>()
+    private val deadSet = HashSet<String>()
+    fun firstKnockAllowed(conv: String): Boolean = synchronized(deadLock) { conv !in deadSet }
+    /** Called by the queue on a first letter's attempt (iOS DeliveryEngine 1803). */
+    fun auditFirst(conv: String) {
+        val inv = first(conv)?.second?.takeIf { it.size == 32 } ?: return   // a name's introduction has no invitation to ask after
+        val w = Wire.minute() / 5
+        val due = synchronized(deadLock) { (spentCheckedAt[conv] != w).also { if (it) spentCheckedAt[conv] = w } }
+        if (!due) return
+        Thread {
+            val spent = expand(inv)?.contentEquals(SPENT) == true
+            val n = synchronized(deadLock) {
+                val n = if (spent) (spentSeen[conv] ?: 0) + 1 else 0
+                spentSeen[conv] = n
+                if (n >= 2) deadSet.add(conv)
+                n
+            }
+            if (n >= 2) Log.d("Montana", "first_dead conv=" + conv.take(10) + " spent×" + n)
+        }.start()
+    }
+
     /** The face the inviter laid beside the card (iOS MontanaCard.face). */
     private fun face(inv: ByteArray): ByteArray? {
         val sealed = Wire.getBlob(MontanaCard.faceBid(inv)) ?: return null

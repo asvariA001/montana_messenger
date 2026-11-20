@@ -23,7 +23,6 @@ fun meshPane(act: MainActivity): View {
         gravity = Gravity.CENTER
         val pad = c.dp(5)
         setPadding(pad, pad, pad, pad)
-        minWidth = c.dp(22); minHeight = c.dp(22)
         translationX = c.dp(5).toFloat(); translationY = -c.dp(3).toFloat()   // iOS .offset(x: 5, y: -3)
     }
     val head = c.vstack {
@@ -81,7 +80,7 @@ fun meshPane(act: MainActivity): View {
     fun draw() {
         val on = Channels.nodesHeld() > 0 && Mesh.discoverable   // iOS: node.p2pUp && meshDiscoverable
         badge.text = Channels.peers().toString()   // USER-DATA: a count — the people reached phone to phone (the radio's come with it)
-        badge.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (on) MT.green else MT.red) }
+        badge.background = CircleFill(if (on) MT.green else MT.red)   // iOS MTPaneHead Circle(): round whatever the count's width
     }
     // THE MESH CARD (iOS MontanaMeshCard 11-104): «Mesh», a hold on it shows what the network does; then who is here, one list
     // whatever medium reaches them, or the line that nobody is yet. THE COMMON ROOM FIRST (iOS 48-67, the author's word 29.09): while this
