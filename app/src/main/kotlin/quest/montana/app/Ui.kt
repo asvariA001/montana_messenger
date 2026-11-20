@@ -31,6 +31,10 @@ object MT {
     val green = Color.rgb(48, 209, 88)          // iOS .green (dark)
     val blue = Color.rgb(10, 132, 255)          // iOS .systemBlue (dark), MontanaOctagon.platformBlue
     val hairline = Color.argb(20, 255, 255, 255)
+    /** iOS secondaryLabel (dark): #EBEBF5 at 60 % (taken with the VPN wall from dinetpda's port, PR #43). */
+    val secondary = Color.argb(153, 235, 235, 245)
+    /** The bars' glyph ink (iOS MontanaOctagon.barGlyph, MontanaShapes.swift:93-96): white. */
+    val barGlyph = Color.WHITE
     fun withAlpha(c: Int, a: Float) = Color.argb((a * 255).toInt(), Color.red(c), Color.green(c), Color.blue(c))
 }
 

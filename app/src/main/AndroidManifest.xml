@@ -226,5 +226,19 @@
         <receiver
             android:name="quest.montana.app.UpdateDone"
             android:exported="false" />
+        <!-- The VPN wall's tunnel (VpnTunnel.kt, from dinetpda's port PR #43; iOS the PacketTunnel extension): bound by the system
+             alone. Nothing starts it while GooglePlay.VPN is false. -->
+        <service
+            android:name="quest.montana.app.MontanaVpnService"
+            android:exported="false"
+            android:permission="android.permission.BIND_VPN_SERVICE">
+            <intent-filter>
+                <action android:name="android.net.VpnService" />
+            </intent-filter>
+            <!-- the tunnel rises by the hand alone (iOS a61b0b2f, the author's word 09.11.2026): no always-on raise of ours -->
+            <meta-data
+                android:name="android.net.VpnService.SUPPORTS_ALWAYS_ON"
+                android:value="false" />
+        </service>
     </application>
 </manifest>

@@ -216,14 +216,16 @@ def xray(p, stage):
 def hev(p, stage):
     # the pump's pinned release and its submodules, as that commit fixes them; its JNI names our class (HevTunnel, VpnTunnel.kt)
     pin = PIN["vpn"]["hev"]
-    src = os.path.join(p.vpn_src, "hev-socks5-tunnel-" + pin["tag"])
+    src = os.path.join(p.vpn_src, "hev-socks5-tunnel-" + pin["commit"][:8])
     if not os.path.isdir(os.path.join(src, ".git")):
         os.makedirs(p.vpn_src, exist_ok=True)
-        run(["git", "clone", "-q", "--recursive", "--depth", "1", "--branch", pin["tag"], pin["url"], src])
+        run(["git", "clone", "-q", pin["url"], src])
+        run(["git", "-C", src, "checkout", "-q", pin["commit"]])
+        run(["git", "-C", src, "submodule", "update", "-q", "--init", "--recursive"])
     if git(["rev-parse", "HEAD"], src) != pin["commit"]:
-        raise SystemExit("%s is not hev-socks5-tunnel %s at %s (scripts/toolchain.json)" % (src, pin["tag"], pin["commit"]))
+        raise SystemExit("%s is not hev-socks5-tunnel at %s (scripts/toolchain.json)" % (src, pin["commit"]))
     out = os.path.join(stage, "hev-build")
-    say("vpn: hev-socks5-tunnel %s by the NDK for %s" % (pin["tag"], ABI))
+    say("vpn: hev-socks5-tunnel %s by the NDK for %s" % (pin["commit"][:8], ABI))
     run([os.path.join(p.ndk, "ndk-build"), "-C", src, "NDK_PROJECT_PATH=.", "APP_BUILD_SCRIPT=./Android.mk",
          "NDK_APPLICATION_MK=./Application.mk", "APP_ABI=" + ABI, "APP_PLATFORM=android-" + MIN_SDK,
          "APP_CFLAGS=-O3 -DPKGNAME=quest/montana/app -DCLSNAME=HevTunnel", "NDK_OUT=" + os.path.join(out, "obj"),

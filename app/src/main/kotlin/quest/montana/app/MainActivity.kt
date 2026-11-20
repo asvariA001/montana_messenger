@@ -100,6 +100,10 @@ class MainActivity : Activity() {
         Scheduled.run()   // the app's clock for letters sent later (Schedule.kt)
         Diary.start(this)   // the diary on disk and its shipper (iOS MontanaLog, MontanaDiagShip; 1340)
         Exits.witness(this)   // how the last run ended, said once (iOS run sentinel, 1336)
+        if (GooglePlay.VPN) {
+            VpnStore.warm()   // the VPN wall's sealed store read off the main thread now, so its page is born holding its rows (iOS ContentView 2348)
+            VpnTunnel.startStatsBeat()   // the tunnel's throughput in the diary every 30 s while it stands (iOS pollTunnelStats)
+        }
         CallEngine.warm(this)   // the call engine stands from launch, as iOS MontanaCall.shared
         MusicFolders.lay(this)   // the lent folders' last list stands before any page asks (iOS MTMusicFolders.lay, bceb184b)
         MediaPlace.warm(this)   // where every chat file lies, listed once off the main thread (iOS MTMediaPlace, f10468e7)
@@ -559,6 +563,9 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         super.onResume(); CallScreen.front = this; PersonChain.onScreen = true; CoinTx.onScreen = true; CoinTx.beHere(); Thread { PersonChain.prime() }.start(); main.removeCallbacks(boxRound); main.post(boxRound); EarService.start(this)
+        // THE VPN AT A RETURN (iOS MontanaApp.appBecameActive 329, 349): the freshener's quiet beat lives while the app stands on the
+        // screen, and the tunnel is read -- a requested connection with no session standing rises again
+        if (GooglePlay.VPN) { VpnFreshener.appActive(true); VpnTunnel.load() }
         if (hasSeed && termsAccepted) Calls.rejoinHeldCall(this)   // the run goes back into the call its process held, once the app faces the person
         sweepCallRecordings(hasSeed && termsAccepted)   // NO CALL IS RECORDED (iOS 214dc096, the author's word 16428): what an earlier build left leaves this phone
         if (hasSeed && termsAccepted) ShareSuggest.seed()   // the share sheet offers the chats at once after an update (iOS seedSuggestions)
@@ -578,8 +585,10 @@ class MainActivity : Activity() {
     }
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
     /** The app left the screen (iOS didEnterBackground): the person's stay ends at once (MTPresenceWait.watch). */
-    override fun onStop() { super.onStop(); CoinTx.left() }
-    override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); CoinVault.soon("leave", 1.0); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
+    override fun onStop() { if (GooglePlay.VPN) VpnWallMint.front = false; super.onStop(); CoinTx.left() }
+    // THE APP STANDS IN FRONT OF THE PERSON (iOS applicationState != .background): the VPN wall's seconds are paid only then
+    override fun onStart() { super.onStart(); if (GooglePlay.VPN) { VpnWallMint.front = true; VpnWallMint.count() } }
+    override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); CoinVault.soon("leave", 1.0); if (GooglePlay.VPN) VpnFreshener.appActive(false); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the
     // platform's own word that the window stands or is gone
@@ -828,13 +837,24 @@ class MainActivity : Activity() {
         } else if (requestCode == ASK_SCREEN) {
             screenDone?.invoke(if (resultCode == RESULT_OK) data else null)
             screenDone = null
+        } else if (requestCode == ASK_VPN) {
+            vpnDone?.invoke(resultCode == RESULT_OK)
+            vpnDone = null
         }
+    }
+
+    /** The system's own question before the VPN wall's tunnel is born (VpnService.prepare; iOS: the system's dialog at the first
+     *  profile's save): its answer comes back once. */
+    private var vpnDone: ((Boolean) -> Unit)? = null
+    fun askVpn(intent: Intent, done: (Boolean) -> Unit) {
+        vpnDone = done
+        runCatching { @Suppress("DEPRECATION") startActivityForResult(intent, ASK_VPN) }.onFailure { vpnDone = null; done(false) }
     }
 
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(pinnedText(AppLanguage.wrap(base)))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15; const val ASK_BT = 16 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15; const val ASK_BT = 16; const val ASK_VPN = 17 }
 }
 
 /**
