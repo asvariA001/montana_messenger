@@ -2,6 +2,7 @@ package quest.montana.app
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.util.Base64
 import android.view.Gravity
 import android.view.View
@@ -223,7 +224,9 @@ fun letterSelectionHead(act: MainActivity, count: Int, canDeleteChat: Boolean, o
     return FrameLayout(c).apply {
         background = c.glassPlate()   // the bar's own glass (iOS .ultraThinMaterial)
         setPadding(dp(16), dp(4), dp(4), dp(4))
-        if (canDeleteChat) addView(c.text(c.getString(R.string.delete_chat), 15f, SysColor.red, bold = true).apply {
+        // NOT WHILE LETTERS ARE SELECTED (iOS 479d95b7, the author's word 25688, OZ 1 p.3: «remove Delete chat from the screen when
+        // messages are selected, so the whole chat is not deleted by chance»): the deed of the whole chat leaves the bar at the first pick
+        if (canDeleteChat && count == 0) addView(c.text(c.getString(R.string.delete_chat), 15f, SysColor.red, bold = true).apply {
             setPadding(0, dp(10), dp(10), dp(10))
             pressable(onDeleteChat)
         }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.START or Gravity.CENTER_VERTICAL))
@@ -237,26 +240,27 @@ fun letterSelectionHead(act: MainActivity, count: Int, canDeleteChat: Boolean, o
 }
 
 /**
- * THE CHAT'S SELECTION FOOT (iOS selectionBar, MontanaConversation.swift:4454-4463 at 2240): Delete, Share, Forward for the chosen
- * letters; dim and deaf while nothing is chosen.
+ * THE CHAT'S SELECTION FOOT (iOS selectionBar, 479d95b7; the author's word 25688, OZ 1 p.3: Delete, Share and Forward «as all our
+ * standard buttons, liquid glass with the blue system circle»): the one standalone mark (iOS MontanaCallMark with its tint) -- the
+ * platform's blue circle, the glyph white on it, a white 0.28 rim, the finger's forty-four -- spaced evenly; deaf while nothing is chosen.
  */
 fun letterSelectionFoot(act: MainActivity, count: Int, onDelete: () -> Unit, onShare: () -> Unit, onForward: () -> Unit): View {
     val c: Context = act
     val any = count > 0
-    fun pill(words: String, red: Boolean = false, work: () -> Unit) = c.text(words, 15f, if (red) SysColor.red else Color.WHITE, bold = true, center = true).apply {
-        background = c.glassPlate()
-        setPadding(dp(10), dp(10), dp(10), dp(10))
-        alpha = if (any) 1f else 0.5f
-        if (any) pressable(work)
+    fun mark(glyph: Int, label: Int, mirrored: Boolean = false, work: () -> Unit) = FrameLayout(c).apply {
+        background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(SysColor.blue); setStroke(c.dp(1), Color.argb(71, 255, 255, 255)) }
+        contentDescription = c.getString(label)
+        addView(c.icon(glyph, Color.WHITE, 20).apply { if (mirrored) scaleX = -1f }, FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER))
+        if (any) pressable(work)   // the marks' finger is a control: deaf while nothing is chosen (iOS allowsHitTesting)
     }
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(12), dp(8), dp(12), dp(10))
-        addView(pill(c.getString(R.string.delete), red = true, work = onDelete), lp(0, WRAP, 1f))
-        gap(8)
-        addView(pill(c.getString(R.string.share), work = onShare), lp(0, WRAP, 1f))
-        gap(8)
-        addView(pill(c.getString(R.string.ld_forward), work = onForward), lp(0, WRAP, 1f))
+        fun spring() = addView(View(c), lp(0, 0, 1f))
+        spring(); addView(mark(R.drawable.ic_delete, R.string.delete, work = onDelete), lp(dp(44), dp(44)))
+        spring(); addView(mark(R.drawable.ic_share, R.string.share, work = onShare), lp(dp(44), dp(44)))
+        spring(); addView(mark(R.drawable.ic_reply, R.string.ld_forward, mirrored = true, work = onForward), lp(dp(44), dp(44)))
+        spring()
     }
 }
 

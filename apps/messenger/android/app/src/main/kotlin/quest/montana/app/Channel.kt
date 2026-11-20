@@ -370,7 +370,9 @@ object Channels {
         localFaultAt = System.currentTimeMillis()
         Log.d("Montana", "local_fault " + why.take(80))
     }
-    fun localFaultRecent(): Boolean = System.currentTimeMillis() - localFaultAt < 30_000L
+    /** The phone's sleep is a fault of the process too (iOS localFaultRecent, OZ 1 p.4): a socket the sleep killed and a question it
+     *  cut say nothing of the door, and they come back in the very moments of the thaw. */
+    fun localFaultRecent(): Boolean = Thaw.thawing || System.currentTimeMillis() - localFaultAt < 30_000L
     @Volatile private var lastSkip = ""
 
     /** A knock has happened in this life of the app (iOS MontanaNodes.knockedOnce): until then «no node» means «not asked yet». */
@@ -380,6 +382,7 @@ object Channels {
     fun start() {
         if (started) return
         started = true
+        Thaw.start()   // the beat that knows the process's sleep (iOS MontanaTelemetry.startHeartbeat)
         Thread { while (true) { runCatching { knock(); keepPaths() }; Thread.sleep(5000) } }.start()   // iOS maintainPaths: every five seconds
         Thread { listen() }.start()
         Thread { while (true) { Thread.sleep(8000); runCatching { warm() } } }.start()
@@ -422,34 +425,48 @@ object Channels {
     private fun knock() {
         val ident = NodeIdentity.device() ?: return
         val now = System.currentTimeMillis()
-        // ONE MACHINE, ONE CHANNEL (iOS doorsToKnock 110-131): a door is skipped exactly when its machine is already held through
-        // another door right now — a shadow cast by live holding, gone the instant the holding goes, never by a measurement
-        val book = Doors.book()
+        // ONE DOOR, HELD WHILE IT ANSWERS (iOS doorsToKnock 97-105, OZ 1 p.2, 569814a4; the author's words 25645, 25250, 25256: the
+        // device finds a door once, when its network changes, and holds it as long as it answers). While any door of the list is held,
+        // none is knocked: the rule of 29.08 knocked a door for every machine not held, and every door was dialled at every return to
+        // the screen, the dead ones too. Nothing held: every door is a candidate, and one is dialled -- the first due in the book's order.
         val held = heldLabels()
-        val heldNodes = book.filterKeys { it in held }.values.map { it.first }.toSet()
         val doors = Doors.list()
-        val skip = doors.map { it.label }.filter { it in held || book[it]?.first?.let { o -> o in heldNodes } == true }
+        val wanted = if (doors.any { it.label in held }) emptyList() else doors
         // a door left out says so, once while the fact stands (iOS node_skip 276-285)
-        val line = skip.sorted().joinToString(" ") { it + "=" + (if (it in held) "held" else "node-held-elsewhere") }
+        val line = doors.map { it.label }.filter { l -> wanted.none { it.label == l } }.sorted().joinToString(" ") { it + "=" + (if (it in held) "held" else "another-held") }
         if (line != lastSkip) { lastSkip = line; if (line.isNotEmpty()) Log.d("Montana", "node_skip " + line) }
-        for (d in doors) {
-            val label = d.label
-            if (label in skip) continue
-            if (!dialable(d.host)) continue   // a node's literal IPv6 door on a path without IPv6 is not knocked (iOS ensureChannel, N-4)
-            // A DOOR THE BOOK HOLDS DEAD IS NOT DIALLED (iOS MontanaNodes.open 289-292, OZ 1 p.2): the pace and the rest are one book's
-            val c = synchronized(live) {
-                if (live.containsKey(label)) return@synchronized null
-                if (!DoorBook.dialDue(label)) return@synchronized null
-                Channel(d.host, d.port, wsPath = d.path).also { live[label] = it }
-            } ?: continue
-            knockedOnce = true
-            Log.d("Montana", "node_knock at=" + label)
-            Thread { serve(c, ident) }.start()
-        }
+        // ONE DOOR A ROUND (iOS MontanaNodes.open 271-281): the first of the book's order that is due, and none while a knock is under
+        // way; a door the book holds dead is not dialled (OZ 1 p.2): the pace and the rest are one book's
+        val byLabel = wanted.associateBy { it.label }
+        val c = synchronized(live) {
+            knocking?.let { (_, at) -> if (now - at < HANDSHAKE_BUDGET_MS) return@synchronized null }
+            val d = DoorBook.ordered(wanted.map { it.label }).mapNotNull { byLabel[it] }.firstOrNull { d ->
+                // a node's literal IPv6 door on a path without IPv6 is not knocked (iOS ensureChannel, N-4)
+                dialable(d.host) && !live.containsKey(d.label) && DoorBook.dialDue(d.label)
+            } ?: return@synchronized null
+            knocking = d.label to now
+            Channel(d.host, d.port, wsPath = d.path).also { live[d.label] = it }
+        } ?: return
+        knockedOnce = true
+        Log.d("Montana", "node_knock at=" + c.label)
+        Thread { serve(c, ident) }.start()
+    }
+
+    /** ONE KNOCK AT A TIME (iOS knockLock / knocking, OZ 1 p.2): a door under its dial is waited for, up to the handshake's budget. */
+    private const val HANDSHAKE_BUDGET_MS = 8_000L   // iOS MontanaDirect.handshakeBudget
+    private var knocking: Pair<String, Long>? = null   // under live
+    /**
+     * The knock at a door ended (iOS knockEnded 319-328): a refusal hands the knock to the next door of the book at once, not at the
+     * next five-second round; the process's own fault does not (05.09). A word about a door no knock waits on changes nothing.
+     */
+    private fun knockEnded(label: String, ok: Boolean) {
+        val mine = synchronized(live) { (knocking?.first == label).also { if (it) knocking = null } }
+        if (mine && !ok && !localFaultRecent()) Thread { runCatching { knock() } }.start()
     }
 
     private fun serve(c: Channel, ident: NodeIdentity.Ident) {
-        c.run(ident, { up(it) }, { ch, of -> received(ch, of) })
+        c.run(ident, { up(it); knockEnded(it.label, true) }, { ch, of -> received(ch, of) })
+        knockEnded(c.label, c.ready)   // a refusal or a silence hands the knock to the next door at once (iOS noteDoorFail 1606)
         synchronized(live) {
             live.remove(c.label)
             // a door that stood is knocked again at once; one that did not keeps its step and is judged refused — unless the fault was
@@ -462,7 +479,7 @@ object Channels {
             if (localFaultRecent()) DoorBook.notJudged(key) else Signal.doorFailed(key, -1)
         }
         Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
-            " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt) +
+            " ready=" + (if (c.ready) 1 else 0) + (if (Thaw.thawing) " slept=1" else "") + " after_ms=" + (System.currentTimeMillis() - c.dialAt) +
             (if (!c.ready && c.label in doorLabels()) " " + DoorBook.record(DoorBook.door(labelOf(c.host, c.port, c.ws))) else ""))   // the book's record (iOS MontanaDirect 1615)
     }
 

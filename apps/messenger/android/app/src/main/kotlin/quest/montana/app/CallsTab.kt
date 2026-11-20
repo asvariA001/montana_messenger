@@ -66,7 +66,7 @@ object CallsSeen {
 }
 
 /**
- * iOS CallsTabView.cell (ContentView.swift:2901-2943) in the App Library's measure (72, the face 48, the gap 16, the side 18): the
+ * iOS CallsTabView.cell (ContentView.swift:2901-2943) in the App Library's measure (72, the face 48, the gap 16, the side 20): the
  * face; the name 17 semibold -- red when the call was missed -- and the clock 14, 22 high; 4 under them, 20 high, the arrow of the
  * call's direction 12, the camera of a video call 11, how it went 16 (the length, «Missed», «No answer», «Connection failed») and
  * the call's own glyph 18 at the end of the line.
@@ -82,7 +82,7 @@ private fun callRow(act: MainActivity, r: CallRecord): View {
     }
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18), 0, dp(18), 0)
+        setPadding(dp(LibraryRow.SIDE), 0, dp(LibraryRow.SIDE), 0)
         minimumHeight = dp(72)
         addView(c.chatFace(r.ref, name, 48), lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
         addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -199,7 +199,7 @@ fun callsPane(act: MainActivity, onNewCall: () -> Unit = {}): View {
                 }
                 rows.addView(SwipeRow(act, row, listOf(Tile(R.drawable.ic_delete) { delete(r.ref, r.mid) })), lp())   // the one glass (iOS swipeTrailing 2956-2959)
             }
-            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
+            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(LibraryRow.TEXT_LEAD) })
         }
     }
     fill()

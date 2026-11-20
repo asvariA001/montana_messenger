@@ -476,14 +476,14 @@ fun selectionBar(act: MainActivity, sel: ChatSelection): View {
 
 /**
  * THE «ARCHIVE» ROW (iOS ContactsTabView.archiveRow, ContentView.swift:2697-2716: «the chats page's, one to one»), in the App
- * Library's measure (72, the face 48, the gap 16, the side 18): a circle of white 0.15 with the grey archive box 24 and a rim of
+ * Library's measure (72, the face 48, the gap 16, the side 20): a circle of white 0.15 with the grey archive box 24 and a rim of
  * white 0.45, «Archive» 17 semibold over its count 16 in grey, the platform's chevron 14 in grey at the end.
  */
 fun archiveEntry(act: MainActivity, count: Int, onOpen: (() -> Unit)? = null): View {
     val c: Context = act
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18), 0, dp(18), 0)
+        setPadding(dp(LibraryRow.SIDE), 0, dp(LibraryRow.SIDE), 0)
         minimumHeight = dp(72)
         addView(FrameLayout(c).apply {
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.rgb(38, 38, 38)); setStroke(dp(1), Color.argb(115, 255, 255, 255)) }
@@ -511,7 +511,7 @@ fun archivePage(act: MainActivity, onBack: () -> Unit): View {
         }
         for (ch in all) {
             rows.addView(listRow(act, ch, inArchive = true, sel = null), lp())
-            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
+            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(LibraryRow.TEXT_LEAD) })
         }
     }
     fill()

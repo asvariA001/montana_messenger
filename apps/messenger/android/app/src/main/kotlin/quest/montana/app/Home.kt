@@ -383,7 +383,7 @@ fun mainScreen(act: MainActivity, onForget: () -> Unit): View {
     // page's list keeps their height as its own room above and scrolls on beneath them; a page with nothing that scrolls keeps the
     // room itself, so nothing of it stands under the bar.
     val head = c.vstack(Gravity.NO_GRAVITY) {
-        addView(search, lp(MATCH, dp(56)))
+        addView(search, lp(MATCH, dp(SearchCapsule.ROW)))
         addView(hair, lp(MATCH, dp(21)))
     }
     // THE TIME PANEL AT THE TOP OR AT THE BOTTOM (iOS b9b212d4, OZ 1 p.1.8.1): at the top it heads the column over the search; at the
@@ -980,8 +980,76 @@ class SwiftSpring(response: Double, private val damping: Double, private val sec
 }
 
 /**
- * THE SEARCH ROW (iOS MTSearchField, the platform's own search bar in its minimal style): a capsule with the magnifier and
- * «Search», and the round cross beside it while the search is on (iOS searchBar: the cross appears in search mode).
+ * THE SEARCH CAPSULE (iOS MTSearchCapsule, 909783f5, decision 1093 = a): the height of the finger's target, the font regular 17,
+ * the round ends, the magnifier 10 in and the words 31 in from the capsule's edge, a room of 8 around it in its row. NOTHING IS
+ * FITTED TO A PHONE (the author's word 20.11.2026): every number is a constant in dp, the same on every device, and the platform
+ * lays the dp on its own pixels. The ground is the glass plate; the field stands in the words' own slot, so at rest and live it
+ * is one drawing.
+ */
+object SearchCapsule {
+    const val HEIGHT = 44          // iOS montanaTouchTarget
+    const val ROOM = 8             // the room around the capsule in its row
+    const val GLYPH_LEAD = 10      // the magnifier's edge, and the words' end, in from the capsule's edge
+    const val WORDS_LEAD = 31      // the words' edge
+    const val GLYPH = 16           // the magnifier: SF magnifyingglass at 15 medium
+    const val ROW = HEIGHT + 2 * ROOM   // iOS MTSearchField.height: the row, the results under it and the head read it
+    const val ROW_PAD = 12         // iOS MTSearchField.rowPad: the pages' search row's side padding
+    /** The placeholder's and the magnifier's grey: the dark platform's secondary label. */
+    val SECONDARY = Color.argb(153, 235, 235, 245)
+}
+
+/**
+ * THE APP LIBRARY'S MEASURE OF A LINE (iOS MTLibraryRow): 72 high, the face 48, the gap 16; the side is the search capsule's
+ * edge -- the search row's padding and the capsule's room (12 + 8) -- so the lines stand under the capsule's edge.
+ */
+object LibraryRow {
+    const val SIDE = SearchCapsule.ROW_PAD + SearchCapsule.ROOM
+    const val FACE = 48
+    const val GAP = 16
+    const val TEXT_LEAD = SIDE + FACE + GAP   // where the words, and the separator under them, begin
+}
+
+/**
+ * The capsule drawn around `field` (iOS MTSearchCapsule.Face + MTSearchLiveField): the magnifier, the field in the words' slot in
+ * the capsule's font, and the platform's clear key while the field holds the keys and a letter (iOS clearButtonMode .whileEditing).
+ */
+fun Context.searchCapsule(field: EditText): FrameLayout = FrameLayout(this).apply {
+    val k = SearchCapsule
+    background = glassPlate()
+    addView(icon(R.drawable.ic_search, k.SECONDARY, k.GLYPH),
+        FrameLayout.LayoutParams(dp(k.GLYPH), dp(k.GLYPH), Gravity.CENTER_VERTICAL or Gravity.START).apply { marginStart = dp(k.GLYPH_LEAD) })
+    field.apply {
+        setHintTextColor(k.SECONDARY); setTextColor(Color.WHITE)
+        textSize = 17f
+        background = null
+        isSingleLine = true
+        gravity = Gravity.CENTER_VERTICAL or Gravity.START
+        setPadding(0, 0, 0, 0)
+    }
+    addView(field, FrameLayout.LayoutParams(MATCH, MATCH).apply { marginStart = dp(k.WORDS_LEAD); marginEnd = dp(k.GLYPH_LEAD) })
+    val clear = FrameLayout(context).apply {
+        contentDescription = context.getString(R.string.cancel)
+        addView(icon(R.drawable.ic_close, k.SECONDARY, 14), FrameLayout.LayoutParams(dp(14), dp(14), Gravity.CENTER))
+        visibility = View.GONE
+        pressable { field.setText("") }
+    }
+    addView(clear, FrameLayout.LayoutParams(dp(32), MATCH, Gravity.END or Gravity.CENTER_VERTICAL).apply { marginEnd = dp(2) })
+    fun show() {
+        val on = field.isFocusable && field.hasFocus() && field.length() > 0
+        clear.visibility = if (on) View.VISIBLE else View.GONE
+        field.setPadding(0, 0, if (on) dp(24) else 0, 0)
+    }
+    field.addTextChangedListener(object : android.text.TextWatcher {
+        override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun onTextChanged(s: CharSequence?, a: Int, b: Int, d: Int) {}
+        override fun afterTextChanged(s: android.text.Editable?) { show() }
+    })
+    viewTreeObserver.addOnGlobalFocusChangeListener { _, _ -> show() }   // the field's own focus listener stays its owner's
+}
+
+/**
+ * THE SEARCH ROW (iOS MTSearchField in searchBar): the search capsule in its room, and the round cross on the finger's 44 beside
+ * it while the search is on (iOS searchBar: the cross appears in search mode).
  * `onChange(query, active)` — active is «focused or holding text» (iOS searchActive).
  */
 private class SearchRow(val c: Context, onChange: (String, Boolean) -> Unit) : LinearLayout(c) {
@@ -992,29 +1060,20 @@ private class SearchRow(val c: Context, onChange: (String, Boolean) -> Unit) : L
 
     init {
         orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(19), 0, dp(19), 0)
-        addView(c.hstack {
-            background = c.glassPlate()
-            setPadding(dp(12), 0, dp(12), 0)
-            addView(c.icon(R.drawable.ic_search, Color.rgb(230, 230, 230)), lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
-            addView(field.apply {
-                hint = c.getString(R.string.search)
-                setHintTextColor(MT.gray); setTextColor(Color.WHITE)
-                textSize = 17f
-                background = null
-                isSingleLine = true
-                inputType = InputType.TYPE_CLASS_TEXT
-                imeOptions = EditorInfo.IME_ACTION_SEARCH
-                setPadding(0, 0, 0, 0)
-            }, lp(0, WRAP, 1f))
-        }, LayoutParams(0, dp(40), 1f))
+        setPadding(dp(SearchCapsule.ROW_PAD), 0, dp(SearchCapsule.ROW_PAD), 0)
+        field.apply {
+            hint = c.getString(R.string.search)
+            inputType = InputType.TYPE_CLASS_TEXT
+            imeOptions = EditorInfo.IME_ACTION_SEARCH
+        }
+        addView(c.searchCapsule(field), LayoutParams(0, dp(SearchCapsule.HEIGHT), 1f).apply { setMargins(dp(SearchCapsule.ROOM), dp(SearchCapsule.ROOM), dp(SearchCapsule.ROOM), dp(SearchCapsule.ROOM)) })
         addView(cross.apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.cancel)
             addView(c.icon(R.drawable.ic_close, barGlyph), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))
             visibility = GONE
             pressable { clear() }
-        }, LayoutParams(dp(40), dp(40)).apply { marginStart = dp(8) })
+        }, LayoutParams(dp(SearchCapsule.HEIGHT), dp(SearchCapsule.HEIGHT)))
         val tell = { cross.visibility = if (active) VISIBLE else GONE; onChange(query, active) }
         field.setOnFocusChangeListener { _, _ -> tell() }
         field.addTextChangedListener(object : android.text.TextWatcher {
@@ -1199,10 +1258,10 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 time.text = room.last?.let { rowTime(c, it.at) } ?: ""   // the last letter's moment, the answer or not (iOS rowTime)
             }
             refresh()
-            // the local room's line in the chats page's measure (iOS ChatRow with library: 72, the face 48, the gap 16, the side 18; 22 and 20)
+            // the local room's line in the chats page's measure (iOS ChatRow with library: 72, the face 48, the gap 16, the side 20; 22 and 20)
             addView(c.hstack {
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(18), 0, dp(18), 0)
+                setPadding(dp(LibraryRow.SIDE), 0, dp(LibraryRow.SIDE), 0)
                 minimumHeight = dp(72)
                 addView(face, lp(dp(48), dp(48)).apply { marginEnd = dp(16) })
                 addView(c.vstack(Gravity.NO_GRAVITY) {
@@ -1230,7 +1289,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                     }
                 }
             }.also { savedRow = it }, lp())
-            addView(View(c).apply { setBackgroundColor(MT.hairline); savedHair = this }, lp(MATCH, 1).apply { marginStart = dp(82) })
+            addView(View(c).apply { setBackgroundColor(MT.hairline); savedHair = this }, lp(MATCH, 1).apply { marginStart = dp(LibraryRow.TEXT_LEAD) })
             // THE CONVERSATIONS (iOS MTChatListView): newest first, each row a person; «No chats yet» while there are none.
             val rows = c.vstack(Gravity.NO_GRAVITY)
             // THE EMPTY LIST (iOS MontanaQRCard, the author's word 17.09): «No chats yet» and the code itself under the local
@@ -1255,7 +1314,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 sink?.up = !headFloats
                 if (headFloats) {
                     rows.addView(archiveEntry(act, archived), lp())
-                    rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+                    rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(LibraryRow.TEXT_LEAD) })
                 }
                 // a meeting that never carried a word leaves no row (iOS: the list stands on letters) — the silent question
                 // of a scan must not raise an empty person here; the pinned stand first (listedChats)
@@ -1271,7 +1330,7 @@ private class ChatsPane(private val act: MainActivity) : FrameLayout(act) {
                 else if (all.isEmpty() && !saved) rows.addView(ChatFolders.emptyCard(c), lp())
                 for (ch in all) {
                     rows.addView(listRow(act, ch, inArchive = ChatMarks.isArchived(ch.ref), sel = sel), lp())
-                    rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(82) })
+                    rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = dp(LibraryRow.TEXT_LEAD) })
                 }
                 ListWork.note((System.nanoTime() - began) / 1e6, all.size, ListWork.print(all, headFloats))
             }

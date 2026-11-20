@@ -990,8 +990,11 @@ object Wire {
         val place = cargo ?: if (quiet) BulkPuts.SERVICE else ""
         if (bulk) BulkPuts.enter(place, quiet)
         // a resting door stands last in the list, not outside it (iOS restingLast, 996b13f7): the living first, in their order
-        val taken = (try { hedgedPut(Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } },
-            bid, data, cargo, last) }
+        // THE BODY IS BORN ONCE (iOS enqueue: the very put each machine takes): the race of doors and every copy carry these bytes
+        val (taken, body) = (try {
+            val b = blobBody(bid, data, cargo, last)
+            hedgedPut(Signal.writeOrder("blob").let { o -> o.filter { Signal.doorAlive(it) } + o.filter { !Signal.doorAlive(it) } },
+                bid, b, data.size)?.let { it to b } }
             finally { if (bulk) BulkPuts.leave(place, quiet) }) ?: return false   // the elected store first (iOS 2007)
         // A LETTER'S CARGO LIES ON EVERY MACHINE (iOS 70b31768, T1 20.10 16:53Z): a piece on the one machine its put reached stood
         // «loading» for a phone that could not reach that machine, and the node's own hop to its sibling rode the same broken road.
@@ -1011,10 +1014,10 @@ object Wire {
                 // redundancy alone. A letter's copies (mirror) still go to a resting machine.
                 if (!Signal.doorAlive(door)) { Log.d("Montana", "blob_copy passed copy=" + bid.take(8) + " to=" + id + " -- the machine rests"); continue }
                 if (!BulkPuts.yieldToPerson("copy")) break
-                val code = putBlobAt(door, bid, data, cargo, last)
+                val code = putBlobAt(door, bid, body, data.size)
                 if (code != 200) Log.d("Montana", "blob_copy FAIL id=" + bid.take(8) + " to=" + id + " code=" + code)
             }
-        } else if (bulk) mirror(bid, data, cargo, last, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
+        } else if (bulk) mirror(bid, body, data.size, taken)   // a letter's cargo: its pieces, its manifest, a long letter (iOS bulk: true)
         return true
     }
     /**
@@ -1025,7 +1028,7 @@ object Wire {
      * gives up no piece. The first door that holds the piece wins and the others are let go; a failed door calls the next at once,
      * a busy one (429) is waited, not jumped; a quiet or resting door calls one more in once a second at most: never a storm.
      */
-    private fun hedgedPut(doors: List<String>, bid: String, data: ByteArray, cargo: String?, last: Boolean): String? {
+    private fun hedgedPut(doors: List<String>, bid: String, body: ByteArray, size: Int): String? {
         if (doors.isEmpty()) return null
         val answers = java.util.concurrent.LinkedBlockingQueue<Pair<String, Int>>()
         val stop = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1038,7 +1041,7 @@ object Wire {
             val spoke = java.util.concurrent.atomic.AtomicBoolean(false)
             called = System.currentTimeMillis(); flying[door] = called to spoke
             if (next > 1) Log.d("Montana", "blob_up id=" + bid.take(8) + " next door=" + (android.net.Uri.parse(door).host ?: door))
-            Thread { answers.put(door to (try { putBlobAt(door, bid, data, cargo, last, spoke, stop) } catch (_: Throwable) { -1 })) }
+            Thread { answers.put(door to (try { putBlobAt(door, bid, body, size, spoke, stop) } catch (_: Throwable) { -1 })) }
                 .apply { isDaemon = true }.start()
         }
         launch()
@@ -1082,20 +1085,36 @@ object Wire {
         return out
     }
     /**
-     * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4374-4385): the very put
-     * that machine took — the same name, the same cargo marks — to the first living door of each other machine the network names
-     * (/doors "nodes"). It rides its own thread: the sender waits for nothing, and a copy's answer teaches the door book nothing.
+     * The copy of a letter's piece for every machine but the one that took it (iOS MontanaBlobUpload.mirror 4815-4817): the very put
+     * that machine took -- the same bytes, the same name, the same cargo marks -- to the first living door of each other machine the
+     * network names (/doors "nodes"). The sender waits for nothing, and a copy's answer teaches the door book nothing.
+     * NO BODY IS HELD IN MEMORY WHILE IT WAITS (iOS: the system carries it from a file of its own; 1064 on A1 20.11.2026 18:59 MSK:
+     * OutOfMemoryError here -- a thread for every piece and every machine, each building the piece again as a Base64 string, as JSON
+     * text and as bytes, some seven times the piece, none of them bound by the bulk puts' three places): the body is laid in a file
+     * of the copies' own, and two workers carry the files one by one, each read when its turn comes.
      */
-    private fun mirror(bid: String, data: ByteArray, cargo: String?, last: Boolean, taken: String) {
-        for ((id, door) in copies(bid, taken)) {
-            Thread {
-                val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
-                if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-                val code = post(door, "/blob-put", body, cargoTimeoutMs(data.size)).first
-                Log.d("Montana", "blob_copy " + (if (code == 200) "done" else "FAIL code=$code") + " copy=" + bid.take(8) + " to=" + id)
-            }.start()
+    private fun mirror(bid: String, body: ByteArray, size: Int, taken: String) {
+        val to = copies(bid, taken)
+        if (to.isEmpty()) return
+        val file = File(copyDir, bid.take(48) + "-" + System.nanoTime() + ".json")
+        try { file.writeBytes(body) } catch (e: Exception) { Log.d("Montana", "blob_copy FAIL copy=" + bid.take(8) + " -- not laid: " + e.javaClass.simpleName); return }
+        copyLane.execute {
+            try {
+                val raw = try { file.readBytes() } catch (_: Exception) { null }
+                if (raw == null) Log.d("Montana", "blob_copy FAIL copy=" + bid.take(8) + " -- its file is gone")
+                else for ((id, door) in to) {
+                    val code = putPulsed(door, raw, cargoTimeoutMs(size), bid)
+                    Log.d("Montana", "blob_copy " + (if (code == 200) "done" else "FAIL code=$code") + " copy=" + bid.take(8) + " to=" + id)
+                }
+            } finally { file.delete() }
         }
     }
+    /** The copies' two workers: the files wait in their queue, never their bodies in memory. */
+    private val copyLane = java.util.concurrent.ThreadPoolExecutor(2, 2, 30, java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue()).apply { allowCoreThreadTimeOut(true) }
+    /** The copies' own files; what a dead process left there has no list of machines with it and is let go at the first copy. */
+    private val copyDir: File by lazy { File(Book.ctx.cacheDir, "blob-copies").apply { mkdirs(); listFiles()?.forEach { it.delete() } } }
+
     /**
      * What the node already holds of these chunks (iOS blobsPresent, askHave 1941-1981): only the chunks asked about count — a store
      * naming others is a stale index and is not believed, and the diary names it; null is «don't know».
@@ -1151,14 +1170,44 @@ object Wire {
      * kilobytes — 64 KB waits 9 s, 512 KB waits 37 s; one rule for every road. A fixed minute held a dead door's piece a minute.
      */
     fun cargoTimeoutMs(bytes: Int): Int = 5_000 + (maxOf(0, bytes).toLong() * 1000 / 16_384).toInt()
+    /**
+     * THE PUT'S BODY, BORN ONCE AS BYTES (iOS enqueue: {"bid", "data"} built once, the cargo's marks beside it): the words first, the
+     * piece's Base64 streamed last into one array of its exact size -- no Base64 string, no JSON text, no second copy of the bytes
+     * (the old road held some seven times the piece: the string and the text are two bytes a letter).
+     */
+    internal fun blobBody(bid: String, data: ByteArray, cargo: String?, last: Boolean): ByteArray {
+        val head = StringBuilder("{\"bid\":").append(JSONObject.quote(bid))
+        if (cargo != null) { head.append(",\"cg\":").append(JSONObject.quote(cargo)); if (last) head.append(",\"last\":true") }
+        head.append(",\"data\":\"")
+        val h = head.toString().toByteArray(Charsets.UTF_8)
+        val tail = "\"}".toByteArray(Charsets.UTF_8)
+        val out = BodyOut(h.size + (data.size + 2) / 3 * 4 + tail.size)
+        out.write(h)
+        // in turns of 48 KB: one write of the whole piece would make the coder a buffer of the whole piece's Base64 beside ours;
+        // its close lays the padding, and BodyOut keeps nothing open
+        android.util.Base64OutputStream(out, Base64.NO_WRAP).use { b64 ->
+            var off = 0
+            while (off < data.size) { val n = minOf(49_152, data.size - off); b64.write(data, off, n); off += n }
+        }
+        out.write(tail)
+        return out.bytes()
+    }
+    /** One array of the size foretold, grown only if the foretelling was short. */
+    private class BodyOut(size: Int) : java.io.OutputStream() {
+        private var buf = ByteArray(size)
+        private var at = 0
+        override fun write(b: Int) { room(1); buf[at++] = b.toByte() }
+        override fun write(b: ByteArray, off: Int, len: Int) { room(len); System.arraycopy(b, off, buf, at, len); at += len }
+        private fun room(n: Int) { if (at + n > buf.size) buf = buf.copyOf(maxOf(buf.size * 2, at + n)) }
+        fun bytes(): ByteArray = if (at == buf.size) buf else buf.copyOf(at)
+    }
+
     // a door that took no byte by this calls the next one in (iOS MTPutPulse.firstByteS, 2413/2414); its verdict stays the post deadline
     private const val FIRST_BYTE_MS = 1_500L
     /** The answer's code; -2 when the put was let go because another door won the race (it teaches the door book nothing). */
-    private fun putBlobAt(door: String, bid: String, data: ByteArray, cargo: String?, last: Boolean,
+    private fun putBlobAt(door: String, bid: String, body: ByteArray, size: Int,
                           spoke: java.util.concurrent.atomic.AtomicBoolean? = null, stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
-        val body = JSONObject().put("bid", bid).put("data", Base64.encodeToString(data, Base64.NO_WRAP))
-        if (cargo != null) { body.put("cg", cargo); if (last) body.put("last", true) }
-        val code = putPulsed(door, body, cargoTimeoutMs(data.size), bid, spoke, stop)
+        val code = putPulsed(door, body, cargoTimeoutMs(size), bid, spoke, stop)
         if (code == 200) Signal.doorAnswered(door) else if (code != -2) Signal.doorFailed(door, code)
         return code
     }
@@ -1170,9 +1219,8 @@ object Wire {
      * is handed over, the answer has half the piece's own deadline (at least the post deadline) -- the tail may still be leaving
      * the system's buffer. A silent door is cut and the next door asked.
      */
-    private fun putPulsed(door: String, body: JSONObject, pieceMs: Int, bid: String, spoke: java.util.concurrent.atomic.AtomicBoolean? = null,
+    private fun putPulsed(door: String, raw: ByteArray, pieceMs: Int, bid: String, spoke: java.util.concurrent.atomic.AtomicBoolean? = null,
                           stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
-        val raw = body.toString().toByteArray(Charsets.UTF_8)
         val at = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val whole = java.util.concurrent.atomic.AtomicBoolean(false)
         val over = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -2325,7 +2373,34 @@ object Post {
     private var lastWholeAt = 0L
     private const val WHOLE_EVERY = 60_000L
     private var fetching = false
-    private const val CARRY_MS = 30L * 86_400_000L   // iOS MontanaDeliveryEngine.carryDays: at least thirty days (the author's word 07.10)
+    // THE CARRIAGE OF A LETTER (iOS MontanaDeliveryEngine.carryDays = 7, fef4bfe0; the author's word 25683, 20.11.2026: «seven days
+    // there, otherwise show the error and the retry on the undelivered letter»; was thirty, the word of 07.10)
+    private const val CARRY_MS = 7L * 86_400_000L
+    /** The carriage before 20.11: a letter older than it had already ended its carriage as «sent», and is not called back red now. */
+    private const val OLD_CARRY_MS = 30L * 86_400_000L
+    private var undeliveredAt = 0L   // the last sweep (once an hour)
+    /**
+     * A LETTER THE NODE HELD AND NO RECEIPT CAME FOR, AT THE CARRIAGE'S END, TURNS RED WITH A RETRY (iOS carry_done → refuse
+     * .notDelivered, MTRefusal.notDelivered, fef4bfe0; the author's word 25683). The node boxed it and the queue let it go «sent» at
+     * once (here no held letter is carried or re-boxed, so none rings anybody -- the author's word 25675); seven days with no receipt,
+     * the row turns red and the bubble's tap carries it again (resendAny). Once an hour, the person's own words in the pairs.
+     */
+    private fun sweepUndelivered() {
+        val now = System.currentTimeMillis()
+        if (now - undeliveredAt < 3_600_000L) return
+        undeliveredAt = now
+        for (ref in Book.refs()) {
+            val c = Book.chat(ref) ?: continue
+            val due = c.msgs.filter { it.mine && it.state == 1 && (now - it.at) in CARRY_MS until OLD_CARRY_MS && !Marks.isService(it.text) }.map { it.mid }.toSet()
+            if (due.isEmpty()) continue
+            val red = mutableListOf<Msg>()
+            Book.edit(ref) { ch -> ch.msgs.filter { it.mid in due && it.mine }.forEach { m -> if (m.advance(-1)) red.add(m) } }
+            for (m in red) {
+                Log.d("Montana", "carry_done m=" + m.mid.take(8) + " — the node held it, no receipt came: red, with a retry")
+                CoinSend.hold(m, ref)
+            }
+        }
+    }
 
     // ── sending ──
     /**
@@ -2509,6 +2584,7 @@ object Post {
 
     /** Every waiting letter knocks once more; the ones a door boxed leave the queue. */
     fun flush() {
+        runCatching { sweepUndelivered() }
         val items = synchronized(outLock) { outbox() }
         val done = mutableSetOf<String>()
         for (i in 0 until items.length()) {
@@ -2566,10 +2642,10 @@ object Post {
             } else if (Marks.birthMs(mid)?.let { CARRY_MS <= System.currentTimeMillis() - it } == true) {
                 // THE CARRIAGE IS THE ONE END, AND NEVER A CLOCK'S RED FOR A LETTER A NODE TOOK (iOS carryDays and neverLeft,
                 // MontanaDeliveryEngine 315-316, 1354-1366; atom 4d96053c1090): a letter a door boxed left this queue at once, still
-                // sent; one no node ever took in thirty days turns red by that word -- it never left this phone -- and leaves the queue.
+                // sent; one no node ever took in the carriage's seven days turns red by that word -- it never left this phone -- and leaves the queue.
                 // A coin letter never reaches here: its day ends first (CoinSend.expire, the author's word 09.10 11:3x).
                 done.add(mid); Groups.copyLost(mid)
-                Log.d("Montana", "send_failed m=" + mid.take(8) + " — no node ever took it in the carriage's thirty days")
+                Log.d("Montana", "send_failed m=" + mid.take(8) + " — no node ever took it in the carriage's seven days")
                 var red: Msg? = null
                 val chat = SamePair.root(to)
                 Book.edit(chat) { c -> c.msgs.find { it.mid == mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }

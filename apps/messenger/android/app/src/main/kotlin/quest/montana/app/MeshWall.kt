@@ -18,7 +18,7 @@ import android.widget.Switch
  */
 fun meshPane(act: MainActivity): View {
     val c = act
-    val side = c.dp(18)   // iOS MTLibraryRow.side
+    val side = c.dp(LibraryRow.SIDE)   // iOS MTLibraryRow.side
     val badge = c.text("0", 11f, Color.WHITE, bold = true).apply {
         gravity = Gravity.CENTER
         val pad = c.dp(5)

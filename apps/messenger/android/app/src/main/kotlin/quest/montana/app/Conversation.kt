@@ -521,7 +521,7 @@ object Notify {
 /** One conversation in the list: the face, the name, the last letter, its time and the unread count. */
 /**
  * THE CHATS PAGE'S LINE (iOS ChatRow with library, MontanaChatsList.swift:2121-2226) in the App Library's measure, as the contacts'
- * and the calls': 72 high, the face 48 with the platform's presence dot while the word is live, the gap 16, the side 18; the two
+ * and the calls': 72 high, the face 48 with the platform's presence dot while the word is live, the gap 16, the side 20; the two
  * lines at fixed heights, 22 and 20, 4 apart -- the name 17 semibold, the struck bell 12, the dots and the hour 14; under them one
  * line of 16: the draft in red first, else the thumbnail and the last letter; at its end the count, the hand's dot or the pin.
  */
@@ -530,7 +530,7 @@ fun chatRow(act: MainActivity, chat: Chat): View {
     val last = chat.last
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18), 0, dp(18), 0)
+        setPadding(dp(LibraryRow.SIDE), 0, dp(LibraryRow.SIDE), 0)
         minimumHeight = dp(72)
         addView(FrameLayout(c).apply {
             clipChildren = false
@@ -2269,32 +2269,24 @@ fun conversationPage(act: MainActivity, ref: String, onClose: () -> Unit, jump: 
     // «Search in chat…», the round cross beside it closes the search; the keys are asked for once it stands
     val searchField = EditText(c).apply {
         hint = c.getString(R.string.chat_search_hint)
-        setHintTextColor(MT.gray); setTextColor(Color.WHITE)
-        textSize = 17f
-        background = null
-        isSingleLine = true
         inputType = InputType.TYPE_CLASS_TEXT
         imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
-        setPadding(0, 0, 0, 0)
     }
     lateinit var closeSearch: () -> Unit
+    // THE PAGES' SEARCH FIELD ONE TO ONE (iOS MTSearchField, 909783f5, decision 1093 = a): the search capsule in its room of 8;
+    // the cross beside it, a round of glass on the finger's 44, as the pages' cross
     val searchBar = c.hstack {
         gravity = Gravity.CENTER_VERTICAL
         visibility = View.GONE
         setPadding(dp(12), dp(4), dp(12), dp(4))
-        addView(c.hstack {
-            gravity = Gravity.CENTER_VERTICAL
-            background = c.glassPlate()
-            setPadding(dp(12), 0, dp(12), 0)
-            addView(c.icon(R.drawable.ic_search, Color.rgb(230, 230, 230)), lp(dp(22), dp(22)).apply { marginEnd = dp(8) })
-            addView(searchField, lp(0, WRAP, 1f))
-        }, lp(0, dp(40), 1f))
+        val room = dp(SearchCapsule.ROOM)
+        addView(c.searchCapsule(searchField), lp(0, dp(SearchCapsule.HEIGHT), 1f).apply { setMargins(room, room, room, room) })
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
             contentDescription = c.getString(R.string.cancel)
             addView(c.icon(R.drawable.ic_close, Color.rgb(204, 204, 204)), FrameLayout.LayoutParams(dp(18), dp(18), Gravity.CENTER))   // iOS MontanaOctagon.barGlyph
             pressable { closeSearch() }
-        }, lp(dp(44), dp(44)).apply { marginStart = dp(8) })
+        }, lp(dp(SearchCapsule.HEIGHT), dp(SearchCapsule.HEIGHT)))
     }
     // the feed answers the words a moment after the last key (iOS refreshMessageSearch: 120 ms), not at every letter
     val searchPass = Runnable { redraw() }

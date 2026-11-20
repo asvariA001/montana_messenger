@@ -24,7 +24,7 @@ fun contactPeople(archived: Boolean = false): List<Chat> = Book.all()
 
 /**
  * ONE PERSON'S ROW (iOS ContactsTabView.cell, ContentView.swift:2644-2665) in the App Library's measure (MTLibraryRow,
- * MontanaChatsList.swift:2258-2276: the line 72 high, the face 48, the gap 16, the side 18): the face with the platform's presence
+ * MontanaChatsList.swift:2258-2276: the line 72 high, the face 48, the gap 16, the side 20): the face with the platform's presence
  * dot at its lower right while the word is live (MTPresenceBadge, MontanaConversation.swift:4473-4486), the name 17 semibold, the
  * presence line 16 in grey under it, 3 apart; the page's pin at the end, 12 and turned 45 as the chats' pin.
  */
@@ -33,7 +33,7 @@ fun contactRow(act: MainActivity, ch: Chat): View {
     val word = Presence.word(c, ch.ref)
     return c.hstack {
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(18), 0, dp(18), 0)
+        setPadding(dp(LibraryRow.SIDE), 0, dp(LibraryRow.SIDE), 0)
         minimumHeight = dp(72)
         addView(FrameLayout(c).apply {
             clipChildren = false
@@ -129,7 +129,7 @@ private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
             if (revealed && n > 0) {
                 head = true
                 rows.addView(archiveEntry(act, n) { act.push { close -> settingsPage(act, c.getString(R.string.cl_archive), close) { addView(contactRows(act, archived = true).view, lp()) }.pushedMark("archive") } }, lp())
-                rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
+                rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(LibraryRow.TEXT_LEAD) })
             }
         }
         val people = contactPeople(archived)
@@ -139,7 +139,7 @@ private fun contactRows(act: MainActivity, archived: Boolean): ContactRows {
         }
         people.forEach { ch ->
             rows.addView(contactLine(act, ch), lp())
-            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(82) })
+            rows.addView(View(c).apply { setBackgroundColor(MT.hairline) }, lp(MATCH, 1).apply { marginStart = c.dp(LibraryRow.TEXT_LEAD) })
         }
         out?.onHead(head)
     }
