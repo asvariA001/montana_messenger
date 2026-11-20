@@ -947,10 +947,12 @@ object Wire {
      * a refusal too: where the code alone does not say it (the plane of names: a 404 is «nobody holds it» only in the keeper's words).
      */
     fun post(door: String, path: String, body: JSONObject, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null,
-             whole: Boolean = false): Pair<Int, String?> {
+             whole: Boolean = false): Pair<Int, String?> = postRaw(door, path, body.toString().toByteArray(Charsets.UTF_8), timeout, lane, whole)
+    /** The same POST of a body already made bytes (a piece's put, Wire.blobBody): nothing is built again. */
+    fun postRaw(door: String, path: String, raw: ByteArray, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null,
+                whole: Boolean = false): Pair<Int, String?> {
         var held: HttpURLConnection? = null
         return try {
-            val raw = body.toString().toByteArray(Charsets.UTF_8)
             val conn = URL(door + path).openConnection() as HttpURLConnection
             held = conn
             lane?.let { synchronized(it) { it.add(conn) } }
@@ -1092,6 +1094,11 @@ object Wire {
      * OutOfMemoryError here -- a thread for every piece and every machine, each building the piece again as a Base64 string, as JSON
      * text and as bytes, some seven times the piece, none of them bound by the bulk puts' three places): the body is laid in a file
      * of the copies' own, and two workers carry the files one by one, each read when its turn comes.
+     * A COPY IS PATIENT, NOT ENDLESS (iOS: the system's background session, whose request gives up after 60 s without a byte moving,
+     * URLSessionConfiguration.timeoutIntervalForRequest): the pulsed put with a silence of a minute, never its five seconds.
+     * On A1 20.11.2026 (a 60 MB file each time): 1075 cut every one of 120 copies to the second machine at five seconds («took no
+     * byte») while the person's own puts held the link; 1076 sent them by a plain post, which has no deadline on writing, and both
+     * workers stood six minutes on sockets holding 510 KB the far side never took.
      */
     private fun mirror(bid: String, body: ByteArray, size: Int, taken: String) {
         val to = copies(bid, taken)
@@ -1103,12 +1110,14 @@ object Wire {
                 val raw = try { file.readBytes() } catch (_: Exception) { null }
                 if (raw == null) Log.d("Montana", "blob_copy FAIL copy=" + bid.take(8) + " -- its file is gone")
                 else for ((id, door) in to) {
-                    val code = putPulsed(door, raw, cargoTimeoutMs(size), bid)
+                    val code = putPulsed(door, raw, cargoTimeoutMs(size), bid, silenceMs = COPY_SILENCE_MS)
                     Log.d("Montana", "blob_copy " + (if (code == 200) "done" else "FAIL code=$code") + " copy=" + bid.take(8) + " to=" + id)
                 }
             } finally { file.delete() }
         }
     }
+    /** A copy's silence before it is cut (iOS timeoutIntervalForRequest, 60 s). */
+    private const val COPY_SILENCE_MS = 60_000
     /** The copies' two workers: the files wait in their queue, never their bodies in memory. */
     private val copyLane = java.util.concurrent.ThreadPoolExecutor(2, 2, 30, java.util.concurrent.TimeUnit.SECONDS,
         java.util.concurrent.LinkedBlockingQueue()).apply { allowCoreThreadTimeOut(true) }
@@ -1220,7 +1229,7 @@ object Wire {
      * the system's buffer. A silent door is cut and the next door asked.
      */
     private fun putPulsed(door: String, raw: ByteArray, pieceMs: Int, bid: String, spoke: java.util.concurrent.atomic.AtomicBoolean? = null,
-                          stop: java.util.concurrent.atomic.AtomicBoolean? = null): Int {
+                          stop: java.util.concurrent.atomic.AtomicBoolean? = null, silenceMs: Int = POST_DEADLINE_MS): Int {
         val at = java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis())
         val whole = java.util.concurrent.atomic.AtomicBoolean(false)
         val over = java.util.concurrent.atomic.AtomicBoolean(false)
@@ -1230,7 +1239,7 @@ object Wire {
             while (!over.get()) {
                 try { Thread.sleep(500) } catch (_: InterruptedException) { return@Thread }
                 if (stop?.get() == true) { conn?.disconnect(); return@Thread }   // another door won the race
-                val patience = if (whole.get()) maxOf(POST_DEADLINE_MS, pieceMs / 2) else POST_DEADLINE_MS
+                val patience = if (whole.get()) maxOf(silenceMs, pieceMs / 2) else silenceMs
                 if (!over.get() && System.currentTimeMillis() - at.get() > patience) { cut.set(true); conn?.disconnect(); return@Thread }
             }
         }.apply { isDaemon = true }
@@ -1238,7 +1247,7 @@ object Wire {
             val c = URL(door + "/blob-put").openConnection() as HttpURLConnection
             conn = c
             c.requestMethod = "POST"; c.doOutput = true
-            c.connectTimeout = POST_DEADLINE_MS; c.readTimeout = pieceMs
+            c.connectTimeout = silenceMs; c.readTimeout = pieceMs
             c.setRequestProperty("content-type", "application/json")
             c.setFixedLengthStreamingMode(raw.size)
             watch.start()
