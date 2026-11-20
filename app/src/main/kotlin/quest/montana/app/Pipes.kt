@@ -2533,6 +2533,19 @@ object Post {
             // it neither its own nor the correspondent's. The letter stays in the queue until the key stands; the next flush seals it signed.
             if (LetterAuthor.key == null) { Diary.folded("tx_unproven", "the author key is not derived yet -- the letter stays queued mid=" + mid.take(8), 60_000, "tx_unproven"); continue }
             val intro = Meeting.first(to)
+            if (intro != null && !Meeting.firstKnockAllowed(to)) {
+                // A PROVENLY DEAD KNOCK IS PUT OUT, NOT SKIPPED (iOS DeliveryEngine 1793-1803, MTRefusal.cardSpent): the card was spent by
+                // another encapsulation (the node's gravestone twice); the letter is honestly red and the queue clean -- the dead ahead
+                // of the living used to hold delivery for minutes.
+                Log.d("Montana", "DELIVERY x mid=" + mid.take(8) + " first-contact dead for " + to.take(10) + " -- settled")
+                done.add(mid); Groups.copyLost(mid)
+                var red: Msg? = null
+                val chat = SamePair.root(to)
+                Book.edit(chat) { c -> c.msgs.find { it.mid == mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }
+                red?.let { CoinSend.hold(it, chat) }
+                continue
+            }
+            if (intro != null) Meeting.auditFirst(to)
             val text = o.getString("t")
             val sent = if (intro != null) {
                 // the question «do we already share a pipe?» is itself the silent first letter that carries the ciphertext (iOS MTSamePair.ask)
