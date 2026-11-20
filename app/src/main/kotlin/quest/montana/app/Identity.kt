@@ -384,6 +384,7 @@ object Prefs {
      */
     private val SHARED = setOf("mt.notify.asked", "bubbleColorIndex", "bubbleStyle", "noteQuality", "voiceOrb.look", "voiceRate",
         "diagGen", "diagId", "diagWm", "locAsked", "exitSeen",
+        "mt.doorbook.life", "mt.relay.machines",   // the phone's book of doors and its relays' machines (iOS a file of the device; deviceKeys relayMachinesKey)
         NothingLeft.ERASED)   // the whole erase still owed on this phone (iOS SeedScope.deviceKeys: MontanaSeed.erasedKey): never a seat's
     private val SHARED_PREFIXES = listOf("cbMine", "cbPeer", "mt.update.", "mt.release.")
     fun shared(key: String): Boolean = key in SHARED || SHARED_PREFIXES.any { key.startsWith(it) }

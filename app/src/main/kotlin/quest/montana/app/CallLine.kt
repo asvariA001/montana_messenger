@@ -112,7 +112,7 @@ object CallLine {
         var ladderMovedAt = 0L
         var ladderGoodTicks = 0
         var lastVideoLost = 0L
-        var probeAfter = PROBE_FIRST   // the bottom step's wait before it probes a step up (iOS probeAfter, 2454)
+        var ladderBadTicks = 0   // ticks in a row that held at least one network witness (iOS ladderBadTicks, OZ 1)
         var powerTicks = 0
         var breakRound = 0   // a deadline armed by an earlier break never ends a later one
         var lastIce = "new"
@@ -360,6 +360,8 @@ object CallLine {
             // THE ENGINE'S OWN GATHER FAILURES (iOS didFailToGatherIceCandidate, atom 319c1ca96b0a): by scheme and code, never an address
             override fun onIceCandidateError(e: org.webrtc.IceCandidateErrorEvent) {
                 log("ice_gather_fail scheme=" + e.url.substringBefore(':') + " code=" + e.errorCode)
+                // the road's verdict is the book's (iOS MontanaCall 6504, OZ 1 p.7): 701 or a 5xx -- silence; any other code -- an answer
+                if (e.url.startsWith("turn")) { if (e.errorCode == 701 || e.errorCode in 500..599) DoorBook.silent(e.url) else DoorBook.answered(e.url) }
             }
         }).setSSLCertificateVerifier(RelayTrust).createPeerConnectionDependencies()) ?: return null.also { log("no connection"); Calls.hangUp("connection-unbuilt") }
         // iOS buildPC: one voice track «mt_audio» in the stream «mt_stream», the person's mute applied to it at birth
@@ -423,6 +425,8 @@ object CallLine {
 
     /** Our candidates: the first bundle leaves at once, the rest in batches of 200 ms (iOS 4916-4936), one word each (E2E 1090). */
     private fun gathered(l: Line, c: IceCandidate) = work.execute {
+        // a relay candidate is the road's own answer (iOS MontanaCall 6142, OZ 1 p.7)
+        if (c.sdp.contains(" typ relay") && !c.serverUrl.isNullOrEmpty()) DoorBook.answered(c.serverUrl)
         if (synchronized(gate) { line !== l }) return@execute
         l.out.add(c)
         if (l.batching || l.holding) return@execute
@@ -817,17 +821,20 @@ object CallLine {
         if (stun.size != allStun.size || reachableUris.size != allUris.size) log("turn_cred dropped " + (allStun.size - stun.size + allUris.size - reachableUris.size) + " of a family this phone has not")
         if (stun.isNotEmpty()) list.add(PeerConnection.IceServer.builder(stun).createIceServer())
         // iOS turnRank: the TLS door on 443 first — it survives dead UDP and DPI — then the other TLS, tcp, udp
-        val uris = reachableUris.sortedBy { u ->
+        var uris = reachableUris.sortedBy { u ->
             if (u.startsWith("turns:")) (if (u.contains(":443")) 0 else 1) else if (u.contains("transport=tcp")) 2 else 3
         }
         RelayTrust.learn(uris)   // the names the relay's certificate is checked against, by the system's own trust (iOS 1783)
+        // A RELAY'S ROAD IS A DOOR OF THE BOOK (iOS rtcConfig 1792, OZ 1 p.7): within the rank, the road's last word places it -- a road
+        // that died on this network stands behind the ones that answered
+        uris = DoorBook.ordered(uris)
         if (uris.isNotEmpty()) list.add(PeerConnection.IceServer.builder(uris).setUsername(p.optString("u")).setPassword(p.optString("c")).createIceServer())
         log("servers stun=" + stun.size + " relay=" + uris.size)
         return list
     }
 
     /** The families this phone holds now (iOS MontanaNet.hasV4/hasV6): a literal relay address of another family is dropped. */
-    private fun reachable(urls: List<String>): List<String> {
+    fun reachable(urls: List<String>): List<String> {
         val lp = runCatching { Book.ctx.getSystemService(ConnectivityManager::class.java).let { it.getLinkProperties(it.activeNetwork) } }.getOrNull() ?: return urls
         val addrs = lp.linkAddresses.map { it.address }.filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
         val own4 = addrs.any { it is java.net.Inet4Address }
@@ -864,13 +871,92 @@ object CallLine {
             val (code, text) = Wire.post(door, "/turn-cred", JSONObject(), 6000)
             val o = if (code == 200 && text != null) runCatching { JSONObject(text) }.getOrNull() else null
             val uris = o?.optJSONArray("uris")
-            if (o != null && uris != null && uris.length() > 0 && o.optString("username").isNotEmpty())
+            if (o != null && uris != null && uris.length() > 0 && o.optString("username").isNotEmpty()) {
+                learnRelayMachine(strings(uris), door)   // every machine's answer names its own relay (iOS learnRelayMachine, OZ 1 p.6)
                 got.offer(JSONObject().put("u", o.optString("username")).put("c", o.optString("credential")).put("uris", uris)
-                    .put("stun", o.optJSONArray("stun") ?: JSONArray()))
+                    .put("stun", o.optJSONArray("stun") ?: JSONArray()).put("door", door))
+            }
         }.start()
         val p = got.poll(4, java.util.concurrent.TimeUnit.SECONDS) ?: return null   // iOS: four seconds at most on a cold start
+        // THE PASS REMEMBERS ITS DOOR, AND A NEW ONE IS PROBED (iOS rememberTurnPass, N-3): roads the last pass did not name are probed
+        // before a call needs them
+        val wasRoads = runCatching { JSONObject(Prefs.str(PASS, "")) }.getOrNull()?.optJSONArray("uris")?.let { strings(it).toSet() }
         Prefs.setStr(PASS, p.toString())
+        if (wasRoads != strings(p.optJSONArray("uris")).toSet()) probeRelays()
         return p
+    }
+
+    // ── the relay's machine (iOS MontanaWakePush relayMachine 1940-1990, OZ 1 p.6) ──
+    // A node hands out only its own relay (/turn-cred, the sovereign pass), so every address of a pass belongs to the machine behind the
+    // door that answered it -- the fleet's word by /doors (Doors.machines). Learned from that answer alone; the servers keep no journal.
+    private const val RELAY_MACHINES = "mt.relay.machines"
+    private fun relayBook(): JSONObject = runCatching { JSONObject(Prefs.str(RELAY_MACHINES, "{}")) }.getOrDefault(JSONObject())
+    private fun learnRelayMachine(uris: List<String>, door: String) {
+        val h = android.net.Uri.parse(door).host ?: return
+        val id = Doors.machineHosts().firstOrNull { h in it.second }?.first ?: return
+        synchronized(RELAY_MACHINES) {
+            val book = relayBook()
+            var changed = false
+            for (u in uris) relayHost(u)?.let { if (book.optString(it) != id) { book.put(it, id); changed = true } }
+            if (changed) Prefs.setStr(RELAY_MACHINES, book.toString())
+        }
+    }
+    /** The machine of a relay candidate by its server's URL; «?» for a relay no pass of a known machine named (asked of the pass's door, N-3). */
+    private fun relayMachine(url: String?): String {
+        val h = url?.let { relayHost(it) } ?: return "?"
+        relayBook().optString(h).ifEmpty { null }?.let { return it }
+        runCatching { JSONObject(Prefs.str(PASS, "")) }.getOrNull()?.let { o ->
+            val door = o.optString("door")
+            if (door.isNotEmpty()) learnRelayMachine(strings(o.optJSONArray("uris")), door)
+        }
+        return relayBook().optString(h).ifEmpty { "?" }
+    }
+    /** The host of a relay's URL: «turn:1.2.3.4:3478?transport=udp», «turns:turn.x:5349?transport=tcp», «turn:[v6]:3478». */
+    private fun relayHost(u: String): String? {
+        val rest = u.substringAfter(':', "").substringBefore('?').ifEmpty { return null }
+        if (rest.startsWith("[") && rest.contains(']')) return rest.substring(1, rest.indexOf(']'))
+        return rest.substringBefore(':')
+    }
+
+    // ── the TLS relay road's probe (iOS MTRelayProbe, MontanaCall 9148-9215, OZ 1 p.7, N-3) ──
+    private val probing = java.util.concurrent.atomic.AtomicBoolean(false)
+    /**
+     * THE TLS RELAY ROAD, ONCE PER NETWORK (iOS MTRelayProbe.run): outside any call, on the first carrying path of every network -- the
+     * process's first too -- and after a new pass, each TLS road of the remembered pass is walked in two steps: TCP alone (why=tcp),
+     * then TLS judged by the system's own trust and the relay's name (why=cert when it refused, why=tls when the handshake failed or
+     * never ended). The road's answer and silence are the book's; the call ranks its roads by it (servers).
+     */
+    fun probeRelays() {
+        val p = runCatching { JSONObject(Prefs.str(PASS, "")) }.getOrNull()
+        if (p == null || p.optJSONArray("uris") == null) { Log.d("Montana", "relay_probe why=nopass"); return }
+        val roads = reachable(strings(p.optJSONArray("uris"))).filter { it.startsWith("turns:") }
+        if (roads.isEmpty() || !probing.compareAndSet(false, true)) return   // one walk at a time
+        RelayTrust.learn(roads)
+        Thread {
+            try { for (road in roads) probe(road) } finally { probing.set(false) }
+        }.start()
+    }
+    private fun probe(road: String) {
+        val t0 = System.currentTimeMillis()
+        val host = DoorBook.host(road)
+        val port = DoorBook.port(road) ?: return
+        var why: String? = null
+        val raw = java.net.Socket()
+        try {
+            try { raw.connect(java.net.InetSocketAddress(host, port), 6000); raw.soTimeout = 6000 } catch (_: Exception) { why = "tcp" }
+            if (why == null) try {
+                (javax.net.ssl.SSLSocketFactory.getDefault() as javax.net.ssl.SSLSocketFactory).createSocket(raw, host, port, true).use { t ->
+                    t as javax.net.ssl.SSLSocket
+                    t.startHandshake()
+                    if (!javax.net.ssl.HttpsURLConnection.getDefaultHostnameVerifier().verify(host, t.session)) why = "cert"
+                }
+            } catch (e: javax.net.ssl.SSLHandshakeException) {
+                why = if (e.cause is java.security.cert.CertificateException || e.message?.contains("ertificate") == true) "cert" else "tls"
+            } catch (_: Exception) { why = "tls" }
+        } finally { runCatching { raw.close() } }
+        if (why == null) DoorBook.answered(road) else DoorBook.silent(road, weight = 2)
+        // never the address: the road's kind and port, the machine the phone names it by (p.6), the verdict
+        Log.d("Montana", "relay_probe road=turns/tcp port=" + port + " machine=" + relayMachine(road) + " why=" + (why ?: "ok") + " ms=" + (System.currentTimeMillis() - t0))
     }
 
     // ── the phone's sound (iOS configureAudioSession, setSpeaker 974, toggleMute 3131) ──
@@ -1266,17 +1352,19 @@ object CallLine {
         } else if (track != null) l.pc.addTrack(track, listOf("mt_stream"))
     }
 
-    // THE LADDER'S STEPS (iOS videoLadder 3458, modestStep 3849): six steps from 2 Mbit/s down to none; a call starts on the
-    // modest one, 700 kbit/s, and the top opens only for a pair proven direct (raiseVideoCeiling)
-    private val LADDER = intArrayOf(2_000_000, 1_200_000, 700_000, 400_000, 250_000, 0)
+    // THE LADDER'S STEPS (iOS videoLadder, modestStep): six steps from 2 Mbit/s down to 120 kbit/s; a call starts on the modest one,
+    // 700 kbit/s, and the top opens only for a pair proven direct (raiseVideoCeiling).
+    // THE PICTURE NEVER GOES DARK BY ITSELF (iOS OZ 1 p.1, the author's word 24854): a bad channel makes the picture smaller and slower,
+    // never absent -- only the person's button turns the camera off. Every step sends frames; the two bottom ones soften and slow the
+    // camera instead. A step that sends frames keeps the peer's reports coming, so the ordinary clean rise climbs back -- no probe by time.
+    private val LADDER = intArrayOf(2_000_000, 1_200_000, 700_000, 400_000, 250_000, 120_000)
+    private val LADDER_SCALE = doubleArrayOf(1.0, 1.0, 1.0, 1.0, 2.0, 3.0)
+    private val LADDER_FPS = arrayOf<Int?>(null, null, null, null, 15, 10)
     private const val MODEST = 2
-    /**
-     * THE BOTTOM STEP IS NOT A GRAVE (iOS probeFirst, 2454, the law of one witness part 4): at the bottom no picture is sent, so
-     * no report of mine can prove the channel clean again -- the step held the call without video to its end. A probe rises
-     * one step after this wait; a probe the squeeze takes back doubles it (up to two minutes), a clean rise resets it.
-     */
-    private const val PROBE_FIRST = 20_000L
-    private const val PROBE_MOST = 120_000L
+    /** THE LADDER'S ONE WRITER (iOS ladderStand, OZ 1): the step, the moment it was taken and the counts of the ticks behind it change together. */
+    private fun stand(l: Line, step: Int) {
+        l.ladderStep = step; l.ladderMovedAt = System.currentTimeMillis(); l.ladderGoodTicks = 0; l.ladderBadTicks = 0
+    }
 
     /**
      * THE PAIR THE CALL RIDES HAS ONE WITNESS (iOS MontanaCall.riddenPair, 2455): the transport's selected pair. Several pairs
@@ -1296,26 +1384,29 @@ object CallLine {
     private fun floorOf(l: Line) = maxOf(powerFloorNow, l.pathFloor)
 
     /** iOS boostVideo 3826-3839: every offer and answer writes the step the ladder stands on, never a top it has left. */
-    private fun bound(l: Line) = ceiling(l, LADDER[maxOf(l.ladderStep, floorOf(l))])
+    private fun bound(l: Line) = ceiling(l, maxOf(l.ladderStep, floorOf(l)))
 
     /**
-     * THE ONE PLACE A VIDEO CEILING IS SET (iOS setVideoCeiling 3792-3824). Zero is the bottom step: the encoding goes quiet,
-     * the track and its owners (the hold, the share) are untouched. At least half the ceiling, never more than 300 kbit/s.
-     * UNDER THE POWER FLOOR the encoder's work falls fourfold (iOS 3816-3819): a camera at half its resolution and fifteen
-     * frames a second; a shared screen keeps its pixels and slows to eight -- letters stay letters.
+     * THE ONE PLACE A VIDEO CEILING IS SET (iOS setVideoCeiling(step:)): the step's rate, sharpness and frame rate, the power floor
+     * beside them. THE LADDER NEVER TOUCHES THE TRACK: the encoding stays active at every step (OZ 1 p.1) -- the ladder shapes the
+     * picture, it never silences it. At least half the ceiling, never more than 300 kbit/s. UNDER THE POWER FLOOR the encoder's work
+     * falls fourfold: half the resolution, fifteen frames a second; a bottom step shrinks and slows the camera further, the stricter of
+     * the two holds; a shared screen keeps its pixels at every step and slows to eight -- letters stay letters.
      */
-    private fun ceiling(l: Line, bps: Int) {
+    private fun ceiling(l: Line, step: Int) {
+        val i = step.coerceIn(0, LADDER.size - 1)
+        val bps = LADDER[i]
         runCatching {
             val s = l.pc.transceivers.firstOrNull { it.mediaType == MediaStreamTrack.MediaType.MEDIA_TYPE_VIDEO }?.sender ?: return
             val p = s.parameters
             val floor = powerFloorNow
             p.encodings.firstOrNull()?.let {
-                it.active = bps > 0
-                if (bps > 0) {
-                    it.maxBitrateBps = bps; it.minBitrateBps = minOf(300_000, bps / 2)
-                    it.scaleResolutionDownBy = if (floor > 0 && !sharing) 2.0 else 1.0
-                    it.maxFramerate = if (floor > 0) (if (sharing) 8 else 15) else null
-                }
+                it.active = true
+                it.maxBitrateBps = bps; it.minBitrateBps = minOf(300_000, bps / 2)
+                val powerScale = if (floor > 0) 2.0 else 1.0
+                it.scaleResolutionDownBy = if (sharing) 1.0 else maxOf(LADDER_SCALE[i], powerScale)
+                val powerFps = if (floor > 0) (if (sharing) 8 else 15) else null
+                it.maxFramerate = listOfNotNull(LADDER_FPS[i], powerFps).minOrNull()
             }
             // a shared screen keeps its letters sharp and gives up motion; a camera the reverse (iOS 3804-3809, 3822)
             p.degradationPreference = if (sharing) RtpParameters.DegradationPreference.MAINTAIN_RESOLUTION else RtpParameters.DegradationPreference.MAINTAIN_FRAMERATE
@@ -1365,47 +1456,38 @@ object CallLine {
             l.sum.powerFloorMax = maxOf(l.sum.powerFloorMax, pw.floor)
             log("call_power floor " + pw.floor + " — " + pw.word)
             if (l.ladderStep < floorOf(l)) {
-                l.ladderStep = floorOf(l); l.ladderMovedAt = now; l.ladderGoodTicks = 0
+                stand(l, floorOf(l))
                 l.sum.ladderMin = maxOf(l.sum.ladderMin, l.ladderStep)
             }
-            ceiling(l, LADDER[l.ladderStep])   // re-applied: the floor changes the encoder's shape too
+            ceiling(l, l.ladderStep)   // re-applied: the floor changes the encoder's shape too
             val saving = pw.floor > 0
             if (powerSaving != saving) { powerSaving = saving; moved() }
         }
-        val witnesses = (if (limit == "bandwidth") 1 else 0) + (if (lostDelta > 8) 1 else 0) + (if (rttMs > 400) 1 else 0)
-        val squeezed = witnesses >= 2
+        // A squeeze is a fact of two network witnesses: packets of my picture actually lost, and a round trip grown past what a
+        // conversation tolerates. THE ENCODER'S «BANDWIDTH» IS NO NETWORK WITNESS (iOS OZ 1 p.1): it names our own ceiling as often as
+        // the channel. ONE WITNESS HELD IS A SQUEEZE TOO (iOS OZ 1, the critic of 19.11.2026): a queue on cellular loses nothing and only
+        // slows -- three ticks in a row of one witness (about fifteen seconds) are no spike.
+        val witnesses = (if (lostDelta > 8) 1 else 0) + (if (rttMs > 400) 1 else 0)
+        l.ladderBadTicks = if (witnesses > 0) l.ladderBadTicks + 1 else 0
+        val squeezed = witnesses >= 2 || l.ladderBadTicks >= 3
         // the traffic light: the top step is the floor's -- a pair not proven direct stands at its modest top and is green there
         val light = if (squeezed) 0 else if (l.ladderStep > floorOf(l)) 1 else 2
         if (signal != light) { signal = light; moved() }
         val since = now - l.ladderMovedAt
-        // THE BOTTOM PROBES UPWARD (iOS 2454): no picture, no report can prove the channel clean -- a step up after the wait
-        if (!squeezed && l.ladderStep == LADDER.size - 1 && l.ladderStep > floorOf(l) && since > l.probeAfter) {
-            l.ladderStep--
-            l.ladderMovedAt = now
-            l.ladderGoodTicks = 0
-            l.probeAfter = minOf(l.probeAfter * 2, PROBE_MOST)
-            ceiling(l, LADDER[l.ladderStep])
-            log("call_ladder probe step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " rtt=" + rttMs + " next_probe_s=" + l.probeAfter / 1000)
-            return
-        }
         if (squeezed) {
             l.ladderGoodTicks = 0
             if (since <= 8_000 || l.ladderStep >= LADDER.size - 1) return
-            l.ladderStep++
+            stand(l, l.ladderStep + 1)
             l.sum.ladderMin = maxOf(l.sum.ladderMin, l.ladderStep)
-            l.ladderMovedAt = now
-            ceiling(l, LADDER[l.ladderStep])
+            ceiling(l, l.ladderStep)
             log("call_ladder down step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " limit=" + limit + " lost=" + lostDelta + " rtt=" + rttMs)
-        } else if (lostDelta > 8 || rttMs > 400) {
+        } else if (witnesses > 0) {
             l.ladderGoodTicks = 0   // ONE NETWORK WITNESS HOLDS THE STEP (iOS 3768-3777): neither a squeeze nor a clean channel
         } else {
             l.ladderGoodTicks++
             if (l.ladderGoodTicks < 3 || since <= 12_000 || l.ladderStep <= floorOf(l)) return
-            l.ladderStep--
-            l.ladderMovedAt = now
-            l.ladderGoodTicks = 0
-            ceiling(l, LADDER[l.ladderStep])
-            l.probeAfter = PROBE_FIRST   // a clean rise proves the channel: the next bottom probes soon again
+            stand(l, l.ladderStep - 1)
+            ceiling(l, l.ladderStep)
             log("call_ladder up step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " rtt=" + rttMs)
         }
     }
@@ -1441,13 +1523,13 @@ object CallLine {
                 val isDirect = nominated.any { it in direct }
                 l.pathFloor = if (isDirect) 0 else MODEST
                 if (isDirect) {
-                    l.ladderStep = floorOf(l); l.ladderMovedAt = System.currentTimeMillis(); l.ladderGoodTicks = 0
-                    ceiling(l, LADDER[l.ladderStep])
+                    stand(l, floorOf(l))
+                    ceiling(l, l.ladderStep)
                     if (signal != 2) { signal = 2; moved() }
                     log("video: ceiling raised -- the pair is direct over UDP")
                 } else {
-                    if (l.ladderStep < floorOf(l)) { l.ladderStep = floorOf(l); l.ladderMovedAt = System.currentTimeMillis(); l.ladderGoodTicks = 0 }
-                    ceiling(l, LADDER[l.ladderStep])
+                    if (l.ladderStep < floorOf(l)) stand(l, floorOf(l))
+                    ceiling(l, l.ladderStep)
                     val why = if (nominated.any { it in tunnel }) "the pair rides a tunnel" else if (nominated.isEmpty()) "no pair nominated yet" else "the pair goes through a relay or over TCP"
                     log("video: ceiling held modest (" + LADDER[l.ladderStep] / 1000 + " kbps) -- " + why)
                 }
@@ -1471,6 +1553,7 @@ object CallLine {
     private fun sample(l: Line, gen: Int, r: RTCStatsReport) {
         if (synchronized(gate) { line !== l } || gen != l.measureGen) return
         var pair = "?"; var rttMs = -1; var kind = "?"; var net = "?"; var tun = 0
+        var relay = "-"   // my relay's machine (iOS OZ 1 p.6): «-» off a relay, «?» a relay no pass of a known machine named
         var aBytes = 0L; var aLost = 0L; var aJit = -1
         var vBytes = 0L; var vLost = 0L; var vW = 0L; var vH = 0L; var vFps = 0L
         var outBytes = 0L; var outFrames = 0L; var outLimit = "-"; var outAudio = 0L; var outId = ""
@@ -1500,6 +1583,8 @@ object CallLine {
                 "local-candidate" -> if (x.id == nominatedLocal) {
                     kind = m["candidateType"] as? String ?: "?"
                     net = m["networkType"] as? String ?: "?"
+                    // THE ROAD IS NAMED BY THE PHONE (iOS OZ 1 p.6): my relay's machine, by the pass that named its address
+                    if (kind == "relay") relay = relayMachine(m["url"] as? String)
                     tun = if (net == "vpn") 1 else 0
                 }
                 "remote-candidate" -> if (x.id == nominatedRemote) far = m["candidateType"] as? String ?: "?"
@@ -1572,7 +1657,7 @@ object CallLine {
         if (now - l.lastJournalAt < 5000) return   // the journal keeps its five-second rhythm (iOS 4080-4087)
         l.lastJournalAt = now
         val via = if (tun == 1) "tunnel" else net
-        log("call_audio path=" + kind + " far=" + far + " pair=" + pair + " rtt_ms=" + rttMs + " bytes=" + aBytes + " lost=" + aLost + " jitter_ms=" + aJit +
+        log("call_audio path=" + kind + " far=" + far + " relay=" + relay + " pair=" + pair + " rtt_ms=" + rttMs + " bytes=" + aBytes + " lost=" + aLost + " jitter_ms=" + aJit +
             " via=" + via + " out_bytes=" + outAudio + " mic=" + (if (muted || held) 0 else 1))
         if (video) {
             log("call_video path=" + kind + " rtt_ms=" + rttMs + " in_bytes=" + vBytes + " lost=" + vLost + " out_lost=" + (outLostBy[outId] ?: -1) + " size=" + vW + "x" + vH + " fps=" + vFps +

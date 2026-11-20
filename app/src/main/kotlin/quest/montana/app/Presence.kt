@@ -57,8 +57,9 @@ object Signal {
                 // ONE LANE PER DOOR (iOS 3031-3053): the word waits its turn; a chat word of this conversation replaces the one still waiting
                 onSignalLane(door, if (epoch == "chat") ref else null) {
                     try {
-                        // a chat word that waited past its door's death does not dial it; a call's word knocks every door (iOS 3033-3037)
-                        if (epoch == "chat" && !doorAlive(door) && !Calls.busy()) return@onSignalLane
+                        // A WORD THAT WAITED PAST ITS DOOR'S DEATH dials it only as the minute's probe (iOS postSignal 4005-4010, OZ 1 p.4):
+                        // the call's copies to every door and the room's words alike -- not 29 dials of dead doors beside the media
+                        if (!DoorBook.mayDial(door)) { Log.d("Montana", "sig_tx SKIP dead door=" + host(door)); return@onSignalLane }
                         val (code, _) = onLane { Wire.post(door, "/signal", req, 8000, it) }
                         if (code == 200) doorAnswered(door) else if (code != CUT) doorFailed(door, code)
                     } finally { leaveSignalLane(door) }
@@ -264,6 +265,8 @@ object Signal {
                     if (sig == judgedOn) return
                     judgedOn = sig
                     forgive("path available")
+                    // THE TLS RELAY ROAD, ONCE PER NETWORK, THE PROCESS'S FIRST NETWORK TOO (iOS MontanaApp 1338-1341, OZ 1 p.7, N-3)
+                    if (!Calls.busy()) CallLine.probeRelays()
                 }
                 override fun onLost(n: android.net.Network) = cut("path lost — the questions on its socket are cut", posts = true)
             })

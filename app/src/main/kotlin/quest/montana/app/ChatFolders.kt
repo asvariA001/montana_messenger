@@ -103,8 +103,12 @@ object ChatFolders {
         Book.isMontana(ref) -> CHANNELS
         else -> null
     }
-    /** The conversations with something unread in one list of the panel (iOS MTApplication.badge for .chats, .groups, .channels). */
-    fun unread(room: String?): Int = Book.listed().count { room(it.ref) == room && ChatMarks.hasUnread(it) }
+    /**
+     * The conversations with something unread in one list of the panel (iOS MTApplication.badge for .chats, .groups, .channels) that
+     * the person still hears: THE LOUD COUNT (iOS MTUnreadLedger.loud, OZ 1 p.11, the author's words 24950, 24958) -- a muted chat,
+     * group or channel shows its unread only as the grey number of its own row, never on the tabs, the drawer or the folded logo.
+     */
+    fun unread(room: String?): Int = Book.listed().count { room(it.ref) == room && ChatMarks.hasUnread(it) && !ChatMarks.isMuted(it.ref) }
     /** A folder's rows in the chats' one order: the rows of the list, and the archived ones where the folder keeps them. */
     fun rows(f: ChatFolder, live: List<Chat>, archived: List<Chat>, contacts: Set<String>? = contacts()): List<Chat> {
         if (f.isAll) return live

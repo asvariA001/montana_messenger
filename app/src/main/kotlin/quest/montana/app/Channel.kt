@@ -434,6 +434,7 @@ object Channels {
         for (d in doors) {
             val label = d.label
             if (label in skip) continue
+            if (!dialable(d.host)) continue   // a node's literal IPv6 door on a path without IPv6 is not knocked (iOS ensureChannel, N-4)
             // A DOOR THE BOOK HOLDS DEAD IS NOT DIALLED (iOS MontanaNodes.open 289-292, OZ 1 p.2): the pace and the rest are one book's
             val c = synchronized(live) {
                 if (live.containsKey(label)) return@synchronized null
@@ -460,7 +461,8 @@ object Channels {
             if (localFaultRecent()) DoorBook.notJudged(key) else Signal.doorFailed(key, -1)
         }
         Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
-            " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt))
+            " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt) +
+            (if (!c.ready && c.label in doorLabels()) " " + DoorBook.record(DoorBook.door(c.host, c.port)) else ""))   // the book's record (iOS MontanaDirect 1615)
     }
 
     private fun up(c: Channel) {
@@ -713,9 +715,26 @@ object Channels {
         }
     }
 
+    /**
+     * A PEER'S ADDRESS OF A FAMILY THIS NETWORK DOES NOT HOLD IS NOT DIALLED (iOS MontanaNet.dialable, ContentView 3615-3623, N-4, the
+     * critic of 19.11.2026: T1 on LTE with v4=1 v6=0 dialled a peer's IPv6 address and met «Network is down»). A literal IPv6 address
+     * needs IPv6 on the path AND an IPv6 of our own; an IPv4 one is reached on an IPv6-only network by the system's synthesis (464XLAT),
+     * so it is never judged here. THE ONE JUDGE of an address -- the walk of the paths, a peer's announce and the dial read it here.
+     */
+    fun dialable(ip: String): Boolean {
+        if (!ip.contains(':')) return true
+        val pathV6 = runCatching {
+            val cm = Book.ctx.getSystemService(android.net.ConnectivityManager::class.java)
+            cm.getLinkProperties(cm.activeNetwork)?.linkAddresses?.any { it.address is java.net.Inet6Address && !it.address.isLinkLocalAddress && !it.address.isLoopbackAddress }
+        }.getOrNull() ?: true
+        return pathV6 && candidates().any { it.contains(':') }
+    }
+
     /** A correspondent's own door, by TCP (iOS ensureChannel): the channel a node gets, bound to the correspondent's name. */
     private fun dialPeer(ip: String, port: Int, ref: String) {
         val ident = NodeIdentity.device() ?: return
+        // THE ONE DIALER IS THE ONE GATE OF THE FAMILY (iOS MontanaDirect 596-603, N-4, the author's word 25181): whichever caller names it
+        if (!dialable(ip)) { Log.d("Montana", "dial_skip family ip=" + (if (ip.contains(':')) "v6" else "v4") + ":" + port); return }
         val c = synchronized(live) {
             val label = labelOf(ip, port, false)
             if (live.containsKey(label)) return@synchronized null
@@ -733,7 +752,6 @@ object Channels {
     private fun keepPaths() {
         val now = System.currentTimeMillis()
         val callPeer = if (Calls.busy()) Calls.peer() else null
-        val v6Here = candidates().any { it.contains(':') }   // iOS 554: any IPv6 of our own interfaces, not only a global one
         val entries = synchronized(book) { book.mapValues { it.value.toList() } }
         var attempts = 0
         for ((ref, eps) in entries) {
@@ -743,7 +761,7 @@ object Channels {
                 continue
             }
             for ((ip, port) in eps) {
-                if (!isGlobal(ip) || !(v6Here || !ip.contains(':'))) continue
+                if (!isGlobal(ip) || !dialable(ip)) continue   // the one judge of the family (iOS MontanaNet.dialable, N-4)
                 if (attempts >= 4) return
                 val key = ip + ":" + port
                 val due = synchronized(pathAt) {
