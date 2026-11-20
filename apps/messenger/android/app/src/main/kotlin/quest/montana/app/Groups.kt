@@ -528,7 +528,8 @@ object Groups {
     }
     /** The line above a speaker's bubble (iOS speakerLine): in a group every letter of another says who wrote it; a channel speaks as itself. */
     fun speakerLine(c: Context, m: Msg, chat: String): String? =
-        if (m.mine || m.from?.startsWith(SPEAKER_HEAD) != true || state(chat)?.kind != GROUP) null else speakerName(c, m.from)
+        if (!m.mine && Book.isMesh(chat)) MeshRoom.name(c, m.from)   // the mesh wall names its writer from the row (iOS MTMeshRoom.name(of:))
+        else if (m.mine || m.from?.startsWith(SPEAKER_HEAD) != true || state(chat)?.kind != GROUP) null else speakerName(c, m.from)
 
     // ── the wire ──
 
@@ -2898,7 +2899,7 @@ object Groups {
         }
         stand(g, null, revive = true)   // a letter
         val sp = speaker(g.id, seat)
-        val at = Marks.birthMs(id) ?: System.currentTimeMillis()
+        val at = Marks.moment(id)   // the letter's birth, no further ahead than the clock allows (iOS MTMid.moment, 2454)
         val quote = w.optString("qt").ifEmpty { null }
         val quoted = w.optString("qm").removePrefix("mid:").ifEmpty { null }
         var landed = false

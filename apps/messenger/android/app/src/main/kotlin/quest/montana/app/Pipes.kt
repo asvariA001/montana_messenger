@@ -1004,6 +1004,12 @@ object Wire {
         // hands nothing on, so the phone lays a quiet piece's copies itself.
         if (bulk && quiet) {
             for ((id, door) in copies(bid, taken)) {
+                // A MACHINE AT REST IS PASSED, NOT WAITED OUT (iOS db738aca, 2455, the law of one witness part 3): a machine whose
+                // every door was dead from this network took each quiet copy, and the lane waited out the silence of every piece
+                // while the person's media stood behind it (some 2900 failed copies in a day on an iPhone). copies() names a resting
+                // door only when no door of the machine lives; the quiet lane passes that machine -- a failed copy costs the
+                // redundancy alone. A letter's copies (mirror) still go to a resting machine.
+                if (!Signal.doorAlive(door)) { Log.d("Montana", "blob_copy passed copy=" + bid.take(8) + " to=" + id + " -- the machine rests"); continue }
                 if (!BulkPuts.yieldToPerson("copy")) break
                 val code = putBlobAt(door, bid, data, cargo, last)
                 if (code != 200) Log.d("Montana", "blob_copy FAIL id=" + bid.take(8) + " to=" + id + " code=" + code)
@@ -1302,6 +1308,18 @@ object Marks {
         if (ms <= lastMs) ms = lastMs + 1
         lastMs = ms
         return "t$ms-" + UUID.randomUUID().toString().uppercase()
+    }
+    /**
+     * THE MOMENT OF A CORRESPONDENT'S LETTER, DECIDED IN ONE PLACE (iOS MTMid.moment, 2454, the law of one witness part 1): the row
+     * wears the birth in the letter's name, never the minute this phone took it; and the name's millisecond is the sender's
+     * claim, so it stands no further ahead than this phone's clock and the tolerance (spec Stage 9 §Ordering, audit S9-F2: two
+     * minutes) -- a claim of a far year would stand under every later letter of the chat. A letter of mine keeps its own moment.
+     */
+    const val BIRTH_TOLERANCE_MS = 120_000L
+    fun moment(mid: String, own: Boolean = false): Long {
+        val now = System.currentTimeMillis()
+        val claimed = birthMs(mid) ?: now
+        return if (own) claimed else minOf(claimed, now + BIRTH_TOLERANCE_MS)
     }
     fun birthMs(mid: String): Long? {
         val core = mid.removePrefix("mid:")
@@ -1739,13 +1757,50 @@ object Book {
     /** Every feed this phone holds, the local room with them -- for the searches that find a file or a letter wherever it lies. */
     fun rooms(): List<Chat> = all() + listOfNotNull(chat(SAVED), chat(MONTANA))
     /** The chat list's feeds: the correspondences and, among them by its moment, the Montana room (iOS: an ordinary row of the list). */
-    fun listed(): List<Chat> = synchronized(lock) { ensure(); chats.values.filter { !isLocal(it.ref) || isMontana(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() } }
+    fun listed(): List<Chat> = synchronized(lock) {
+        ensure()
+        val rest = chats.values.filter { !isLocal(it.ref) || isMontana(it.ref) }.sortedByDescending { it.last?.at ?: 0 }.map { it.shot() }
+        // the mesh wall stands first while this phone is on the mesh (iOS ChatStore 6941-6949)
+        if (!Mesh.discoverable) rest
+        else listOf((chats[MESH] ?: Chat(MESH, ctx.getString(R.string.app_mesh_wall), true).also { chats[MESH] = it; save(it); saveIndex() }).shot()) + rest
+    }
+
+    /**
+     * A WORD OF THE MESH WALL ARRIVED (iOS appendMeshRoom 3436-3447): laid under the name its sender spoke under, once per word, while
+     * this phone is on the mesh; theirs and unread until the room is opened, as every letter is.
+     */
+    fun appendMeshRoom(mid: String, from: String, text: String, at: Long) {
+        if (!Mesh.discoverable || text.isEmpty()) return
+        if (chat(MESH)?.msgs?.any { it.mid == mid } == true) return
+        open(MESH, ctx.getString(R.string.app_mesh_wall), true)
+        edit(MESH) { c ->
+            if (c.msgs.any { it.mid == mid }) return@edit
+            c.msgs.add(Msg(mid, text, false, at, state = 2, from = from))
+            if (openChat != MESH || !Presence.shown) c.unread++
+        }
+        Log.d("Montana", "mesh_room laid chars=" + text.length)
+    }
+    /** A picture, voice, file or sticker of the mesh wall laid whole (iOS MTMeshRoom.lay: appendMediaPlaceholder + fillMedia), theirs, unread until the room is opened. */
+    fun appendMeshItem(mid: String, from: String, text: String, meta: String, path: String) {
+        if (!Mesh.discoverable) return
+        open(MESH, ctx.getString(R.string.app_mesh_wall), true)
+        edit(MESH) { c ->
+            if (c.msgs.any { it.mid == mid }) return@edit
+            c.msgs.add(Msg(mid, text, false, System.currentTimeMillis(), state = 2, file = path, meta = meta, from = from))
+            if (openChat != MESH || !Presence.shown) c.unread++
+        }
+    }
 
     // ── THE ROOM WITHOUT AN ADDRESS (iOS savedMessagesKey, MontanaAvatarKit.swift:6; ChatStore.isLocalRoom, MontanaChatStore.swift:433-437
     // at 2155): Saved Messages is this device writing to itself, a feed like any other opened by the one conversation page; nothing
     // there is sent, waits or fails -- every road that would reach the wire asks isLocal and stops (the author's word 11.09) ──
     const val SAVED = "Saved Messages"   // the storage key is English and never translated, as iOS keeps it
-    fun isLocal(ref: String) = ref == SAVED || ref == MONTANA
+    fun isLocal(ref: String) = ref == SAVED || ref == MONTANA || ref == MESH
+    // ── THE MESH WALL (iOS meshRoomKey, ContentView.swift:3318; ChatStore.isMeshRoom 567, appendMeshRoom 3436-3447): the room the
+    // Bluetooth mesh speaks in (MeshRoom). Its row stands first in the list while the switch «visible in the mesh» is on and is gone
+    // while it is off -- its words stay on the phone ──
+    const val MESH = "Mesh wall"   // COMPAT-LOCAL: a key of this device's list, never a word on the wire
+    fun isMesh(ref: String) = ref == MESH
     // ── THE MONTANA ROOM (iOS montanaRoomKey, ContentView.swift:3228-3246; the author's word 29.09): the room without an address where
     // Montana itself speaks -- a new build, what changed, the button to update. Nobody writes into it; it stands among the chats by
     // its moment, «👑 Montana» under the app's glass icon, and an erased room comes back at once: it stands for everyone (standMontanaRoom) ──
@@ -2290,7 +2345,11 @@ object Post {
     fun send(to0: String, mid: String, text: String, qt: String? = null, qm: String? = null, lp: String? = null, quiet: Boolean = false) {
         if (Groups.isKey(to0)) return   // a group's feed has no pipe: nothing is ever queued to it (iOS: a group's key has no doors)
         // THE ROOM WITHOUT AN ADDRESS HAS NO WIRE (iOS isLocalRoom): its own letter is settled where it was written, never queued
-        if (Book.isLocal(to0)) { Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; Twin.born(to0, mid); return }
+        if (Book.isLocal(to0)) {
+            Book.edit(to0) { c -> c.msgs.find { it.mid == mid && it.mine }?.advance(2) }; Twin.born(to0, mid)
+            if (Book.isMesh(to0)) MeshRoom.say(text)   // the mesh wall's words ride the radio to everyone on the mesh (iOS ChatStore 7519)
+            return
+        }
         val to = if (SamePair.speaksOfPipe(text)) to0 else SamePair.root(to0)   // a folded pipe's words go by its conversation's pipe
         var refused = false
         synchronized(outLock) {
@@ -3446,7 +3505,10 @@ object Post {
                     // the pair's coin key: v3 sends commit to it (iOS heardAbout, COIN-TX-V3); THEIR SEND FOUND NO KEY OF MINE («q»,
                     // 21.10.2026): the word they hold is lost or never came -- told again now
                     if (GooglePlay.COINS) {
+                        // the pair's balance, -1 when they hid it: the newer word wins (iOS heardAbout, MTCoinBoard.note, 03.10/04.10)
+                        if (o.has("c")) CoinBoard.note(ref, o.optLong("c"), o.optDouble("at", System.currentTimeMillis() / 1000.0))
                         o.optString("k").takeIf { it.isNotEmpty() }?.let { CoinTx.notePeerFrom(ref, it) }
+                        o.optString("o").takeIf { it.isNotEmpty() }?.let { OwnWords.heard(it, ref) }   // the pair holds my words: no coin goes to it (iOS MTOwnWords)
                         if (o.has("q")) { CoinTx.forgetToldKey(ref); Thread { MyAbout.sendIfNeeded(ref) }.start() }
                     }
                 }
@@ -3591,7 +3653,7 @@ object Post {
                     }
                     if (had == null && Book.isBuried(ref, mid)) { Log.d("Montana", "rx_buried m=" + mid.take(8) + " — a deleted letter's copy stays out of the feed"); forgetInBox(mid) }
                     else if (had == null) {
-                        val at = Marks.birthMs(mid) ?: System.currentTimeMillis()
+                        val at = Marks.moment(mid)   // the letter's birth, no further ahead than the clock allows (iOS MTMid.moment)
                         c.msgs.add(Msg(mid, text, false, at, qt = qt, qm = qm, lp = lp?.takeIf { LinkCard.parse(it) != null })); c.msgs.sortBy { it.at }
                         // A LOCKED PHONE DOES NOT READ WHAT IT CANNOT SHOW (iOS placeRow, MontanaChatStore.swift:184 at 2155): a letter
                         // landing with the chat left open while the app itself is backgrounded used to be born read, and the icon never
@@ -3798,16 +3860,35 @@ object MyAbout {
         if (!wordsHeld && !keyDue) return
         val b = bio(); val l = link(); val t = tag(b, l)
         val held = Prefs.str("annAbout2.$ref", "")
-        if (!keyDue && (held == t || (held.isEmpty() && t == "0") || Post.inFlight("A", ref, t))) return
-        val word = JSONObject().put("at", System.currentTimeMillis() / 1000.0)
+        // THE BALANCE RIDES THE SAME WORD (iOS the coin door's about/word/told, MTWalletCore.swift 401-421; MTCoinBoard 03.10): told
+        // again when it changed, once in ten minutes at most; HIDDEN IS SAID, NOT LEFT UNSAID (04.10, MTCoinShow): an owner who hid
+        // the coins tells -1 once, and the pair's rating drops the row -- silence would leave the last balance standing on their screen
+        val now = System.currentTimeMillis() / 1000.0
+        val coins = if (GooglePlay.COINS) CoinShow.told else null
+        val said = runCatching { JSONObject(Prefs.str("aboutCoins.$ref", "{}")) }.getOrNull() ?: JSONObject()
+        val coinsDue = coins != null && (!said.has("c") || said.optLong("c") != coins) && 600 <= now - said.optDouble("at", 0.0)
+        val wordsSame = held == t || (held.isEmpty() && t == "0")
+        if (!keyDue && !coinsDue && (wordsSame || Post.inFlight("A", ref, t))) return
+        // A BALANCE ALONE RIDES A ROAD THAT STANDS, NEVER A BELL (iOS 18.10.2026, sendAboutIfNeeded 1670-1682): the people in the
+        // app hear it in the app word (coinBeacon); the word about myself takes it to the others when a live road to them stands
+        if (wordsSame && !keyDue && ref !in Channels.nearRefs()) return
+        val word = JSONObject().put("at", now)
         if (wordsHeld) word.put("b", b).put("l", l)
+        if (coins != null) word.put("c", coins)
         if (coinKey != null) word.put("k", coinKey)
+        if (GooglePlay.COINS) OwnWords.tag(ref)?.let { word.put("o", it) }   // a tag only my words make: a pair of my words knows itself (iOS MTOwnWords)
         if (askKey) word.put("q", 1)
         val mid = Marks.mintMid()
         if (wordsHeld) Post.flight("A", ref, t, mid)   // only a word that carries the words is receipted as them
         Post.send(ref, mid, Marks.ABOUT + word)
         if (coinKey != null) CoinTx.noteToldKey(ref, coinKey)
-        Log.d("Montana", "about_tx to=" + ref.take(10) + " words=" + (if (wordsHeld) 1 else 0) + " key=" + (if (coinKey != null) 1 else 0) + " ask=" + (if (askKey) 1 else 0))
+        if (coins != null) Prefs.setStr("aboutCoins.$ref", JSONObject().put("c", coins).put("at", now).toString())   // NOT-UI: the pace's mark
+        Log.d("Montana", "about_tx to=" + ref.take(10) + " words=" + (if (wordsHeld) 1 else 0) + " key=" + (if (coinKey != null) 1 else 0) + " ask=" + (if (askKey) 1 else 0) + " c=" + (coins ?: "-"))
+    }
+    /** The balance told now, past the word's ten minutes (iOS E2E.tellBalance 1696-1700): the pace's mark is let go and the word goes. */
+    fun tellBalance(ref: String) {
+        Prefs.remove("aboutCoins.$ref")
+        sendIfNeeded(ref)
     }
     fun broadcast() { Book.refs().forEach { sendIfNeeded(it) } }
 }

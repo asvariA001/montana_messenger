@@ -84,8 +84,8 @@ fun meshPane(act: MainActivity): View {
         badge.background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (on) MT.green else MT.red) }
     }
     // THE MESH CARD (iOS MontanaMeshCard 11-104): «Mesh», a hold on it shows what the network does; then who is here, one list
-    // whatever medium reaches them, or the line that nobody is yet. The common room's row (onOpenRoom) and the Bluetooth peers
-    // come with the radio (iOS MontanaBLEMesh, MTMeshRoom) — Android has no Bluetooth mesh yet, so its row stays away.
+    // whatever medium reaches them, or the line that nobody is yet. THE COMMON ROOM FIRST (iOS 48-67, the author's word 29.09): while this
+    // phone is on the mesh, the mesh wall's row opens the room everyone on the mesh is in (iOS onOpenRoom -> ui.openChat(meshRoomKey)).
     val nearList = c.vstack(Gravity.NO_GRAVITY)
     val detail = c.vstack(Gravity.NO_GRAVITY).apply { setPadding(side, c.dp(12), side, c.dp(12)); visibility = View.GONE }
     val near = c.vstack(Gravity.NO_GRAVITY) {
@@ -99,9 +99,25 @@ fun meshPane(act: MainActivity): View {
     var shown: List<String>? = null
     fun drawNear() {
         val refs = Channels.nearRefs().sorted()
-        if (refs != shown) {
-            shown = refs
+        val key = refs + (if (Mesh.discoverable) "room:1" else "room:0")   // the room's row comes and goes with the switch
+        if (key != shown) {
+            shown = key
             nearList.removeAllViews()
+            if (Mesh.discoverable) nearList.addView(c.hstack {
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(side, 0, side, 0)
+                minimumHeight = c.dp(60)
+                addView(FrameLayout(c).apply {
+                    background = c.glassPlate(oval = true)
+                    addView(c.icon(R.drawable.ic_set_antenna, Color.WHITE, 22), FrameLayout.LayoutParams(c.dp(22), c.dp(22), Gravity.CENTER))
+                }, lp(c.dp(48), c.dp(48)).apply { marginEnd = c.dp(12) })
+                addView(c.vstack(Gravity.NO_GRAVITY) {
+                    addView(c.text(c.getString(R.string.app_mesh_wall), 17f, Color.WHITE, bold = true).apply { singleLineEllipsis() }, lp())
+                    addView(c.text(c.getString(R.string.mesh_room_line), 12f, MT.gray).apply { singleLineEllipsis() }, lp())
+                }, lp(0, WRAP, 1f))
+                addView(c.icon(R.drawable.ic_chevron_right, MT.gray, 14), lp(c.dp(14), c.dp(14)).apply { marginStart = c.dp(4) })
+                pressable { act.push { close -> conversationPage(act, Book.MESH, close) } }
+            }, lp())
             if (refs.isEmpty()) nearList.addView(c.text(c.getString(R.string.mesh_none), 12f, MT.gray).apply { setPadding(side, 0, side, c.dp(12)) }, lp())
             for (ref in refs) {
                 val title = Book.chat(ref)?.shown?.takeIf { it.isNotBlank() } ?: ref.take(8)   // USER-DATA: a neighbour's name
@@ -123,11 +139,16 @@ fun meshPane(act: MainActivity): View {
                 addView(c.text(v, 10f, Color.WHITE).apply { typeface = android.graphics.Typeface.MONOSPACE }, lp())   // USER-DATA: a diagnostics value
             }, lp().apply { bottomMargin = c.dp(6) })
             row(R.string.mesh_d_nodes, Channels.nodesHeld().toString())
-            row(R.string.mesh_d_bt, c.getString(R.string.mesh_d_off))
+            row(R.string.mesh_d_bt, if (BleMesh.linkCount > 0) BleMesh.linkCount.toString() else c.getString(R.string.mesh_d_off))
             row(R.string.mesh_d_now, refs.size.toString())
         }
     }
-    sw.setOnCheckedChangeListener { _, v -> Mesh.setDiscoverable(v); draw() }
+    sw.setOnCheckedChangeListener { _, v ->
+        Mesh.setDiscoverable(v)
+        // the radio asks its question at the switch: a yes starts it at once, a no leaves the local network alone on
+        if (v && !BleMesh.granted(c)) (c as? MainActivity)?.askBluetooth { ok -> if (ok) BleMesh.setDiscoverable(true); android.util.Log.d("Montana", "ble_ask granted=" + (if (ok) 1 else 0)) }
+        draw()
+    }
     draw(); drawNear()
     val page = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false

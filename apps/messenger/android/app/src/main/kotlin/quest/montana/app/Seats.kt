@@ -435,8 +435,8 @@ object Seats {
     }
 
     /**
-     * A MOVE LAID IN A SHELF PERSON'S BOOK (iOS MTCoinVault.lay with their entropy -- the vault door Android has not got, so their book
-     * on the shelf takes the line itself): the receive of a transfer to one's own account stands in their book before their lift, under
+     * A MOVE LAID IN A SHELF PERSON'S BOOK (iOS MTCoinVault.lay with their entropy -- CoinVault.lay lays it on the nodes too, and their
+     * book on the shelf takes the line itself, for the nodes keep no copy since decision 1060): the receive of a transfer to one's own account stands in their book before their lift, under
      * the name their own scan credits it by, so the scan finds it held and never twice. False while a turn runs or once seated.
      */
     fun shelfLay(id: String, e: CoinEntry): Boolean = synchronized(lock) {

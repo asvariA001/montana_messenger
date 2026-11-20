@@ -112,6 +112,7 @@ object CallLine {
         var ladderMovedAt = 0L
         var ladderGoodTicks = 0
         var lastVideoLost = 0L
+        var probeAfter = PROBE_FIRST   // the bottom step's wait before it probes a step up (iOS probeAfter, 2454)
         var powerTicks = 0
         var breakRound = 0   // a deadline armed by an earlier break never ends a later one
         var lastIce = "new"
@@ -496,6 +497,7 @@ object CallLine {
                 l.iceRestarts = 0
                 l.restartAskedAt = 0L
                 startRouteWatch(l)
+                rebind(l, "connected from=" + (if (l.connectedAt == 0L) "birth" else "return"))
                 if (l.connectedAt == 0L) {
                     l.connectedAt = System.currentTimeMillis()
                     l.sum.battStart = power().level   // iOS 4420: every call's battery at its connect, a voice call's too
@@ -1014,11 +1016,30 @@ object CallLine {
             runCatching { l.track.setEnabled(!on && !muted) }
             runCatching { l.pc.receivers.forEach { it.track()?.setEnabled(!on) } }
             say(l, JSONArray().put(word(l, if (on) "call-hold" else "call-resume")))
+            if (!on) rebind(l, "resumed")
         }
     }
 
+    @Volatile private var surfaceGen = 0
+    /**
+     * THE PICTURE IS BOUND ANEW AT EVERY CHANGE OF THE TRANSPORT (iOS CallUIModel.rebind, surfaceGen, 2454, the law of one witness
+     * part 4): a restart of the path, a hold given back and a share switched keep the same track object, so a binding made only
+     * when the track changed could stay dead -- frames decoded, the screen black. Every such change raises the generation and
+     * their track's way to the screen is laid again once, on the line's queue.
+     */
+    private fun rebind(l: Line, why: String) = work.execute {
+        if (synchronized(gate) { line !== l }) return@execute
+        val gen = ++surfaceGen
+        l.remote?.let { t -> runCatching { t.removeSink(sniff); t.addSink(sniff) } }
+        log("call_surface rebind gen=" + gen + " why=" + why + " track=" + (if (l.remote == null) 0 else 1))
+    }
+
     /** The far side's hold and resume (iOS 2544-2551): the screen says «On hold». */
-    fun peerHeld(ref: String, epoch: String, on: Boolean) { if (mine(ref, epoch) != null) heldByPeer = on }
+    fun peerHeld(ref: String, epoch: String, on: Boolean) {
+        val l = mine(ref, epoch) ?: return
+        heldByPeer = on
+        if (!on) rebind(l, "peer resumed")
+    }
 
     // ── THE PICTURE (iOS MontanaCall: toggleVideo 3138, dropVideoMode 3162, upgradeToVideo 3190, acceptVideoAsk 3209,
     // enableMyVideo 3227, switchCamera 3251, birthLocalVideo 1158, ensureLocalVideoTrack 1176, remoteVideoArrived 5191) ──
@@ -1135,12 +1156,14 @@ object CallLine {
                 if (l.remote != null) video = true
                 peerSharing = true
                 log("screen: peer sharing on grew=" + l.grewByShare)
+                rebind(l, "peer sharing on")
             }
             "call-screen-off" -> if (peerSharing) {
                 val back = if (w.has("video")) !w.optBoolean("video") else l.grewByShare
                 if (back) { l.grewByShare = false; video = false; remoteLive = false; offerMine = false }
                 peerSharing = false
                 log("screen: peer sharing off audio=" + back)
+                rebind(l, "peer sharing off")
             }
         }
         moved()
@@ -1247,6 +1270,27 @@ object CallLine {
     // modest one, 700 kbit/s, and the top opens only for a pair proven direct (raiseVideoCeiling)
     private val LADDER = intArrayOf(2_000_000, 1_200_000, 700_000, 400_000, 250_000, 0)
     private const val MODEST = 2
+    /**
+     * THE BOTTOM STEP IS NOT A GRAVE (iOS probeFirst, 2454, the law of one witness part 4): at the bottom no picture is sent, so
+     * no report of mine can prove the channel clean again -- the step held the call without video to its end. A probe rises
+     * one step after this wait; a probe the squeeze takes back doubles it (up to two minutes), a clean rise resets it.
+     */
+    private const val PROBE_FIRST = 20_000L
+    private const val PROBE_MOST = 120_000L
+
+    /**
+     * THE PAIR THE CALL RIDES HAS ONE WITNESS (iOS MontanaCall.riddenPair, 2455): the transport's selected pair. Several pairs
+     * stand «nominated, succeeded» at once -- a pair the agent left keeps both marks -- and a reader taking the last or any of
+     * them swung the path between a direct pair and a relay. Without the transport's word the nominated pair that received
+     * the most is the live one (the same rule as the live outgoing stream).
+     */
+    private fun riddenPair(r: RTCStatsReport): org.webrtc.RTCStats? {
+        for (x in r.statsMap.values) if (x.type == "transport") {
+            (x.members["selectedCandidatePairId"] as? String)?.let { id -> r.statsMap[id]?.let { return it } }
+        }
+        return r.statsMap.values.filter { it.type == "candidate-pair" && it.members["nominated"] == true && it.members["state"] == "succeeded" }
+            .maxByOrNull { n(it.members["bytesReceived"]) }
+    }
 
     /** iOS ladderFloor 3851: the step the picture may not rise above -- the power's floor and the path's, the higher of them. */
     private fun floorOf(l: Line) = maxOf(powerFloorNow, l.pathFloor)
@@ -1334,6 +1378,16 @@ object CallLine {
         val light = if (squeezed) 0 else if (l.ladderStep > floorOf(l)) 1 else 2
         if (signal != light) { signal = light; moved() }
         val since = now - l.ladderMovedAt
+        // THE BOTTOM PROBES UPWARD (iOS 2454): no picture, no report can prove the channel clean -- a step up after the wait
+        if (!squeezed && l.ladderStep == LADDER.size - 1 && l.ladderStep > floorOf(l) && since > l.probeAfter) {
+            l.ladderStep--
+            l.ladderMovedAt = now
+            l.ladderGoodTicks = 0
+            l.probeAfter = minOf(l.probeAfter * 2, PROBE_MOST)
+            ceiling(l, LADDER[l.ladderStep])
+            log("call_ladder probe step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " rtt=" + rttMs + " next_probe_s=" + l.probeAfter / 1000)
+            return
+        }
         if (squeezed) {
             l.ladderGoodTicks = 0
             if (since <= 8_000 || l.ladderStep >= LADDER.size - 1) return
@@ -1351,6 +1405,7 @@ object CallLine {
             l.ladderMovedAt = now
             l.ladderGoodTicks = 0
             ceiling(l, LADDER[l.ladderStep])
+            l.probeAfter = PROBE_FIRST   // a clean rise proves the channel: the next bottom probes soon again
             log("call_ladder up step=" + l.ladderStep + " cap_kbps=" + LADDER[l.ladderStep] / 1000 + " rtt=" + rttMs)
         }
     }
@@ -1373,8 +1428,16 @@ object CallLine {
                     if (x.members["networkType"] == "vpn") { tunnel.add(x.id); continue }
                     if (x.members["candidateType"] != "relay" && (x.members["protocol"] as? String)?.lowercase() == "udp") direct.add(x.id)
                 }
-                val nominated = r.statsMap.values.filter { it.type == "candidate-pair" && it.members["state"] == "succeeded" && it.members["nominated"] == true }
-                    .mapNotNull { it.members["localCandidateId"] as? String }
+                // ONE VERDICT OF THE PAIR THE CALL RIDES (iOS riddenPair, 2455): «any» over every nominated pair named the call
+                // direct when any pair once nominated was, a relay ridden beside it; a pair not yet proven earns no top step
+                val peerRelays = r.statsMap.values.filter { it.type == "remote-candidate" && it.members["candidateType"] == "relay" }.map { it.id }.toHashSet()
+                val nominated = listOfNotNull(riddenPair(r)).filter { it.members["state"] == "succeeded" }.mapNotNull { s ->
+                    // ONE PAIR, ONE VERDICT -- NEITHER END A RELAY (iOS db738aca, 2455): one side judged a pair direct by its own
+                    // srflx end and raised its picture to the top on LTE while the far end rode a relay; the round trip reached
+                    // two seconds and the picture died. A pair whose far end is a relay rides the relay for both
+                    val farId = s.members["remoteCandidateId"] as? String
+                    if (farId != null && farId in peerRelays) "relay:" + farId else s.members["localCandidateId"] as? String
+                }
                 val isDirect = nominated.any { it in direct }
                 l.pathFloor = if (isDirect) 0 else MODEST
                 if (isDirect) {
@@ -1410,32 +1473,39 @@ object CallLine {
         var pair = "?"; var rttMs = -1; var kind = "?"; var net = "?"; var tun = 0
         var aBytes = 0L; var aLost = 0L; var aJit = -1
         var vBytes = 0L; var vLost = 0L; var vW = 0L; var vH = 0L; var vFps = 0L
-        var outBytes = 0L; var outFrames = 0L; var outLimit = "-"; var outAudio = 0L
+        var outBytes = 0L; var outFrames = 0L; var outLimit = "-"; var outAudio = 0L; var outId = ""
+        val outLostBy = HashMap<String, Long>()   // the peer's reports on my video streams: packets of mine it lost, by my stream
         val pictureNow = HashMap<String, Long>()
         // THE PATH IS THE NOMINATED PAIR'S, and its own word is the bytes that reached us on each pair -- the peer's media and
         // its reports on ours; connectivity checks are not in this count, so a relay's keepalive cannot pose as the peer
         val pathNow = HashMap<String, Long>()
-        var nominatedLocal: String? = null
+        // AND THE PAIR IS THE ONE THE CALL RIDES (iOS MontanaCall.riddenPair, 2455): of several nominated pairs the last one read
+        // spoke, so the path swung sample by sample; the far end is named too, so «one pair, one verdict» can be checked (far=)
+        val ridden = riddenPair(r)
+        val nominatedLocal = ridden?.members?.get("localCandidateId") as? String
+        val nominatedRemote = ridden?.members?.get("remoteCandidateId") as? String
+        var far = "?"
         val all = r.statsMap.values
-        for (x in all) if (x.type == "candidate-pair") {
-            if (x.members["nominated"] == true && x.members["state"] == "succeeded") nominatedLocal = x.members["localCandidateId"] as? String
-            pathNow[x.id] = n(x.members["bytesReceived"])
-        }
+        for (x in all) if (x.type == "candidate-pair") pathNow[x.id] = n(x.members["bytesReceived"])
         for (x in all) {
             val m = x.members
             val media = (m["mediaType"] ?: m["kind"]) as? String ?: ""
             when (x.type) {
-                "candidate-pair" -> if (m["nominated"] == true) { rttMs = ms(m["currentRoundTripTime"]); pair = m["state"] as? String ?: "?" }
+                "candidate-pair" -> if (x.id == ridden?.id) { rttMs = ms(m["currentRoundTripTime"]); pair = m["state"] as? String ?: "?" }
                 // after a renegotiation two streams of one media can coexist, one dead: the live one -- the larger counter -- speaks
                 "outbound-rtp" -> if (media == "video") {
                     val b = n(m["bytesSent"])
-                    if (b >= outBytes) { outBytes = b; outFrames = n(m["framesSent"]); outLimit = m["qualityLimitationReason"] as? String ?: "-" }
+                    if (b >= outBytes) { outBytes = b; outId = x.id; outFrames = n(m["framesSent"]); outLimit = m["qualityLimitationReason"] as? String ?: "-" }
                 } else if (media == "audio") outAudio = maxOf(outAudio, n(m["bytesSent"]))
                 "local-candidate" -> if (x.id == nominatedLocal) {
                     kind = m["candidateType"] as? String ?: "?"
                     net = m["networkType"] as? String ?: "?"
                     tun = if (net == "vpn") 1 else 0
                 }
+                "remote-candidate" -> if (x.id == nominatedRemote) far = m["candidateType"] as? String ?: "?"
+                // THE PEER'S WORD ON MY PICTURE (iOS 2454, the law of one witness part 4): what the far side received of the video
+                // I send -- the one witness of my own direction
+                "remote-inbound-rtp" -> if (media == "video") (m["localId"] as? String)?.let { outLostBy[it] = n(m["packetsLost"]) }
                 "inbound-rtp" -> {
                     val bytes = n(m["bytesReceived"]); val lostPk = n(m["packetsLost"])
                     if (media == "audio") {
@@ -1483,11 +1553,14 @@ object CallLine {
         sm.inBytes = maxOf(sm.inBytes, aBytes + vBytes)
         sm.outBytes = maxOf(sm.outBytes, outBytes + outAudio)
         sm.lostVideo = maxOf(sm.lostVideo, vLost)
-        // THE PEER'S PICTURE MOVED when ANY incoming video stream received a frame since the last sample (iOS 4059-4079, atom
-        // b1df5c186009): after a renegotiation a dead stream keeps its larger count while the live one starts from zero
+        // THE PEER'S PICTURE MOVED when ANY incoming video stream's count changed since the last sample (iOS 4059-4079, atom
+        // b1df5c186009): after a renegotiation a dead stream keeps its larger count while the live one starts from zero.
+        // A COUNT THAT BEGAN ANEW IS A MOVING PICTURE (iOS dfa59561, 2455): an ICE restart begins a stream's counters anew under
+        // its own id, and a count kept as a maximum held the cover over a live picture until the new count passed the old one;
+        // the last count is kept, and a dead stream's count stands still and moves nothing
         if (video && l.firstVideoIn) {
-            val movedNow = pictureNow.any { (id, f) -> f > (l.pictureSeen[id] ?: 0L) }
-            for ((id, f) in pictureNow) l.pictureSeen[id] = maxOf(l.pictureSeen[id] ?: 0L, f)
+            val movedNow = pictureNow.any { (id, f) -> f > 0 && f != (l.pictureSeen[id] ?: 0L) }
+            for ((id, f) in pictureNow) l.pictureSeen[id] = f
             if (movedNow) { l.pictureStall = 0; notePeerPicture(false) }
             else { sm.videoDarkS += 2; l.pictureStall++; if (l.pictureStall == 2) notePeerPicture(true) }
         } else if (!video) {
@@ -1499,14 +1572,18 @@ object CallLine {
         if (now - l.lastJournalAt < 5000) return   // the journal keeps its five-second rhythm (iOS 4080-4087)
         l.lastJournalAt = now
         val via = if (tun == 1) "tunnel" else net
-        log("call_audio path=" + kind + " pair=" + pair + " rtt_ms=" + rttMs + " bytes=" + aBytes + " lost=" + aLost + " jitter_ms=" + aJit +
+        log("call_audio path=" + kind + " far=" + far + " pair=" + pair + " rtt_ms=" + rttMs + " bytes=" + aBytes + " lost=" + aLost + " jitter_ms=" + aJit +
             " via=" + via + " out_bytes=" + outAudio + " mic=" + (if (muted || held) 0 else 1))
         if (video) {
-            log("call_video path=" + kind + " rtt_ms=" + rttMs + " in_bytes=" + vBytes + " lost=" + vLost + " size=" + vW + "x" + vH + " fps=" + vFps +
+            log("call_video path=" + kind + " rtt_ms=" + rttMs + " in_bytes=" + vBytes + " lost=" + vLost + " out_lost=" + (outLostBy[outId] ?: -1) + " size=" + vW + "x" + vH + " fps=" + vFps +
                 " out_bytes=" + outBytes + " out_frames=" + outFrames + " limit=" + outLimit + " via=" + via)
-            // one measurement, one owner (iOS 4088-4092): the sample that speaks in the journal also moves the ladder
-            val lostDelta = maxOf(0L, vLost - l.lastVideoLost)
-            l.lastVideoLost = vLost
+            // one measurement, one owner (iOS 4088-4092): the sample that speaks in the journal also moves the ladder.
+            // THE CEILING OF MY PICTURE LISTENS TO THE WITNESS OF MY DIRECTION (iOS 2454, part 4): the losses that move it are the
+            // peer's report on my live stream (remote-inbound-rtp), never the losses of the peer's stream to me -- a peer on
+            // cellular losing its own stream once stepped this side down to the bottom for the rest of the call
+            val outLost = outLostBy[outId] ?: 0L
+            val lostDelta = maxOf(0L, outLost - l.lastVideoLost)
+            l.lastVideoLost = outLost
             applyLadder(l, outLimit, lostDelta, rttMs)
         }
     }

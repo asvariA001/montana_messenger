@@ -59,6 +59,7 @@ class MainActivity : Activity() {
         DeviceVault.init(this)
         Prefs.init(this)
         NothingLeft.again(this, "launch")   // a phone erased whole is swept again before any owner is born, until a seed comes (iOS MTNothingLeft)
+        TopNet.noteFirstLaunch()   // whether an earlier build had published this device's top row (iOS MTCoinsDoor .launching)
         Seats.launch(this)   // a turn of the seats goes before anything reads the person
         Book.ctx = applicationContext
         forgetContactCard()
@@ -568,6 +569,8 @@ class MainActivity : Activity() {
         if (hasSeed && termsAccepted) Thread { Book.healFacesFromCards() }.start()   // a faceless correspondent is read from their card at once (iOS MontanaChatStore.swift:1916, atom 796a76a34ae0)
         if (hasSeed && termsAccepted) Thread { MontanaCard.keepLiveCardsUp(applicationContext) }.start()   // the live cards turn and top up on every return (iOS MontanaApp.swift:297)
         Thread { CoinBook.warm(); CoinSend.settle() }.start()
+        TimeChainTip.gatherSoon("active")   // their tips first, in one round trip (iOS MTCoinsDoor .active)
+        CoinVault.soon("active", 1.0)   // the seed's other devices, gathered at the return (iOS moment .active)
         // THE WALLS AT A RETURN (iOS ContentView.swift:474-477 at 2155): every wall never seen is asked (Board.sweep), and the owner carries
         // my wall to whoever speaks it -- at a return only while the presence is shown (the critic's N6)
         if (hasSeed && termsAccepted) Thread { Board.sweep(); if (Presence.sharing) MyWall.schedulePush() }.start()
@@ -576,7 +579,7 @@ class MainActivity : Activity() {
     // the ear stays when the app leaves the screen: EarService holds it (the app closed is heard as the app open)
     /** The app left the screen (iOS didEnterBackground): the person's stay ends at once (MTPresenceWait.watch). */
     override fun onStop() { super.onStop(); CoinTx.left() }
-    override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
+    override fun onPause() { super.onPause(); YouTube.rest(); Update.onLeast = null; PersonChain.onScreen = false; PersonChain.left(); CoinBook.closeWindows(); CoinVault.soon("leave", 1.0); if (CallScreen.front === this) CallScreen.front = null; main.removeCallbacks(boxRound) }
 
     // THE CALL'S WINDOW OVER OTHER APPS (CallFloat): the person leaving on a system before the platform's auto-enter, and the
     // platform's own word that the window stands or is gone
@@ -718,6 +721,13 @@ class MainActivity : Activity() {
         requestPermissions(arrayOf(android.Manifest.permission.RECORD_AUDIO), ASK_MIC)
     }
 
+    /** The Bluetooth question, asked when the person makes the phone visible in the mesh (iOS CBManager's first use). */
+    private var btDone: ((Boolean) -> Unit)? = null
+    fun askBluetooth(done: (Boolean) -> Unit) {
+        btDone = done
+        requestPermissions(BleMesh.perms(), ASK_BT)
+    }
+
     /** The camera's question, asked by the system; the answer comes back once (iOS AVCaptureDevice.requestAccess). */
     private var cameraDone: ((Boolean) -> Unit)? = null
     fun askCamera(done: (Boolean) -> Unit) {
@@ -728,6 +738,7 @@ class MainActivity : Activity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == ASK_MIC) { micDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); micDone = null }
         if (requestCode == ASK_MEDIA) { mediaDone?.invoke(grantResults.any { it == android.content.pm.PackageManager.PERMISSION_GRANTED }); mediaDone = null }
+        if (requestCode == ASK_BT) { btDone?.invoke(grantResults.isNotEmpty() && grantResults.all { it == android.content.pm.PackageManager.PERMISSION_GRANTED }); btDone = null }
         if (requestCode == ASK_CAMERA) { cameraDone?.invoke(grantResults.firstOrNull() == android.content.pm.PackageManager.PERMISSION_GRANTED); cameraDone = null }
         if (requestCode == ASK_CALL_OUT) pendingCall?.let { pendingCall = null; if (Calls.dial(it, pendingVideo)) CallScreen.show(this, it) }
         if (requestCode == ASK_CALL_MIC) takeTheCall(true)   // refused, the call is still taken: the person hears, the other side does not
@@ -823,7 +834,7 @@ class MainActivity : Activity() {
     /** The app's own language before Android 13 (from 13 the system keeps it: AppLanguage). */
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(pinnedText(AppLanguage.wrap(base)))
 
-    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15 }
+    private companion object { const val PICK_PHOTO = 1; const val ASK_NOTIFY = 2; const val DOCUMENT = 3; const val ASK_CAMERA = 4; const val CONFIRM_OWNER = 5; const val CAPTURE = 6; const val PICK_CONTACT = 7; const val ASK_CALL_MIC = 9; const val ASK_CALL_OUT = 10; const val ASK_SCREEN = 11; const val PICK_MANY = 12; const val ASK_MEDIA = 13; const val ASK_MIC = 14; const val ADD_CONTACT = 15; const val ASK_BT = 16 }
 }
 
 /**

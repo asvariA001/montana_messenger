@@ -400,6 +400,9 @@ object Notify {
             .apply { if (sender) faceOf(ref)?.let { setLargeIcon(it) } }   // USER-DATA: the correspondent's or the group's face
             .setAutoCancel(true)
             .setContentIntent(open)
+            // THE BANNER WEARS ITS LETTER'S BIRTH (iOS 2454, the law of one witness part 1): the moment in the letter's name, not
+            // the minute the phone took it -- one rule for the row and its banner
+            .apply { mid?.takeIf { Marks.birthMs(it) != null }?.let { setWhen(Marks.moment(it)); setShowWhen(true) } }
             .apply { if (action != null) addAction(action) }   // a new build's banner carries «Update» (Update.tell)
             // THE NAME STANDS ON THE LOCKED SCREEN (iOS 1715, hiddenPreviewsShowTitle, MontanaP2PNode 1268-1290): with the system
             // hiding a locked phone's contents, the person's name stays and the words read «New message»; the switch can take it

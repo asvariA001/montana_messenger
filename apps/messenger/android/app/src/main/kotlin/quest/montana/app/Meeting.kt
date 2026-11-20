@@ -73,6 +73,9 @@ object Meeting {
         m.keys().asSequence().firstOrNull { m.optString(it) == ref }?.let { MontanaCard.unb64url(it) }?.takeIf { it.size == 1184 }
     }
 
+    /** The correspondences whose introduction is still unanswered (iOS MTPipeBook.roots().keys). */
+    fun awaitingRefs(): List<String> = synchronized(gate) { jmap(FIRSTS).keys().asSequence().toList() }
+
     /** The roots of every introduction still unanswered (iOS MTPipeBook.roots): points this phone listens at too. */
     fun awaitingRoots(): List<ByteArray> = synchronized(gate) {
         val f = jmap(FIRSTS); val m = jmap(CARDS)

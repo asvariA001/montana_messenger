@@ -116,6 +116,7 @@ class Channel(val host: String, val port: Int, ref: String = "", private val acc
     fun name(r: String) {
         if (ref.isNotEmpty() || r.isEmpty()) return
         ref = r
+        bindAuth()   // the channel named by its first letter: its key joins the book (iOS Direct 1394-1403)
         if (ready && r == MontanaSeed.twin) Archive.replicate()   // named as the person's own other device: handed its history (iOS 995)
     }
     val dialAt = System.currentTimeMillis()
@@ -316,7 +317,14 @@ class Channel(val host: String, val port: Int, ref: String = "", private val acc
         // the node keeps the channel warm every eight seconds: thirty silent seconds are a dead road, not a quiet one
         runCatching { socket?.soTimeout = 30_000 }
         Log.d("Montana", "reg_ready at=" + label + " ms=" + (System.currentTimeMillis() - dialAt))
+        bindAuth()   // a channel dialled to a correspondent: its key joins the book (iOS Direct 1012-1015)
         up(this)
+    }
+
+    /** The correspondent's channel key goes into the book of keys (iOS MontanaOverlayBook.bind(ref:overlay:authPub:)): a node's channel names nobody. */
+    private fun bindAuth() {
+        val pk = peerPk ?: return
+        if (ready && ref.isNotEmpty() && !ref.startsWith("ep:") && label !in Channels.doorLabels()) Channels.bindAuth(ref, pk)
     }
 
     /** The channel ends, and its first reason stands: a later one is only the echo of the first. */
@@ -384,13 +392,13 @@ object Channels {
     fun peers(): Int = synchronized(live) { live.values.count { it.ready && it.ref.isNotEmpty() } }
 
     /** Who those people are, one row each however many channels reach them (iOS MontanaMeshCard.nearby: node.peers' neighborRef). */
-    fun nearRefs(): List<String> = synchronized(live) { live.values.filter { it.ready && it.ref.isNotEmpty() }.map { it.ref }.distinct() }
+    fun nearRefs(): List<String> = (synchronized(live) { live.values.filter { it.ready && it.ref.isNotEmpty() }.map { it.ref } } + BleMesh.nearRefs()).distinct()   // and the radio's neighbours (iOS setBTPeers)
 
     /** A door's name, one place for the list, the book and the channel (iOS MontanaNodes.Node.label 42-46, doorKey 60-65). */
     fun labelOf(host: String, port: Int, wss: Boolean): String =
         (if (wss) "wss/" else "") + (if (host.contains(':')) "[" + host + "]:" + port else host + ":" + port)
 
-    private fun doorLabels(): Set<String> = Doors.list().map { it.label }.toSet()
+    fun doorLabels(): Set<String> = Doors.list().map { it.label }.toSet()
 
     /** The doors standing now (iOS livePathKeys, doorsHeld 444-446). */
     fun heldLabels(): Set<String> {
@@ -635,7 +643,7 @@ object Channels {
         // the correspondent's own channel never counts as a carrier (iOS ownerRefsOfLiveChannels(excluding:) 1008)
         val owners = cs.filter { it.ref != to }.mapNotNull { c -> c.peerOwnerRef?.let { Wire.hex(it) } }.toSet().size
         val near = lan.isNotEmpty() && cs.isNotEmpty()
-        if (!near && owners < 1) return false
+        if (!near && owners < 1) { meshFallback(to, mid, payload); return false }
         val id = MtBindings.nativeRandom(16) ?: return false
         synchronized(seen) {
             if (originated.size > FRAME_MEMORY) originated.clear()
@@ -646,6 +654,16 @@ object Channels {
         if (used > 0) Log.d("Montana", "sent_route mid=" + mid.take(8) + (if (near) " route=lan carrier=lan-node" else " route=node") + " nodes=" + used +
             (if (payload[0] == 0x02.toByte()) " first=1" else ""))
         return used > 0
+    }
+
+    /**
+     * THE RADIO WHEN NO ROAD STANDS (iOS MontanaDirect 744-759: the direct route given up, the un-sent envelopes go to the Bluetooth
+     * mesh in the same envelope format). Android keeps no queue on a direct channel, so the moment is this one: the letter found no
+     * path. A neighbour within reach that holds the pipe takes it; nobody near, and it waits in the sender's queue as before.
+     */
+    private fun meshFallback(to: String, mid: String, payload: ByteArray) {
+        if (to.isEmpty() || mid == "blob") return
+        if (BleMesh.send(to, payload)) Log.d("Montana", "bt_tx mid=" + mid.take(8) + " fallback")
     }
 
     /**
@@ -909,4 +927,55 @@ object Channels {
         }
         pipes
     }
+
+    /** The Bluetooth mesh's doors (iOS MTPipeBook.match, isFirstContactTag, ownerSecretCached): whose pipe a tag is, whether it
+     *  is a point of first contact, and the owner branch a relay seals its step with. */
+    fun pipeOf(tag: ByteArray): String? = myPipes()[Wire.hex(tag)]
+
+    /**
+     * WHERE THIS PHONE ADDRESSES ITS NEXT LETTER TO A CORRESPONDENCE (iOS MTPipeBook.outgoingTag 500-510): the point of first contact
+     * while the introduction is unanswered, the tag of the pipe ever after.
+     */
+    fun outgoingTag(conv: String): ByteArray? {
+        val w = Wire.minute()
+        Meeting.root(conv)?.let { r -> return MtBindings.nativeFirstTag(r, w).also { t ->
+            Log.d("Montana", "first_tx dst=" + (t?.let { Wire.hex(it.copyOf(4)) } ?: "-") + " w=" + w + " conv=" + conv.take(10)) } }
+        return Book.secret(conv)?.let { Wire.windowTag(it, w) }
+    }
+
+    /** Which introduction of mine still waits at this point of first contact (iOS MTPipeBook.convAwaiting 917-925): an answer to a
+     *  knock can come back before the other side ever wrote. */
+    fun convAwaiting(tag: ByteArray): String? {
+        val w = Wire.minute()
+        for (conv in Meeting.awaitingRefs()) {
+            val r = Meeting.root(conv) ?: continue
+            for (k in longArrayOf(w - 1, w, w + 1)) if (MtBindings.nativeFirstTag(r, k)?.contentEquals(tag) == true) return conv
+        }
+        return null
+    }
+
+    /**
+     * THE BOOK OF KEYS (iOS MontanaOverlayBook authPub, field «p» base64, kept): the channel key each correspondent registered with,
+     * by their name. A letter by the radio is believed only when the key inside it is the one written here (iOS verifySender).
+     */
+    private const val AUTH = "mt.overlay.authpub"
+    private val authLock = Any()
+    fun bindAuth(ref: String, pk: ByteArray) {
+        if (pk.size != 1952 || ref.isEmpty()) return
+        synchronized(authLock) {
+            val m = runCatching { org.json.JSONObject(Prefs.str(AUTH, "{}")) }.getOrElse { org.json.JSONObject() }
+            val b = android.util.Base64.encodeToString(pk, android.util.Base64.NO_WRAP)
+            if (m.optString(ref) == b) return
+            Prefs.setStr(AUTH, m.put(ref, b).toString())
+        }
+    }
+    fun authPub(ref: String): ByteArray? = synchronized(authLock) {
+        runCatching { android.util.Base64.decode(org.json.JSONObject(Prefs.str(AUTH, "{}")).optString(ref), android.util.Base64.NO_WRAP) }
+            .getOrNull()?.takeIf { it.size == 1952 }
+    }
+    fun isFirstPoint(tag: ByteArray): Boolean = firstPoints().containsKey(Wire.hex(tag))
+    fun firstRoot(tag: ByteArray): ByteArray? = firstPoints()[Wire.hex(tag)]
+    fun ownerKey(): ByteArray? = ownerSecret()
+    /** The global address a neighbour may dial this phone at (iOS MontanaPhoneNode.reachableEndpoint), or none. */
+    fun publicEndpoint(): String? = candidates().firstOrNull { isGlobal(it) }
 }

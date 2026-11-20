@@ -442,6 +442,13 @@
     <string name="coin_key">Монета</string>
     <string name="coin_available">Доступно</string>
     <string name="coin_available_n">Доступно %s</string>
+    <string name="coin_gathering">Собираю ваши монеты</string>
+    <string name="coin_show">Показывать мои монеты</string>
+    <string name="coin_show_sub">Ваше имя и монеты стоят в топе Montana для всех, и собеседники видят ваши монеты. Выключено — вас нет в топе.</string>
+    <string name="top_13">Топ 13</string>
+    <string name="top_footer_on">Ваше имя и монеты видны всем в топе Montana. Выключить можно в настройках приватности.</string>
+    <string name="top_footer_off">Вас нет в топе Montana. Включить можно в настройках приватности.</string>
+    <string name="top_no_name">Без имени</string>
     <string name="close">Закрыть</string>
     <string name="yt_full_screen">Во весь экран</string>
     <string name="yt_small_screen">Выйти из полноэкранного режима</string>
@@ -598,6 +605,7 @@
     <string name="mesh_findable">Находиться в меш-сети</string>
     <string name="mesh_findable_off">Выключено: это устройство нигде себя не объявляет и ничего ни для кого не несёт.</string>
     <string name="mesh_title">Меш</string>
+    <string name="mesh_room_line">Все в меше, от телефона к телефону</string>
     <string name="mesh_none">Здесь пока никого. Собеседник в той же сети Wi-Fi или в радиусе Bluetooth появится сам — включать ничего не нужно.</string>
     <string name="mesh_d_nodes">Узлы</string>
     <string name="mesh_d_now">Достижимы сейчас</string>
@@ -847,4 +855,6 @@
     <string name="save_words">Сохранить 24 слова</string>
     <string name="save_words_footer">Запишите 24 слова и храните их: на новом телефоне ваша личность и сохранённая история открываются только из них.</string>
     <string name="privacy_policy">Политика конфиденциальности</string>
+    <!-- the mesh wall (iOS meshRoomKey, MTMeshRoom.name) -->
+    <string name="mesh_someone">Кто-то</string>
 </resources>
