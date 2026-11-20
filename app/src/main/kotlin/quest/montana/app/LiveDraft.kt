@@ -36,8 +36,8 @@ object LiveDraft {
     private fun stamp(): Long = Presence.saidMs()
 
     // ── what I say ──
-    /** «d» — the doors alive for me, in the one builder of the word (iOS sendDraftWord 474-475): the peer picks the first we share. */
-    private fun doors(body: JSONObject) = body.apply { Signal.aliveHosts().joinToString(",").takeIf { it.isNotEmpty() }?.let { put("d", it) } }
+    /** The one builder of the word: no door named in it (iOS sendDraftWord, OZ 1 p.2.2-2.3 -- the peer's door is never named). */
+    private fun doors(body: JSONObject) = body
     /** The field as it stands; an empty text ends the draft (and is always said, whatever the switch). */
     fun say(ref: String, text: String, caret: Int = -1, replyMid: String = "", checkpoint: Boolean = false) {
         val ending = text.isEmpty()
@@ -109,7 +109,6 @@ object LiveDraft {
     /** A draft word of theirs off the lane. true — a keystroke said now (it lights «typing…»). */
     fun hear(ref: String, word: String): Boolean {
         val j = runCatching { JSONObject(String(Base64.decode(word.removePrefix(MARK), Base64.DEFAULT), Charsets.UTF_8)) }.getOrNull() ?: return false
-        j.optString("d").takeIf { it.isNotEmpty() }?.let { Signal.notePeerDoor(ref, it) }   // the doors they ask (iOS handleMeshDraft 1032)
         val n = j.optLong("n", 0)
         if (n > 0) { if (n <= (heardAt[ref] ?: 0)) return false; heardAt[ref] = n }   // an older word is an echo of the road
         // THEIR DAILY LINK, handed to us to hand on (iOS MTPeerLinks.note); their ask for mine is answered at once (iOS rq)

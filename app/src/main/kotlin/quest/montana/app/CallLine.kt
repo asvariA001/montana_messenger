@@ -63,6 +63,7 @@ object CallLine {
     private const val SETUP_ASK_MAX = 2   // iOS setupAskMax (MontanaCall.swift, atom 319c1ca96b0a): fresh asks before a path failed before the connect ends the call
 
     private class Line(val ref: String, val seed: String, val pc: PeerConnection, val source: AudioSource, val track: AudioTrack) {
+        var maxV6 = 5   // the IPv6 adapters the connection was born with (N-10): the engine refuses a change of the family
         val out = ArrayList<IceCandidate>()
         var batching = false
         var flushes = 0
@@ -341,7 +342,13 @@ object CallLine {
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             iceTransportsType = PeerConnection.IceTransportsType.ALL   // iOS 15.13: both roads at once, the relay offered first
+            // NO IPv6 ADAPTER IS GATHERED ON A NETWORK THAT HOLDS NO IPv6 (iOS rtcConfig 1730-1736, N-10, OZ 1 p.4): iOS T3 on Wi-Fi at
+            // v4=1 v6=0 asked the TLS relay from an IPv6 adapter and met ice_gather_fail turns/tcp code=701 via=v6. The judge is the one
+            // judge of an IPv6 address on this network (Channels.dialable, «::» -- any IPv6). A connection built in place of a dead one
+            // keeps its call's family.
+            maxIPv6Networks = replacing?.maxV6 ?: if (Channels.dialable("::")) maxIPv6Networks else 0
         }
+        if (replacing == null && cfg.maxIPv6Networks == 0) log("call_ice v6=off -- this network holds no IPv6, its adapters are not gathered")
         var made: Line? = null
         // THE RELAY'S TLS IS JUDGED BY THE SYSTEM'S OWN TRUST (iOS MTRelayTrust, peerConnection(certificateVerifier:)): the engine's
         // compiled roots lack the root our relays chain to, and every TLS relay gathering ended «701»
@@ -359,9 +366,15 @@ object CallLine {
             override fun onRenegotiationNeeded() {}
             // THE ENGINE'S OWN GATHER FAILURES (iOS didFailToGatherIceCandidate, atom 319c1ca96b0a): by scheme and code, never an address
             override fun onIceCandidateError(e: org.webrtc.IceCandidateErrorEvent) {
-                log("ice_gather_fail scheme=" + e.url.substringBefore(':') + " code=" + e.errorCode)
-                // the road's verdict is the book's (iOS MontanaCall 6504, OZ 1 p.7): 701 or a 5xx -- silence; any other code -- an answer
-                if (e.url.startsWith("turn")) { if (e.errorCode == 701 || e.errorCode in 500..599) DoorBook.silent(e.url) else DoorBook.answered(e.url) }
+                // THE ADAPTER THAT ASKED (iOS MontanaCall 6501-6506, N-5): one road is asked from every adapter, and a 701 says which one
+                // went unanswered -- its family, and Wi-Fi when it is the phone's own Wi-Fi address; never the address itself
+                val local = e.address ?: ""
+                val fam = if (local.contains(':')) "v6" else "v4"
+                val via = if (fam == "v4") fam + (if (wifiAddress(local)) "/wifi" else "/other") else fam
+                log("ice_gather_fail scheme=" + e.url.substringBefore(':') + " code=" + e.errorCode + " via=" + via)
+                // A RELAY'S ROAD WENT SILENT FOR ONE ADAPTER (iOS 6508-6513, OZ 1 p.7, N-5): 701 or a 5xx is that adapter's silence, and the
+                // road is judged when its gathering ends; any other code is the server's own word -- an answer, a refusal too
+                if (e.url.startsWith("turn")) made?.let { DoorBook.roadHeard(e.url, it.pc, ok = !(e.errorCode == 701 || e.errorCode in 500..599)) }
             }
         }).setSSLCertificateVerifier(RelayTrust).createPeerConnectionDependencies()) ?: return null.also { log("no connection"); Calls.hangUp("connection-unbuilt") }
         // iOS buildPC: one voice track «mt_audio» in the stream «mt_stream», the person's mute applied to it at birth
@@ -370,6 +383,7 @@ object CallLine {
         track.setEnabled(!muted)
         pc.addTrack(track, listOf("mt_stream"))
         val l = Line(ref, seed, pc, source, track)
+        l.maxV6 = cfg.maxIPv6Networks
         made = l
         if (replacing != null) {
             l.connectedAt = replacing.connectedAt; l.caller = replacing.caller; l.speakerDecided = replacing.speakerDecided
@@ -380,6 +394,7 @@ object CallLine {
             replacing.measureGen++
             cameraOff(replacing)
             runCatching { replacing.remote?.dispose() }
+            DoorBook.roundEnded(replacing.pc)   // N-5: a closed connection ends its gathering, its roads judged by all it heard
             runCatching { replacing.pc.dispose() }
             runCatching { replacing.source.dispose() }
             remoteLive = false; peerSharing = false; sniffed = false; rests = false; peerCameraOff = false
@@ -426,7 +441,8 @@ object CallLine {
     /** Our candidates: the first bundle leaves at once, the rest in batches of 200 ms (iOS 4916-4936), one word each (E2E 1090). */
     private fun gathered(l: Line, c: IceCandidate) = work.execute {
         // a relay candidate is the road's own answer (iOS MontanaCall 6142, OZ 1 p.7)
-        if (c.sdp.contains(" typ relay") && !c.serverUrl.isNullOrEmpty()) DoorBook.answered(c.serverUrl)
+        // from any adapter (iOS 6142, N-5)
+        if (c.sdp.contains(" typ relay") && !c.serverUrl.isNullOrEmpty()) DoorBook.roadHeard(c.serverUrl, l.pc, ok = true)
         if (synchronized(gate) { line !== l }) return@execute
         l.out.add(c)
         if (l.batching || l.holding) return@execute
@@ -738,6 +754,7 @@ object CallLine {
             continualGatheringPolicy = PeerConnection.ContinualGatheringPolicy.GATHER_CONTINUALLY
             bundlePolicy = PeerConnection.BundlePolicy.MAXBUNDLE
             iceTransportsType = if (relay) PeerConnection.IceTransportsType.RELAY else PeerConnection.IceTransportsType.ALL
+            maxIPv6Networks = l.maxV6   // a connection already born keeps the family it was born with (N-10)
         }
         if (!l.pc.setConfiguration(cfg)) log("the engine refused the new configuration — the ask rides the old one")
         l.restartAskedAt = 0L
@@ -756,6 +773,7 @@ object CallLine {
         val spoken = story(l)
         work.execute {
             stopRouteWatch(l)
+            DoorBook.roundEnded(l.pc)   // N-5 (iOS MontanaCall 6209)
             runCatching { l.pc.dispose() }
             runCatching { l.screen?.stopCapture() }
             runCatching { l.screen?.dispose() }
@@ -855,6 +873,11 @@ object CallLine {
             " nat64=" + (nat64 ?: "-") + " clat=" + (if (!own4 && v4) 1 else 0) + " dropped=" + (urls.size - kept.size) + "/" + urls.size)
         return kept
     }
+
+    /** The engine's own local address is a Wi-Fi interface's (iOS MontanaPhoneNode.lanIP compared): read for its adapter alone. */
+    private fun wifiAddress(a: String): Boolean = runCatching {
+        a.isNotEmpty() && a.all { it.isDigit() || it == '.' } && java.net.NetworkInterface.getByInetAddress(java.net.InetAddress.getByName(a))?.name?.startsWith("wlan") == true
+    }.getOrDefault(false)
 
     private fun strings(a: JSONArray?) = (0 until (a?.length() ?: 0)).mapNotNull { a?.optString(it)?.ifEmpty { null } }
 

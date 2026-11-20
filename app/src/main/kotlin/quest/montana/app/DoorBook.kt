@@ -37,6 +37,7 @@ object DoorBook {
     private const val PROBE_EVERY = 60_000L
     private const val SHELF_MAX = 8
     private const val KEPT = "mt.doorbook.life"
+    private const val KEPT_FORM = 2
     private val lock = Any()
     private var records = HashMap<String, Record>()
     private val shelf = LinkedHashMap<String, HashMap<String, Record>>()
@@ -46,13 +47,13 @@ object DoorBook {
 
     /** The book's clock (iOS clock): the wall clock. */
     @Volatile var clock: () -> Long = { System.currentTimeMillis() }
-    /** A call is live (iOS callLive = MontanaCall.isBusy, N-1). */
-    @Volatile var callLive: () -> Boolean = { Calls.busy() }
 
     /**
-     * THE ONE KEY OF A DOOR (iOS door 386-393): the endpoint a connection meets, host and port. A base («https://h/pushwake»), a
-     * node's label («wss/h:443», «h:8447», «[v6]:8447») and a bare name reduce to it; the dress is not part of it -- a question
-     * over HTTPS and a web socket to one name and port meet one front, and its silence is one fact. A relay's road keeps its own key.
+     * THE ONE KEY OF A DOOR (iOS door 383-396, OZ 1 p.2.4): the endpoint a connection meets, host and port, and the way it meets it.
+     * A base («https://h/pushwake») and a bare name reduce to «h:443»; a node's label keeps its dress («wss/h:443», «h:8447»,
+     * «[v6]:8447»). A question over HTTPS and a web socket to one name and port are two doors, each fact written by its own road:
+     * iOS T3 on Wi-Fi, 19.11.2026 22:03:54 UTC, an HTTPS answer ended the web socket's rest and the socket knocked again at a door
+     * dead to it. A relay's road keeps its own key.
      */
     fun door(s: String): String {
         if (s.startsWith("turn:") || s.startsWith("turns:")) return relayRoad(s)
@@ -60,11 +61,11 @@ object DoorBook {
         if (s.contains("://")) {
             val u = android.net.Uri.parse(s)
             val h = u.host
-            if (h != null) return endpoint(h, if (u.port > 0) u.port else 443)
+            if (h != null) return (if (u.scheme == "wss") "wss/" else "") + endpoint(h, if (u.port > 0) u.port else 443)
         }
-        val bare = if (s.startsWith("wss/")) s.drop(4) else s
-        if (bare.startsWith("[") || bare.split(':').size == 2) return bare
-        return endpoint(bare, 443)
+        if (s.startsWith("wss/")) return "wss/" + door(s.drop(4))   // a web socket is a door of its own (OZ 1 p.2.4)
+        if (s.startsWith("[") || s.split(':').size == 2) return s
+        return endpoint(s, 443)
     }
     fun door(host: String, port: Int): String = endpoint(host, port)
     private fun endpoint(h: String, p: Int) = if (h.contains(':')) "[$h]:$p" else "$h:$p"
@@ -97,7 +98,7 @@ object DoorBook {
     /** The name a door is spoken of by -- in the diary and to the delivery. */
     fun host(s: String): String {
         val d = door(s)
-        val k = if (d.startsWith("turn/") || d.startsWith("turns/")) d.substringAfter(' ') else d
+        val k = if (isRoad(d)) d.substringAfter(' ') else d.removePrefix("wss/")
         if (k.startsWith("[") && k.contains(']')) return k.substring(1, k.indexOf(']'))
         return k.substringBefore(':')
     }
@@ -143,10 +144,37 @@ object DoorBook {
         }
     }
 
-    /** Alive for me: not resting after its own silences. */
+    /**
+     * A RELAY'S ROAD IS JUDGED BY THE WHOLE GATHERING, NOT BY ONE ADAPTER (iOS roadHeard/roundEnded, MontanaNodes 483-498, N-5, the
+     * critic of call 2, 19.11.2026). The engine asks every road from every adapter of the phone, and one adapter's 701 is that
+     * adapter's silence, not the road's: T3 on Wi-Fi gave a relay candidate over turns/tcp from one adapter and a 701 from another.
+     * A road is answered at its first candidate; it is silent only when its gathering ended -- the connection closed (roundEnded) --
+     * without one candidate over it, and then it weighs two: it waited the connection's whole life. A gathering's word belongs to its
+     * network: a new network forgets the open rounds.
+     */
+    fun roadHeard(road: String, round: Any, ok: Boolean) {
+        val k = door(road)
+        synchronized(lock) { val m = rounds.getOrPut(round) { HashMap() }; m[k] = ok || (m[k] ?: false) }
+        if (ok) answered(road)
+    }
+    fun roundEnded(round: Any) {
+        val heard = synchronized(lock) { rounds.remove(round) } ?: return
+        for ((k, ok) in heard) if (!ok) silent(k, weight = 2)
+    }
+    private val rounds = java.util.IdentityHashMap<Any, HashMap<String, Boolean>>()   // under lock
+
+    /**
+     * Alive for me: not resting after its own silences, and -- while another door answers -- not back from its rest unheard (iOS alive
+     * 500-507, OZ 1 p.2.4): such a door is not dialled, so it is not offered.
+     */
     fun alive(s: String): Boolean {
         val k = door(s)
-        synchronized(lock) { ensure(); return (records[k]?.restUntil ?: 0L) <= clock() }
+        val now = clock()
+        synchronized(lock) { ensure()
+            val r = records[k] ?: return true
+            if (r.restUntil > now) return false
+            return r.streak == 0 || isRoad(k) || !heard(now)
+        }
     }
 
     /** Whether this door has answered on this network (the proof the call's walk reads). */
@@ -155,13 +183,14 @@ object DoorBook {
     /**
      * THE ORDER OF A WALK (iOS ordered 494-508, OZ 1 p.3): a door is placed by its LAST word. The doors whose last word was an
      * answer, the newest answer first; then the living ones not yet asked, in the order given; then the living ones whose last word
-     * was a silence, the fewest silences first; the resting last -- an order, never an exclusion.
+     * was a silence, the fewest silences first; the dead last (OZ 1 p.2.4: resting, or back from the rest unheard) -- an order, never
+     * an exclusion.
      */
     fun ordered(doors: List<String>): List<String> {
         val now = clock()
-        val rs = synchronized(lock) { ensure(); doors.map { records[door(it)]?.let { r -> Triple(r.restUntil, r.answeredAt, r.inRow) } } }
+        val rs = synchronized(lock) { ensure(); doors.map { records[door(it)]?.let { r -> Triple(if (dead(r, now)) Long.MAX_VALUE else 0L, r.answeredAt, r.inRow) } } }
         val all = doors.zip(rs)
-        fun living(r: Triple<Long, Long, Int>?) = (r?.first ?: 0L) <= now
+        fun living(r: Triple<Long, Long, Int>?) = (r?.first ?: 0L) == 0L
         val live = all.filter { living(it.second) }
         val heard = live.filter { (it.second?.second ?: 0L) > 0L && (it.second?.third ?: 0) == 0 }.sortedByDescending { it.second?.second ?: 0L }
         val unasked = live.filter { (it.second?.second ?: 0L) == 0L && (it.second?.third ?: 0) == 0 }
@@ -172,50 +201,65 @@ object DoorBook {
     }
 
     /**
-     * MAY A WORD DIAL THIS DOOR NOW (iOS mayDial 510-526, OZ 1 p.4): a living door -- always; a resting one -- one probe a minute,
-     * the probe written. In a live call, while a door answers, the dead doors are probed one a minute for the whole book (N-1).
+     * MAY A WORD DIAL THIS DOOR NOW (iOS mayDial 531-536, OZ 1 p.4, p.2.4): a living door -- always; a dead one -- by the book's one rule
+     * (mayProbe), the probe written. A skipped dial writes nothing: it is not the door's word.
      */
     fun mayDial(s: String): Boolean {
-        val inCall = callLive()
         val k = door(s)
         val now = clock()
-        synchronized(lock) { ensure();
+        synchronized(lock) { ensure()
             val r = records[k] ?: return true
-            val resting = r.restUntil > now
-            if (!resting && r.streak == 0) return true
-            if (inCall && heard(now)) return bookProbe(k, now)
-            if (!resting) return true   // out of a call a door back from its rest is dialled once and judged (silent)
+            if (!dead(r, now)) return true
+            return mayProbe(k, now)
+        }
+    }
+
+    /**
+     * A DEAD DOOR IS DIALLED BY ONE RULE, IN A CALL AND OUT OF IT (iOS mayProbe 538-555, OZ 1 p.2.4; the author's words 25250, 25256:
+     * the device holds one connection, and a door that died on this network is not its business while another answers). A door is
+     * dead while it rests, and after its rest until it answers. While any door of the network answers, a dead door is not dialled at
+     * all; when none answers, the whole book is probed one door a minute, each in its turn (bookProbe). A relay's road is not a door
+     * of the network: it keeps its own minute while it rests and is judged by its own silence after (P-7). Under the lock.
+     */
+    private fun mayProbe(k: String, now: Long): Boolean {
+        if (isRoad(k)) {
+            val r = records[k] ?: return true
+            if (r.restUntil <= now) return true
             if (now - r.probeAt < PROBE_EVERY) return false
             r.probeAt = now
             return true
         }
+        if (heard(now)) return false
+        return bookProbe(k, now)
     }
 
-    /** THE CALL'S QUIET (iOS bookProbe 528-535, N-1): one dead door a minute for the whole book, each in its turn. Under the lock. */
+    /** THE BOOK'S MINUTE (iOS bookProbe 559-566, N-1): one dead door a minute for the whole book, each in its turn. Under the lock. */
     private fun bookProbe(k: String, now: Long): Boolean {
-        val waiting = records.count { !it.key.startsWith("turn") && (it.value.streak > 0 || it.value.restUntil > now) }
+        val waiting = records.count { !isRoad(it.key) && dead(it.value, now) }
         if (now - bookProbeAt < PROBE_EVERY || now - (records[k]?.probeAt ?: 0L) < PROBE_EVERY * maxOf(1, waiting)) return false
         bookProbeAt = now
         records[k]?.probeAt = now
         return true
     }
 
-    /** A door answers me now: its last word an answer, and it is not resting. Under the lock. */
-    private fun heard(now: Long): Boolean = records.values.any { it.answeredAt > 0L && it.inRow == 0 && it.restUntil <= now }
+    /** A door of the network answers me now: its last word an answer, and it is not dead; a relay's road is not one (OZ 1 p.2.4). Under the lock. */
+    private fun heard(now: Long): Boolean = records.any { !isRoad(it.key) && it.value.answeredAt > 0L && it.value.inRow == 0 && !dead(it.value, now) }
+    /** DEAD FOR ME (iOS dead, OZ 1 p.2.4): resting, or back from the rest and not yet heard. */
+    private fun dead(r: Record, now: Long) = r.restUntil > now || r.streak > 0
+    /** A relay's road (relayRoad): its key names its scheme and transport. */
+    private fun isRoad(k: String) = k.startsWith("turn/") || k.startsWith("turns/")
 
     /**
      * THE KNOCK'S PACE (iOS dialDue 548-562): a living door is dialled again after a wait that doubles and spreads up to a quarter of
-     * a minute; a resting door is not dialled until its rest ends. True: dial now -- the dial is written.
+     * a minute; a dead door by the book's one rule (mayProbe). True: dial now -- the dial is written.
      */
     fun dialDue(s: String): Boolean {
-        val inCall = callLive()
         val k = door(s)
         val now = clock()
         synchronized(lock) { ensure();
             val r = records.getOrPut(k) { Record() }
-            if (r.restUntil > now) return false
             if (now - r.dialAt < r.dialStep * 1000) return false
-            if (r.streak > 0 && inCall && heard(now)) { if (!bookProbe(k, now)) return false; r.probeAt = now }
+            if (dead(r, now)) { if (!mayProbe(k, now)) return false; r.probeAt = now }   // OZ 1 p.2.4: the one rule of a dead door
             val spread = 0.8 + Math.random() * 0.6   // the spread of a retry, not a quantity of the protocol
             r.dialAt = now
             r.dialStep = minOf(STEP_MAX, r.dialStep * 2 * spread)
@@ -240,6 +284,7 @@ object DoorBook {
     fun networkChanged(net: String) {
         synchronized(lock) { ensure();
             if (net == current) return
+            rounds.clear()   // N-5: a gathering's word belongs to its network
             shelf[current] = records
             if (SHELF_MAX < shelf.size) shelf.keys.firstOrNull { it != net }?.let { shelf.remove(it) }
             current = net
@@ -264,6 +309,9 @@ object DoorBook {
         opened = true
         val raw = runCatching { Prefs.str(KEPT, "") }.getOrDefault("").ifEmpty { return }
         val o = runCatching { JSONObject(raw) }.getOrNull() ?: return
+        // THE BOOK'S FORM (iOS keptForm, OZ 1 p.2.4): 2 since a web socket and a question over HTTPS are two doors; the first form
+        // held both under one key, and a book of it is not read -- its verdicts name no way
+        if (o.optInt("form") != KEPT_FORM) return
         val now = clock()
         val books = o.optJSONObject("shelf") ?: JSONObject()
         for (net in books.keys()) {
@@ -287,7 +335,7 @@ object DoorBook {
                     val all = JSONObject()
                     for ((net, b) in shelf) if (net.isNotEmpty()) all.put(net, JSONObject().apply { for ((d, r) in b) put(d, r.json()) })
                     if (current.isNotEmpty()) all.put(current, JSONObject().apply { for ((d, r) in records) put(d, r.json()) })
-                    JSONObject().put("net", current).put("shelf", all).toString()
+                    JSONObject().put("form", KEPT_FORM).put("net", current).put("shelf", all).toString()
                 }
                 Prefs.setStr(KEPT, text)
             }.start()

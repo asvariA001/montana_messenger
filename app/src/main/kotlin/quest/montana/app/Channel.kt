@@ -108,6 +108,7 @@ class OverlayFrame(val type: Int, val dst: ByteArray, val msgId: ByteArray, val 
  */
 class Channel(val host: String, val port: Int, ref: String = "", private val accepted: Socket? = null, private val wsPath: String? = null) {
     val label = (if (accepted != null) "in:" else "") + Channels.labelOf(host, port, wsPath != null)
+    val ws: Boolean get() = wsPath != null   // a web socket is a door of its own in the book (iOS doorKey, OZ 1 p.2.4)
     /** The correspondent this channel is with: given by the dial, or by the first letter that came over it (iOS peerMontanaAddrStr). */
     @Volatile var ref = ref
         private set
@@ -438,7 +439,7 @@ object Channels {
             // A DOOR THE BOOK HOLDS DEAD IS NOT DIALLED (iOS MontanaNodes.open 289-292, OZ 1 p.2): the pace and the rest are one book's
             val c = synchronized(live) {
                 if (live.containsKey(label)) return@synchronized null
-                if (!DoorBook.dialDue(DoorBook.door(d.host, d.port))) return@synchronized null
+                if (!DoorBook.dialDue(label)) return@synchronized null
                 Channel(d.host, d.port, wsPath = d.path).also { live[label] = it }
             } ?: continue
             knockedOnce = true
@@ -457,12 +458,12 @@ object Channels {
         // a door that stood answered where it stood (up); one that did not is a silence of the one book -- unless the fault was this
         // process's own: then the door is not judged and is knocked after the fast step (iOS MontanaNodes 300-316, noteDoorFail 1605)
         if (!c.ready && c.label in doorLabels()) {
-            val key = DoorBook.door(c.host, c.port)
+            val key = DoorBook.door(labelOf(c.host, c.port, c.ws))
             if (localFaultRecent()) DoorBook.notJudged(key) else Signal.doorFailed(key, -1)
         }
         Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
             " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt) +
-            (if (!c.ready && c.label in doorLabels()) " " + DoorBook.record(DoorBook.door(c.host, c.port)) else ""))   // the book's record (iOS MontanaDirect 1615)
+            (if (!c.ready && c.label in doorLabels()) " " + DoorBook.record(DoorBook.door(labelOf(c.host, c.port, c.ws))) else ""))   // the book's record (iOS MontanaDirect 1615)
     }
 
     private fun up(c: Channel) {
@@ -472,7 +473,7 @@ object Channels {
         // the door named its machine — the knowledge outlives the channel, or the probing repeats at every opening (iOS 1169-1171);
         // an extra path to a machine already held closes at once
         if (c.label in doorLabels()) {
-            Signal.doorAnswered(DoorBook.door(c.host, c.port))   // the answer is written where the channel stands: one writer (iOS path_up)
+            Signal.doorAnswered(DoorBook.door(labelOf(c.host, c.port, c.ws)))   // the answer is written where the channel stands: one writer (iOS path_up)
             c.peerTag?.let { Doors.remember(c.label, Wire.hex(it), c.standMs) }
             fold()
         }
@@ -800,7 +801,9 @@ object Channels {
      * interface with the direct port. A carrier-NAT IPv4 is never named — nobody can dial it. (A port the router forwards: the
      * router's own word is asked by iOS MontanaPortMap — not on this side yet.)
      */
-    private fun selfEndpoint(): String? = selfV6().firstOrNull()?.let { "[" + it + "]:" + PORT }
+    // AN ADDRESS OF A FAMILY THIS NETWORK DOES NOT HOLD IS NOT NAMED (iOS selfEndpoint 29-42, N-7, the author's word 25217): iOS T3 at
+    // v6=0 named its IPv6 to its peer, an interface the path does not carry. The one judge of a dial judges the name too (dialable).
+    private fun selfEndpoint(): String? = selfV6().firstOrNull()?.takeIf { dialable(it) }?.let { "[" + it + "]:" + PORT }
 
     /** My dialable address to a correspondent (iOS MontanaNATService.announce 41-56): a silent word in the pipe, once a minute each. */
     fun announce(ref: String) {
