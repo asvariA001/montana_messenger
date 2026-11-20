@@ -947,10 +947,12 @@ object Wire {
      * a refusal too: where the code alone does not say it (the plane of names: a 404 is «nobody holds it» only in the keeper's words).
      */
     fun post(door: String, path: String, body: JSONObject, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null,
-             whole: Boolean = false): Pair<Int, String?> {
+             whole: Boolean = false): Pair<Int, String?> = postRaw(door, path, body.toString().toByteArray(Charsets.UTF_8), timeout, lane, whole)
+    /** The same POST of a body already made bytes (a piece's put, Wire.blobBody): nothing is built again. */
+    fun postRaw(door: String, path: String, raw: ByteArray, timeout: Int = 8000, lane: MutableSet<HttpURLConnection>? = null,
+                whole: Boolean = false): Pair<Int, String?> {
         var held: HttpURLConnection? = null
         return try {
-            val raw = body.toString().toByteArray(Charsets.UTF_8)
             val conn = URL(door + path).openConnection() as HttpURLConnection
             held = conn
             lane?.let { synchronized(it) { it.add(conn) } }
@@ -1092,6 +1094,9 @@ object Wire {
      * OutOfMemoryError here -- a thread for every piece and every machine, each building the piece again as a Base64 string, as JSON
      * text and as bytes, some seven times the piece, none of them bound by the bulk puts' three places): the body is laid in a file
      * of the copies' own, and two workers carry the files one by one, each read when its turn comes.
+     * A COPY IS PATIENT (iOS: the system's background session carries it, unhurried): it waits the piece's whole deadline, never the
+     * pulsed put's five seconds of silence -- on A1 20.11.2026 20:34 UTC (1075, a 60 MB file) every one of 120 copies to the second
+     * machine was cut so, «took no byte», while the person's own puts held the link; the three that rode after them landed at once.
      */
     private fun mirror(bid: String, body: ByteArray, size: Int, taken: String) {
         val to = copies(bid, taken)
@@ -1103,7 +1108,7 @@ object Wire {
                 val raw = try { file.readBytes() } catch (_: Exception) { null }
                 if (raw == null) Log.d("Montana", "blob_copy FAIL copy=" + bid.take(8) + " -- its file is gone")
                 else for ((id, door) in to) {
-                    val code = putPulsed(door, raw, cargoTimeoutMs(size), bid)
+                    val code = postRaw(door, "/blob-put", raw, cargoTimeoutMs(size)).first
                     Log.d("Montana", "blob_copy " + (if (code == 200) "done" else "FAIL code=$code") + " copy=" + bid.take(8) + " to=" + id)
                 }
             } finally { file.delete() }
