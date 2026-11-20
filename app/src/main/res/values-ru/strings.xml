@@ -611,7 +611,8 @@
     <string name="mesh_d_now">Достижимы сейчас</string>
     <string name="mesh_d_bt">Bluetooth</string>
     <string name="mesh_d_off">выключено</string>
-    <string name="p2p_wall_caption">П2П стена: узлы, до которых дотягивается этот телефон</string>
+    <string name="p2p_wall_caption">П2П стена: узлы, до которых дотягивается этот телефон, и переключатель над ними</string>
+    <string name="p2p_network_caption">P2P сеть</string>
     <string name="p2p_reachable">Узлы</string>
     <string name="p2p_held">держим</string>
     <string name="p2p_lost">потерян</string>

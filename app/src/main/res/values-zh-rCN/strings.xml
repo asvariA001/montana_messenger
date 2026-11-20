@@ -611,7 +611,8 @@
     <string name="mesh_d_now">当前可达</string>
     <string name="mesh_d_bt">蓝牙</string>
     <string name="mesh_d_off">已关闭</string>
-    <string name="p2p_wall_caption">P2P 墙：这部手机能连到的节点</string>
+    <string name="p2p_wall_caption">P2P 墙：这部手机能连到的节点，以及它们上方的开关</string>
+    <string name="p2p_network_caption">P2P 网络</string>
     <string name="p2p_reachable">节点</string>
     <string name="p2p_held">已连接</string>
     <string name="p2p_lost">已失去</string>

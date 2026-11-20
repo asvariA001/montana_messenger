@@ -616,7 +616,8 @@
     <string name="mesh_d_now">Reachable now</string>
     <string name="mesh_d_bt">Bluetooth</string>
     <string name="mesh_d_off">off</string>
-    <string name="p2p_wall_caption">P2P wall: the nodes this phone reaches</string>
+    <string name="p2p_wall_caption">P2P wall: the nodes this phone reaches, and the switch over them</string>
+    <string name="p2p_network_caption">P2P network</string>
     <string name="p2p_reachable">Reachable nodes</string>
     <string name="p2p_held">held</string>
     <string name="p2p_lost">lost</string>

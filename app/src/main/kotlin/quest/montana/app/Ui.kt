@@ -72,6 +72,23 @@ fun LinearLayout.spacer() = addView(View(context), lp(if (orientation == LinearL
 /** A fixed gap (SwiftUI Spacer().frame(height:)). */
 fun LinearLayout.gap(size: Int) = addView(View(context), if (orientation == LinearLayout.VERTICAL) lp(MATCH, dp(size)) else lp(dp(size), 1))
 
+/**
+ * A ROUND FILL WHATEVER THE FRAME (iOS Circle() as a view's background): the circle inscribed in the bounds, its diameter the shorter
+ * side, centred, where GradientDrawable.OVAL stretches into an ellipse over a frame that is not square (a pane head's count badge,
+ * iOS MTPaneHead: .padding(5).background(Circle())). Taken from dinetpda's port, PR #43 Ui.kt 101.
+ */
+class CircleFill(color: Int) : android.graphics.drawable.Drawable() {
+    private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { this.color = color }
+    override fun draw(canvas: android.graphics.Canvas) {
+        val b = bounds
+        canvas.drawCircle(b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) / 2f, paint)
+    }
+    override fun setAlpha(alpha: Int) { paint.alpha = alpha; invalidateSelf() }
+    override fun setColorFilter(filter: android.graphics.ColorFilter?) { paint.colorFilter = filter; invalidateSelf() }
+    @Deprecated("Deprecated in Java")
+    override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+}
+
 fun Context.text(s: CharSequence, sizeSp: Float = 17f, color: Int = Color.WHITE, bold: Boolean = false, center: Boolean = false) =
     TextView(this).apply {
         text = s
