@@ -658,6 +658,13 @@ object Card {
         // the wall's rules (MontanaBoard.swift 44-49, 64-77): the rule a word, the people a list
         "boardRule" to Form.WORD, "boardSight" to Form.WORD,
         "boardAllow" to Form.LINES, "boardDeny" to Form.LINES, "boardSightAllow" to Form.LINES, "boardSightDeny" to Form.LINES,
+        // the retired VPN wall's rule and its people (MontanaBoard.swift 47-49, MTBoardAppDoor settingKeys and dataKeys 2850-2853): no page
+        // asks them any more, but a copy that carries them keeps them, as the iPhone's does
+        "vpnWallSight" to Form.WORD, "vpnWallSightAllow" to Form.LINES, "vpnWallSightDeny" to Form.LINES,
+        // the VPN's own settings (iOS MTVPNAppDoor.settingKeys, ee989e49): the chosen row, this person's device word for the plans, the
+        // hand-added section's pin (a moment) and fold; the servers and the plans ride as records (VpnCopy)
+        VpnSelection.KEY to Form.WORD, "mt.vpn.hwid" to Form.WORD, VpnPlans.MANUAL_PIN_KEY to Form.FRACTION_WORD,
+        VpnPlans.MANUAL_FOLD_KEY to Form.SWITCH,
         // the posts already named to their walls as seen (MontanaBoard.swift 1186-1203: a list of «wall#post», the copy's word)
         "board.viewed" to Form.LINES,
         // the person's own words (MontanaProfile.swift 623-625)
@@ -880,6 +887,8 @@ object Card {
         ChessComputer.carried()?.let { out.put("d:" + ChessComputer.GAME_KEY, b64(it)) } ?: out.remove("d:" + ChessComputer.GAME_KEY)
         // The moment the calls page was last seen (iOS ChatStore.loadCallsSeenAt 593-603: a sealed word of seconds)
         CallsSeen.kept()?.let { out.put("d:callsSeenAt", b64(secs(it))) } ?: out.remove("d:callsSeenAt")
+        // THE VPN'S SERVERS AND PLANS (iOS MTVPNAppDoor.settingKeys «mt.vpn.servers», «mt.vpn.plans»): opened, the iPhone's JSON
+        for (k in listOf(VpnStore.KEY, VpnPlans.KEY)) VpnCopy.carried(k)?.let { out.put("d:$k", b64(it)) } ?: out.remove("d:$k")
         val before = Prefs.str(MIRRORED, "").split('\n').filter { it.isNotEmpty() }
         for (path in before) if (path !in laid) runCatching { File(path).delete() }
         Prefs.setStr(MIRRORED, laid.joinToString("\n"))
@@ -932,6 +941,7 @@ object Card {
         var callsSeen: Long? = null
         var training: String? = null
         var groups: ByteArray? = null
+        val vpn = HashMap<String, ByteArray>()
         var laid = 0
         fun one(tagged: String) {
             val tag = tagged.take(2)
@@ -985,6 +995,7 @@ object Card {
                 tag == "d:" && k == ChessComputer.GAME_KEY -> training = unb64(v)?.toString(Charsets.UTF_8)
                 tag == "d:" && k == "callsSeenAt" -> callsSeen = unb64(v)?.let { ms(String(it, Charsets.UTF_8)) }
                 tag == "d:" && k == Groups.STORE -> groups = unb64(v)
+                tag == "d:" && (k == VpnStore.KEY || k == VpnPlans.KEY) -> unb64(v)?.let { vpn[k] = it }
             }
         }
         for (tagged in map.keys()) runCatching { one(tagged) }
@@ -1019,7 +1030,8 @@ object Card {
             { places?.let { PlayPlaces.lay(it) } },
             { callsSeen?.let { CallsSeen.lay(it) } },
             { training?.let { ChessComputer.lay(it) } },
-            { groups?.let { Groups.lay(it, avatars) } }
+            { groups?.let { Groups.lay(it, avatars) } },
+            { for ((k, d) in vpn) VpnCopy.lay(k, d) }
         ).forEach { runCatching(it) }
         // Each value laid takes the copy's moment, as this phone now holds it (iOS layCard: the print of the value read back)
         synchronized(this) {

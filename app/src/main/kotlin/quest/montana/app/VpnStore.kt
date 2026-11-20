@@ -39,7 +39,7 @@ private fun nowSeconds(): Double = System.currentTimeMillis() / 1000.0
  * drawn as one and chosen together (22.09). A row of a plan the person no longer holds stays sealed and out of sight.
  */
 object VpnStore {
-    private const val KEY = "mt.vpn.servers"
+    const val KEY = "mt.vpn.servers"
     private val lock = Any()
     private var held: List<VpnConfig>? = null
 
@@ -215,7 +215,7 @@ class VpnPlan(var url: String, var title: String = "", var updatedAt: Double = 0
 /** THE PLANS (iOS MontanaVPNPlans, MontanaVPN.swift:1815-1920): held in memory, read from the sealed store once; only a plan the
  *  person entered is active -- the received and the coin-provisioned plans of older builds stay sealed. */
 object VpnPlans {
-    private const val KEY = "mt.vpn.plans"
+    const val KEY = "mt.vpn.plans"
     private val lock = Any()
     private var held: List<VpnPlan>? = null
     fun isOwned(plan: VpnPlan): Boolean {
@@ -731,6 +731,32 @@ object VpnFreshener {
             }
             vpnMark("vpn_ui", "fresh $reason plans=$asked of=${VpnPlans.load().size}")
         } finally { beating = false }
+    }
+}
+
+/**
+ * THE VPN'S RECORDS IN A COPY (iOS MTVPNAppDoor.settingKeys and unionKnownBy, ee989e49 / 540328cb; MontanaBackup seedCard «d:» and
+ * union): the servers and the plans travel opened, as the iPhone's JSON; laid back, what stands here first -- every row kept, and each
+ * row of the copy's this phone lacks taken, a server known by its uid, a plan by its url -- sealed again under this phone's key.
+ */
+object VpnCopy {
+    fun carried(key: String): String? = DeviceVault.get(key)?.toString(Charsets.UTF_8)?.takeIf { it.isNotEmpty() && it != "[]" }
+    fun lay(key: String, theirs: ByteArray) {
+        val field = if (key == VpnPlans.KEY) "url" else "uid"
+        val t = runCatching { JSONArray(String(theirs, Charsets.UTF_8)) }.getOrNull() ?: return
+        val m = DeviceVault.get(key)?.let { runCatching { JSONArray(String(it, Charsets.UTF_8)) }.getOrNull() } ?: JSONArray()
+        fun id(x: Any?): String? = when (x) {
+            is String -> "s:$x"
+            is JSONObject -> x.optString(field).takeIf { it.isNotEmpty() }?.let { "r:$it" } ?: "j:$x"
+            else -> null
+        }
+        val seen = HashSet<String>()
+        for (i in 0 until m.length()) id(m.opt(i))?.let { seen.add(it) }
+        for (i in 0 until t.length()) { val x = t.opt(i); val k = id(x); if (k == null || seen.add(k)) m.put(x) }
+        DeviceVault.set(key, m.toString().toByteArray(Charsets.UTF_8))
+        // the store replaced under the held lists (iOS storeReplaced): both are read again
+        VpnStore.forgetHeld(); VpnPlans.forgetHeld()
+        VpnBus.say()
     }
 }
 

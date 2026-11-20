@@ -385,6 +385,10 @@ object Prefs {
     private val SHARED = setOf("mt.notify.asked", "bubbleColorIndex", "bubbleStyle", "noteQuality", "voiceOrb.look", "voiceRate",
         "diagGen", "diagId", "diagWm", "locAsked", "exitSeen",
         "mt.doorbook.life", "mt.relay.machines",   // the phone's book of doors and its relays' machines (iOS a file of the device; deviceKeys relayMachinesKey)
+        // the VPN's values of this phone (iOS MTVPNAppDoor.deviceKeys, ee989e49): the tunnel's clock and state, its dead mark, what every server
+        // last answered on this network, the person's last hand on this device's VPN, the tunnel's living seconds -- never a seat's
+        "mtVPNStartTicks", "mtVPNStartWall", "mt.vpn.dead", "mt.vpn.delays", "mt.vpn.hand",
+        "mt.vpn.deadAt", "mt.vpn.deadRow", "mt.vpn.requested", "tunnelAlive.total", "tunnelAlive.epoch",
         NothingLeft.ERASED)   // the whole erase still owed on this phone (iOS SeedScope.deviceKeys: MontanaSeed.erasedKey): never a seat's
     private val SHARED_PREFIXES = listOf("cbMine", "cbPeer", "mt.update.", "mt.release.")
     fun shared(key: String): Boolean = key in SHARED || SHARED_PREFIXES.any { key.startsWith(it) }
