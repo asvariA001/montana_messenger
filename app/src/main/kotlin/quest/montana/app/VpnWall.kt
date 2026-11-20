@@ -189,7 +189,7 @@ class VpnPowerButton(c: Context) : FrameLayout(c) {
  */
 class VpnWallPage(private val act: MainActivity) {
     private val c: Context = act
-    private val side = c.dp(18)   // iOS MTLibraryRow.side
+    private val side = c.dp(LibraryRow.SIDE)   // iOS MTLibraryRow.side
     private val rows = c.vstack(Gravity.NO_GRAVITY).apply { clipChildren = false }
     private val scroll = ScrollView(c).apply {
         isVerticalScrollBarEnabled = false

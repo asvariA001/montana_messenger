@@ -475,11 +475,17 @@ class Picker(
                 field.post { wake(3) }
             }
         } else {
-            // STILL, IT IS ITS OWN PICTURE: a touch opens the page on this tab with the search awake (iOS onLift(.search true))
+            // AT REST ON THE KEYBOARD PANEL NO FIELD STANDS: THE SEARCH CAPSULE IS DRAWN (iOS MTSearchCapsule.Face, 909783f5,
+            // decision 1093 = a) at the finger's 44; a touch opens the page on this tab with the search awake (iOS onLift(.search true))
             field.isFocusable = false; field.isFocusableInTouchMode = false; field.isCursorVisible = false
+            field.setCompoundDrawablesRelative(null, null, null, null)
             field.setOnClickListener { onLift(tabIndex, true) }
+            addView(c.searchCapsule(field).apply {
+                contentDescription = field.hint
+                pressable { onLift(tabIndex, true) }
+            }, lp(0, dp(SearchCapsule.HEIGHT), 1f))
         }
-        addView(field, lp(0, dp(36), 1f))
+        if (expanded) addView(field, lp(0, dp(36), 1f))
         // THE ARROW BESIDE THE LINE (iOS liftArrow): up opens the choosing as a page; down, on the page, gives the screen back
         addView(FrameLayout(c).apply {
             background = c.glassPlate(oval = true)
