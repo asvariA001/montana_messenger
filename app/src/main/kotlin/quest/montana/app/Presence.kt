@@ -101,69 +101,50 @@ object Signal {
         next?.let { Thread { it() }.start() }
     }
 
-    // ── the doors' life (iOS WakePush baseFailed 318-346, signalDoorAnswered 451-459, the path change 516-528) ──
-    private val doorFails = HashMap<String, Int>()
-    private val deathStreak = HashMap<String, Int>()
-    private val deadUntil = HashMap<String, Long>()
-    /** No answer, or the door's own failure: two in a row and it rests a minute, then two, four, eight at most. A refusal is an answer. */
-    fun doorFailed(door: String, code: Int) {
-        if (code != -1 && code < 500) { doorAnswered(door, proved = false); return }
-        val now = System.currentTimeMillis()
-        var wasChosen = false
-        val rest = synchronized(deadUntil) {
-            if ((deadUntil[door] ?: 0L) > now) return
-            val n = (doorFails[door] ?: 0) + 1
-            doorFails[door] = n
-            if (n < 2) return
-            doorFails[door] = 0
-            val streak = minOf((deathStreak[door] ?: 0) + 1, 4)
-            deathStreak[door] = streak
-            wasChosen = chosen == door
-            if (wasChosen) chosen = null
-            (60_000L shl (streak - 1)).also { deadUntil[door] = now + it }
-        }
-        Log.d("Montana", "sig_door dead " + host(door) + " code=" + code + " — not asked for " + rest / 1000 + "s")
-        // the elected door is left only past its death, and the next live one is elected at the next write (iOS baseFailed 347-350)
-        if (elected() == door) {
+    // ── the doors' life (iOS WakePush baseFailed 406-430, doorSpoke 432-439; the count and the rest are the one book's, DoorBook) ──
+    /**
+     * No answer, or the door's own failure: two in a row and it rests a minute, then two, four, eight at most; a refusal is an answer.
+     * The health round's silence weighs two (iOS verifyRound 157). A door's death unelects it here, whichever road heard the silence --
+     * a base, or a node's channel to the same endpoint (matched by the book's key).
+     */
+    fun doorFailed(door: String, code: Int, weight: Int = 1) {
+        if (code != -1 && code < 500) { doorAnswered(door); return }
+        val rest = DoorBook.silent(door, weight) ?: return
+        val key = DoorBook.door(door)
+        val wasChosen = synchronized(this) { (chosen?.let { DoorBook.door(it) == key } == true).also { if (it) chosen = null } }
+        Log.d("Montana", "sig_door dead " + key + " code=" + code + " — not asked for " + rest + "s")
+        // the elected door is left only past its death, and the next live one is elected at the next write (iOS baseFailed 414-420)
+        val e = elected()
+        if (e != null && DoorBook.door(e) == key) {
             elected = null
             Prefs.remove(ELECTED)
-            Log.d("Montana", "door_elected " + host(door) + " died — the next live door is elected")
+            Log.d("Montana", "door_elected " + DoorBook.host(door) + " died — the next live door is elected")
         }
-        // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (iOS baseFailed 351-354): the lane is cut and re-elected the same instant
-        if (wasChosen) cut("door " + host(door) + " dead — the standing question leaves it")
+        // THE STANDING QUESTION LEAVES A DEAD DOOR NOW (iOS baseFailed 423-425): the lane is cut and re-elected the same instant
+        if (wasChosen) cut("door " + DoorBook.host(door) + " dead — the standing question leaves it")
     }
-    fun doorAnswered(door: String, proved: Boolean = true) {
-        val revived = synchronized(deadUntil) {
-            val was = deathStreak.containsKey(door) || deadUntil.containsKey(door)
-            doorFails.remove(door); deathStreak.remove(door); deadUntil.remove(door)
-            if (proved) proof[host(door)] = System.currentTimeMillis()
-            was
-        }
-        if (revived) {
-            Log.d("Montana", "sig_door alive " + host(door))
-            Wire.forgetGone()   // a door that was silent answers: what it holds is new knowledge (iOS door_alive, forgetGoneChunks)
-            // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS 1672): the letters that waited for it leave now
-            if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
-        }
-    }
-    private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
-    /** Alive for me (iOS doorAlive 468-474): not silent in the last round of the doors, not resting dead by my own two silences. */
-    fun doorAlive(door: String) = !Doors.silent(door) && synchronized(deadUntil) { (deadUntil[door] ?: 0L) <= System.currentTimeMillis() }
-    /** PROOF OF A DOOR (iOS doorProof): the moment it last answered me with 200 since the path changed — keyed by host. */
-    private val proof = HashMap<String, Long>()
-    /**
-     * THE PROVEN DOORS FIRST (iOS MontanaWakePush 484, measured 13.09 15:20: the first knock stood five seconds on a door that had
-     * never answered on this network while three others had answered a second before): proof is what the app already knows — the
-     * freshest first, an unproven door after them, a resting one last; with no proof at all, the network's own order.
-     */
-    fun byProof(doors: List<String>): List<String> = synchronized(deadUntil) {
+    /** Any answer proves the door alive: its silences, its rest and the streak are forgiven in the one book (iOS doorSpoke 432-439). */
+    fun doorAnswered(door: String) {
+        if (!DoorBook.answered(door)) return
+        // ONE REVIVAL IS ONE PIECE OF NEWS, NOT ONE PER ASKER (iOS doorRevived 449-455)
+        val key = DoorBook.door(door)
         val now = System.currentTimeMillis()
-        doors.sortedWith(compareBy({ if (now < (deadUntil[it] ?: 0L)) 2 else if (proof.containsKey(host(it))) 0 else 1 }, { -(proof[host(it)] ?: 0L) }))
+        val fresh = synchronized(revivedAt) { (revivedAt[key]?.let { now - it < 10_000L } == true).also { if (!it) revivedAt[key] = now } }
+        if (fresh) return
+        Log.d("Montana", "door_alive " + DoorBook.host(door) + " answered after silence — the queue drains now")
+        Wire.forgetGone()   // a door that was silent answers: what it holds is new knowledge (iOS forgetGoneChunks)
+        // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS drainOnDoorAlive): the letters that waited for it leave now
+        if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
     }
+    private val revivedAt = HashMap<String, Long>()
+    private val draining = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Alive for me (iOS MTDoorBook.alive): not resting after its own silences -- the health round's silence is one of them. */
+    fun doorAlive(door: String) = DoorBook.alive(door)
+    /** THE ORDER OF A WALK (iOS MTDoorBook.ordered, OZ 1 p.3): the door placed by its last word, the resting last. */
+    fun byProof(doors: List<String>): List<String> = DoorBook.ordered(doors)
     private fun host(door: String) = android.net.Uri.parse(door).host ?: door
-    /** The doors alive for me, in the network's order — what I name to the peer with every word (iOS signalDoors 500-503). */
+    /** The doors alive for me, in the network's order — what I name to the peer with every word (iOS signalDoors 525-527). */
     fun aliveHosts(): List<String> = Doors.ordered("signal").filter { doorAlive(it) }.map { host(it) }
-    fun proveDoor(door: String) { synchronized(deadUntil) { proof[host(door)] = System.currentTimeMillis() } }
 
     // ═══ THE ELECTED DOOR (iOS 1638, the author's word; MontanaWakePush 281-316) ═══
     // The phone elects ONE live node and works with it: every write starts at the elected door and walks on only past its death; a
@@ -193,9 +174,8 @@ object Signal {
     fun signalDoor(): String {
         val order = Doors.ordered("signal")
         var fresh: String? = null
-        val pick = synchronized(deadUntil) {
-            val now = System.currentTimeMillis()
-            val all = order.filter { (deadUntil[it] ?: 0L) <= now }
+        val all = order.filter { DoorBook.alive(it) }   // the book's own lock, before this one (iOS 486)
+        val pick = synchronized(this) {
             val c = chosen
             if (c != null && c in all) c else (all.firstOrNull() ?: order.firstOrNull())?.also { chosen = it; fresh = it } ?: ""
         }
@@ -224,13 +204,8 @@ object Signal {
         val theirs = peerDoors(ref) ?: return mine
         return Doors.ordered("signal").firstOrNull { doorAlive(it) && host(it) in theirs } ?: mine
     }
-    /** THE DOORS OF A CALL (iOS callDoors 475-492): alive and proven first, alive after them, the doors resting dead last. */
-    fun callDoors(): List<String> {
-        val all = Doors.ordered("signal")
-        val alive = all.filter { doorAlive(it) }
-        val proven = synchronized(deadUntil) { proof.keys.toSet() }
-        return alive.filter { host(it) in proven } + alive.filter { host(it) !in proven } + all.filter { it !in alive }
-    }
+    /** THE DOORS OF A CALL (iOS callDoors): the one book's order -- answered newest first, unasked, faltering, resting last. */
+    fun callDoors(): List<String> = DoorBook.ordered(Doors.ordered("signal"))
 
     // ── the lanes (iOS sigSessions and postLane: networkPathChanged 520-537, cutStandingQuestion 538-551) ──
     private const val CUT = -2
@@ -266,16 +241,25 @@ object Signal {
     fun cutForCall() = cut("call born")
 
     private var pathWatched = false
-    /** THE NETWORK PATH CHANGED (iOS 516-528): dead on one path says nothing of another — every door is forgiven at once. */
+    /**
+     * THE NETWORK PATH CHANGED (iOS 548-566): dead on one path says nothing of another. THE NETWORK'S OWN BOOK (iOS MontanaApp
+     * 1329-1334, OZ 1 p.5): on every carrying path the book of this network is open -- the interface, the transport, the address
+     * families and the gateways name it, under the diary's salted label -- one name in every process of this phone (N-2); a network
+     * returned to opens the book it left, and a book already open stays, before anyone knocks.
+     */
     fun watchPath(c: Context) {
         if (pathWatched) return
         pathWatched = true
         val cm = c.getSystemService(android.net.ConnectivityManager::class.java) ?: return
         runCatching {
             cm.registerDefaultNetworkCallback(object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onLinkPropertiesChanged(n: android.net.Network, lp: android.net.LinkProperties) {
+                    DoorBook.networkChanged(netName(cm, n, lp))
+                }
                 // THE DOORS ARE JUDGED AGAIN ONCE, ON THE FIRST SATISFIED PATH AFTER THE NETWORK CHANGED (iOS 1989, MontanaNetWitness):
                 // not on the change itself — a path lost and found again inside a second judged every door twice for nothing
                 override fun onAvailable(n: android.net.Network) {
+                    cm.getLinkProperties(n)?.let { DoorBook.networkChanged(netName(cm, n, it)) }
                     val sig = n.toString()
                     if (sig == judgedOn) return
                     judgedOn = sig
@@ -285,11 +269,28 @@ object Signal {
             })
         }
     }
+    /** The network's name for its book (iOS: the interface set and the tunnel, the families, the gateways, under MontanaLog.label). */
+    private fun netName(cm: android.net.ConnectivityManager, n: android.net.Network, lp: android.net.LinkProperties): String {
+        val caps = cm.getNetworkCapabilities(n)
+        val kind = when {
+            caps == null -> "?"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN) -> "vpn"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) -> "wifi"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_CELLULAR) -> "cell"
+            caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) -> "eth"
+            else -> "other"
+        }
+        val v4 = lp.linkAddresses.any { it.address is java.net.Inet4Address }
+        val v6 = lp.linkAddresses.any { it.address is java.net.Inet6Address && !it.address.isLinkLocalAddress }
+        val fam = (if (v4) "v4" else "-") + (if (v6) "v6" else "-")
+        val gws = lp.routes.filter { it.isDefaultRoute && it.hasGateway() }.mapNotNull { it.gateway?.hostAddress }.sorted()
+        return Diary.label((listOf(kind + "/" + (lp.interfaceName ?: ""), fam) + gws).joinToString(" "))
+    }
     @Volatile private var judgedOn: String? = null
     private fun forgive(why: String) {
-        synchronized(deadUntil) { deadUntil.clear(); doorFails.clear(); deathStreak.clear(); proof.clear(); chosen = null }   // proof on one path says nothing of another
+        synchronized(this) { chosen = null }   // the book was opened afresh before (iOS networkPathChanged 560)
         Wire.forgetGone()   // a new path may reach a store the old one could not
-        cut(why + " — every door forgiven, every lane cut", posts = true)   // the questions in flight stood on the old path's socket (iOS 520-537)
+        cut(why + " — the network's own book, every lane cut", posts = true)   // the questions in flight stood on the old path's socket (iOS 520-537)
     }
 
     /**
@@ -962,6 +963,7 @@ object Presence {
     fun appShown() {
         if (appOpen) return
         appOpen = true
+        DoorBook.knockNow()   // every opening knocks NOW, but keeps what the doors said (iOS MontanaNodes.openNow 339-345)
         appPresence(true)
         Book.openChat?.let { ref -> if ((Book.chat(ref)?.unread ?: 0) > 0) Thread { Post.markRead(ref) }.start() }
     }

@@ -343,9 +343,6 @@ class Channel(val host: String, val port: Int, ref: String = "", private val acc
  */
 object Channels {
     private const val FRAME_MEMORY = 8192   // iOS frameMemory 468
-    private const val STEP_MIN = 2.0
-    private const val STEP_MAX = 15.0
-    private const val STEP_DEAD_MAX = 600.0   // iOS MontanaNodes 249-255
     private const val PATH_STEP_MIN = 5.0
     private const val PATH_STEP_MAX = 60.0   // iOS MontanaP2PNode 526-527
     const val PORT = 8447   // iOS MontanaDirectPort.value: the mesh's direct channel
@@ -354,7 +351,6 @@ object Channels {
     private val pathAt = HashMap<String, Pair<Long, Double>>()
     private val announcedTo = HashMap<String, Long>()
     private val live = HashMap<String, Channel>()   // a door's label → its channel, standing or being greeted
-    private val tried = HashMap<String, Triple<Long, Double, Boolean>>()   // a door's label → (knocked at, the next step in s, refused)
     private val originated = HashSet<String>()
     private val seen = HashSet<String>()
     @Volatile private var owner: ByteArray? = null
@@ -438,14 +434,10 @@ object Channels {
         for (d in doors) {
             val label = d.label
             if (label in skip) continue
+            // A DOOR THE BOOK HOLDS DEAD IS NOT DIALLED (iOS MontanaNodes.open 289-292, OZ 1 p.2): the pace and the rest are one book's
             val c = synchronized(live) {
                 if (live.containsKey(label)) return@synchronized null
-                val cur = tried[label]
-                val step = cur?.second ?: STEP_MIN
-                if (now - (cur?.first ?: 0L) < step * 1000) return@synchronized null
-                val spread = 0.8 + Math.random() * 0.6   // the spread of a retry, not a quantity of the protocol
-                val ceiling = if (cur?.third == true) STEP_DEAD_MAX else STEP_MAX
-                tried[label] = Triple(now, minOf(ceiling, step * 2 * spread), cur?.third ?: false)
+                if (!DoorBook.dialDue(DoorBook.door(d.host, d.port))) return@synchronized null
                 Channel(d.host, d.port, wsPath = d.path).also { live[label] = it }
             } ?: continue
             knockedOnce = true
@@ -460,9 +452,12 @@ object Channels {
             live.remove(c.label)
             // a door that stood is knocked again at once; one that did not keeps its step and is judged refused — unless the fault was
             // this process's own: then the door keeps the fast step and is knocked after it, not judged (iOS MontanaNodes 309-316)
-            if (c.ready) tried.remove(c.label)
-            else if (localFaultRecent()) tried[c.label] = Triple(System.currentTimeMillis(), STEP_MIN, false)
-            else tried[c.label]?.let { tried[c.label] = Triple(it.first, it.second, true) }
+        }
+        // a door that stood answered where it stood (up); one that did not is a silence of the one book -- unless the fault was this
+        // process's own: then the door is not judged and is knocked after the fast step (iOS MontanaNodes 300-316, noteDoorFail 1605)
+        if (!c.ready && c.label in doorLabels()) {
+            val key = DoorBook.door(c.host, c.port)
+            if (localFaultRecent()) DoorBook.notJudged(key) else Signal.doorFailed(key, -1)
         }
         Log.d("Montana", (if (c.closeWhy == "peer-closed") "chan_peer_close" else "node_shut") + " at=" + c.label + " why=" + c.closeWhy +
             " ready=" + (if (c.ready) 1 else 0) + " after_ms=" + (System.currentTimeMillis() - c.dialAt))
@@ -475,6 +470,7 @@ object Channels {
         // the door named its machine — the knowledge outlives the channel, or the probing repeats at every opening (iOS 1169-1171);
         // an extra path to a machine already held closes at once
         if (c.label in doorLabels()) {
+            Signal.doorAnswered(DoorBook.door(c.host, c.port))   // the answer is written where the channel stands: one writer (iOS path_up)
             c.peerTag?.let { Doors.remember(c.label, Wire.hex(it), c.standMs) }
             fold()
         }

@@ -18,7 +18,6 @@ object Doors {
     private const val LEARNED = "mt.nodes.learned"
     private val ALL_CAPS = setOf("box", "blob", "signal", "turn", "diag", "stun", "notify")   // a door that names nothing can everything (iOS allCaps 43)
     private val caps = HashMap<String, Set<String>>()
-    private val silent = HashSet<String>()
     private var verifiedAt = 0L
     private val verifying = java.util.concurrent.atomic.AtomicBoolean(false)
 
@@ -72,11 +71,11 @@ object Doors {
     fun ordered(cap: String): List<String> {
         if (System.currentTimeMillis() - verifiedAt > 600_000L) verifyLater()
         val all = hosts().map { base(it) }
-        val (known, mute) = synchronized(caps) { HashMap(caps) to HashSet(silent) }
+        val known = synchronized(caps) { HashMap(caps) }
         val good = all.filter { known[it]?.contains(cap) == true }
         if (good.isNotEmpty()) return good
         if (known.isNotEmpty()) return emptyList()
-        return all.filter { it !in mute }.ifEmpty { all }
+        return all.filter { DoorBook.alive(it) }.ifEmpty { all }   // the round's silence is the one book's (iOS 71, OZ 1 p.2)
     }
 
     /**
@@ -89,8 +88,8 @@ object Doors {
         val good = ordered(cap)
         if (good.isNotEmpty()) return good
         val all = hosts().map { base(it) }
-        val (known, mute) = synchronized(caps) { HashMap(caps) to HashSet(silent) }
-        return all.filter { it !in known && it !in mute }.ifEmpty { all }
+        val known = synchronized(caps) { HashMap(caps) }
+        return all.filter { it !in known && DoorBook.alive(it) }.ifEmpty { all }
     }
 
     /**
@@ -212,9 +211,6 @@ object Doors {
         Prefs.setStr(BOOK, o.toString())
     }
 
-    /** Asked in the last round and did not answer (iOS silentDoors): not alive for the lane. */
-    fun silent(door: String) = synchronized(caps) { door in silent }
-
     private fun verifyLater() {
         if (verifying.compareAndSet(false, true)) Thread { try { verify(0) } finally { verifying.set(false) } }.start()
     }
@@ -239,15 +235,21 @@ object Doors {
      */
     private fun verify(pass: Int) {
         val before = hosts().toSet()
+        val net = DoorBook.net()
         val doors = hosts().map { base(it) }
         val found = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
         val asked = doors.map { d -> Thread { health(d)?.let { found[d] = it } }.also { it.start() } }
         for (a in asked) a.join(12_500)
+        val sameNet = net == DoorBook.net()   // the network did not change under the round
         synchronized(caps) {
-            for (d in doors) { val held = found[d]; if (held != null) { caps[d] = held; silent.remove(d) } else silent.add(d) }
-            verifiedAt = System.currentTimeMillis()
+            // merged, not replaced: a door that answered once and is silent now keeps its capabilities (iOS 147-150)
+            for (d in doors) found[d]?.let { caps[d] = it }
+            if (sameNet) verifiedAt = System.currentTimeMillis()
         }
-        for (d in found.keys) Signal.proveDoor(d)   // the round's answer is proof for the call's walk (iOS 115)
+        // THE ROUND'S ANSWERS AND SILENCES GO TO THE ONE BOOK (iOS verifyRound 153-157): an answer is a door's word and proof for the
+        // call's walk; a silence of six seconds on the door's own probe weighs two -- and a round that outlived a network change
+        // writes no silence
+        for (d in doors) if (found[d] != null) Signal.doorAnswered(d) else if (sameNet) Signal.doorFailed(d, -1, weight = 2)
         Log.d("Montana", "accel_paths ok=" + doors.filter { found[it] != null }.joinToString(",") { host(it) + "[" + found[it].orEmpty().sorted().joinToString("|") + "]" } + " of=" + doors.size)
         // THE MODE OF THE NETWORK (iOS MontanaWakePush 172-181, atoms c0b52069608a, b3f67ba312fd): a silent door is a question --
         // the mode is measured then, at most once a minute -- and the round runs once an hour on its own, so a verdict has open

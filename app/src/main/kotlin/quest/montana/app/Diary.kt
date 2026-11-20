@@ -159,6 +159,8 @@ object Diary {
         if (out.contains('.')) out = IP4.replace(out, "[ip4]")
         return HEX.replace(out) { m -> "a:" + tag(m.value) }
     }
+    /** A name under the diary's salt (iOS MontanaLog.label): one name in every process of this phone, and none anywhere else. */
+    fun label(token: String): String = tag(token)
     private fun tag(token: String): String = synchronized(tags) {
         tags[token] ?: run {
             val h = MessageDigest.getInstance("SHA-256").digest((salt() + token).toByteArray(Charsets.UTF_8))
