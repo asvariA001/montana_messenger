@@ -117,6 +117,9 @@ object Signal {
      */
     fun doorFailed(door: String, code: Int, weight: Int = 1) {
         if (code != -1 && code < 500) { doorAnswered(door); return }
+        // A FAULT OF THE PROCESS IS NOT THE DOOR'S WORD (iOS baseFailed 430-432, 05.09; OZ 1 p.4, the sleep): descriptors gone, or the
+        // phone frozen and just thawed -- every caller of the one verdict reads it here, not each by itself
+        if (Channels.localFaultRecent()) return
         val rest = DoorBook.silent(door, weight) ?: return
         val key = DoorBook.door(door)
         val died = synchronized(this) { (elected?.let { DoorBook.door(it) == key } == true).also { if (it) elected = null } }
@@ -136,7 +139,7 @@ object Signal {
         val now = System.currentTimeMillis()
         val fresh = synchronized(revivedAt) { (revivedAt[key]?.let { now - it < 10_000L } == true).also { if (!it) revivedAt[key] = now } }
         if (fresh) return
-        Log.d("Montana", "door_alive " + DoorBook.host(door) + " answered after silence — the queue drains now")
+        Log.d("Montana", "door_alive door=" + key + " " + DoorBook.record(door) + " answered after its rest — the queue drains now")   // the door by its way, not its name (iOS 4249a579)
         Wire.forgetGone()   // a door that was silent answers: what it holds is new knowledge (iOS forgetGoneChunks)
         // A DOOR THAT ANSWERS AFTER SILENCE DRAINS THE QUEUE AT ONCE (iOS drainOnDoorAlive): the letters that waited for it leave now
         if (draining.compareAndSet(false, true)) Thread { try { Post.flush() } finally { draining.set(false) } }.start()
@@ -481,6 +484,12 @@ object Signal {
                 // CUT BY OUR OWN HAND (iOS 3304-3307, 3317): the fresh lane asks now, and a question we cut says nothing of the door
                 if (gen != laneGen.get()) { fails = 0; continue }
                 EarService.awake()   // the answer woke the phone: it stays up for the word and the next question (the app closed)
+                // A QUESTION THE SLEEP CUT IS ASKED AGAIN (iOS finishSignalRead sleepCut / askAgainAfterSleep, OZ 1 p.4, T3 12:57:26): no
+                // code, in the moments of a fault of the process itself -- it says nothing of the door: no rest, no failover; a breath later
+                if (code == -1 && Channels.localFaultRecent()) {
+                    Log.d("Montana", "sig_rx slept door=" + host(door) + " — asked again on a fresh lane")
+                    fails = 0; Thread.sleep(300); continue
+                }
                 if (code != 200 || text == null) { doorFailed(door, code); fails++; Thread.sleep(minOf(10_000L, 1000L * fails)); continue }
                 doorAnswered(door)
                 fails = 0
@@ -1001,6 +1010,37 @@ object Presence {
  * TOLD ONLY WHEN IT STANDS: the first answer of a life, or two answers in a row that agree -- two doors whose clocks disagreed
  * would flip it at every answer; a correction larger than two clocks may disagree says the greeting again (Presence.clockCorrected).
  */
+/**
+ * THE LAST THAW, KEPT BY THE BEAT ITSELF (iOS MontanaTelemetry beat / sleptFor / thawing, OZ 1 p.4, d625d834): the sleep was read as
+ * «now minus the last beat» at the moment someone asked, and the beat fires first when the process thaws -- every wake said gap 0,
+ * the channels the sleep killed counted as the door's silence. The beat that closes a gap now remembers when the process thawed and
+ * how long it slept. The clock is the one that runs through the phone's deep sleep (elapsedRealtime); the beat holds no wake lock.
+ */
+object Thaw {
+    const val SLEEP_GAP_MS = 3000L   // iOS MontanaWakeDoor.sleepGapS
+    @Volatile private var lastBeat = android.os.SystemClock.elapsedRealtime()
+    @Volatile private var thawAt = 0L
+    @Volatile private var thawLength = 0L
+    @Volatile private var started = false
+    fun start() {
+        if (started) return
+        started = true
+        Thread { while (true) { beat(); Thread.sleep(500) } }.apply { isDaemon = true; name = "mt-beat" }.start()
+    }
+    @Synchronized fun beat() {
+        val now = android.os.SystemClock.elapsedRealtime(); val gap = now - lastBeat
+        if (gap > SLEEP_GAP_MS) { thawAt = now; thawLength = gap }
+        lastBeat = now
+    }
+    /** The length of the sleep the process just left: the gap still open, or the one a beat closed in the last moments. */
+    fun sleptFor(): Long {
+        val now = android.os.SystemClock.elapsedRealtime(); val gap = now - lastBeat
+        return if (thawAt > 0 && now - thawAt < SLEEP_GAP_MS) maxOf(gap, thawLength) else gap
+    }
+    /** Frozen, or just thawed: what the process's sockets and questions say now is its own sleep, not a door's word. */
+    val thawing: Boolean get() = sleptFor() > SLEEP_GAP_MS
+}
+
 object NodeClock {
     private const val KEY = "mt.node.skew"
     private const val LEEWAY = 2_000L   // iOS clockSlackS

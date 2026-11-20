@@ -30,6 +30,8 @@ import kotlin.math.abs
 class FilmActivity : Activity() {
     override fun attachBaseContext(base: android.content.Context) = super.attachBaseContext(pinnedText(AppLanguage.wrap(base)))
     companion object {
+        private const val FALLBACK_RISE = 76   // iOS MTVideoShareMark.fallbackRise
+        private const val GAP = 8   // iOS MTVideoShareMark.gap
         private const val EXTRA_FILE = "montana.film.file"
         private const val EXTRA_URL = "montana.film.url"
         private const val EXTRA_STREAM = "montana.film.stream"
@@ -50,6 +52,7 @@ class FilmActivity : Activity() {
     private lateinit var video: VideoView
     private lateinit var chrome: View
     private var ctl: MediaController? = null
+    private lateinit var shareMark: View
     private var film: File? = null
     private var link: String? = null
     private var shape = Rational(16, 9)
@@ -71,14 +74,14 @@ class FilmActivity : Activity() {
         }
         val bar = FrameLayout(this).apply {
             addView(mark(R.drawable.ic_close, R.string.film_close) { finish() }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.START).apply { leftMargin = dp(16) })
-            addView(hstack {
-                addView(mark(R.drawable.ic_pip, R.string.film_fold) { fold() }, lp(dp(44), dp(44)))
-                gap(10)
-                addView(mark(R.drawable.ic_share, R.string.share) { share() }, lp(dp(44), dp(44)))
-            }, FrameLayout.LayoutParams(WRAP, WRAP, Gravity.END).apply { rightMargin = dp(16) })
+            addView(mark(R.drawable.ic_pip, R.string.film_fold) { fold() }, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END).apply { rightMargin = dp(16) })
         }
         chrome = bar
         root.addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply { topMargin = dp(8) })
+        // THE PLAYER'S SHARE STANDS WITH THE PLAYER'S OWN MARKS (iOS MTVideoShareMark, 479d95b7; the author's words 25688, 25689, OZ 1
+        // p.4): the glass round of forty-four at the lower left, above the scrubber, shown only while the player's controls are shown
+        shareMark = mark(R.drawable.ic_share, R.string.share) { share() }.apply { alpha = 0f; isClickable = false }
+        root.addView(shareMark, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(16); bottomMargin = dp(FALLBACK_RISE) })
         // the page runs under the system's bars; the marks stand under the status bar
         root.setOnApplyWindowInsetsListener { _, ins ->
             @Suppress("DEPRECATION") val top = ins.systemWindowInsetTop
@@ -101,13 +104,46 @@ class FilmActivity : Activity() {
         val stream = i?.getStringExtra(EXTRA_STREAM)?.takeIf { url == null && it.startsWith("content://") }?.let { Uri.parse(it) }
         val f = if (url != null) null else i?.getStringExtra(EXTRA_FILE)?.let { File(it) }?.takeIf { stream != null || it.exists() } ?: return finish()
         film = f; link = url
-        ctl = MediaController(this).also { it.setAnchorView(video); video.setMediaController(it) }
+        ctl = object : MediaController(this) {
+            override fun show(timeout: Int) { super.show(timeout); post { shareShown(true, this) } }
+            override fun hide() { super.hide(); shareShown(false, this) }
+        }.also { it.setAnchorView(video); video.setMediaController(it) }
         video.setOnPreparedListener { mp ->
             if (mp.videoWidth > 0 && mp.videoHeight > 0) shape = fit(mp.videoWidth, mp.videoHeight)
             params()
             video.start()
         }
         video.setVideoURI(stream ?: if (f != null) Uri.fromFile(f) else Uri.parse(url))
+    }
+
+    /**
+     * The share mark follows the player's controls (iOS MTVideoShareMark.follow): shown and live with them, hidden and deaf without;
+     * its floor is the top of the player's scrubber plus eight, seventy-six while the scrubber is not measured; the diary says each change.
+     */
+    private var markShown = false
+    private fun shareShown(on: Boolean, bar: MediaController) {
+        if (on && isInPictureInPictureMode) return
+        if (on) scrubberTop(bar)?.let { top ->
+            val rise = bar.height - top + dp(GAP)
+            val lp = shareMark.layoutParams as FrameLayout.LayoutParams
+            if (rise > 0 && rise < window.decorView.height / 2 && lp.bottomMargin != rise) { lp.bottomMargin = rise; shareMark.layoutParams = lp }
+        }
+        if (on == markShown) return
+        markShown = on
+        shareMark.isClickable = on
+        shareMark.animate().alpha(if (on) 1f else 0f).setDuration(250).start()
+        android.util.Log.d("Montana", "VIDEO share_mark shown=" + on + " floor=" + (shareMark.layoutParams as FrameLayout.LayoutParams).bottomMargin)
+    }
+    /** The top of the player's scrubber inside its controls (iOS scrubberTop): the widest seek bar's top. */
+    private fun scrubberTop(root: View): Int? {
+        var best: Int? = null
+        fun walk(v: View, y: Int) {
+            if (v.visibility != View.VISIBLE) return
+            if (v is android.widget.SeekBar && v.width * 2 > root.width) best = minOf(best ?: Int.MAX_VALUE, y + v.top)
+            if (v is android.view.ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i), y + v.top)
+        }
+        if (root is android.view.ViewGroup) for (i in 0 until root.childCount) walk(root.getChildAt(i), 0)
+        return best
     }
 
     // the platform's window takes shapes between 1 to 2.39 and 2.39 to 1
@@ -138,7 +174,7 @@ class FilmActivity : Activity() {
         super.onPictureInPictureModeChanged(inPip, cfg)
         folded = inPip
         chrome.visibility = if (inPip) View.GONE else View.VISIBLE
-        if (inPip) ctl?.hide()
+        if (inPip) { ctl?.hide(); shareMark.alpha = 0f; shareMark.isClickable = false; markShown = false }
     }
 
     // the window's own close stops the folded film: nothing plays where nothing is seen

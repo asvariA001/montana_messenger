@@ -238,18 +238,21 @@ object Doors {
         val net = DoorBook.net()
         val doors = hosts().map { base(it) }
         val found = java.util.concurrent.ConcurrentHashMap<String, Set<String>>()
-        val asked = doors.map { d -> Thread { health(d)?.let { found[d] = it } }.also { it.start() } }
+        // EACH DOOR'S WORD IS WRITTEN WHEN IT IS SPOKEN (iOS verifyRound 138-148, OZ 1 p.2, 4249a579): the round wrote every answer
+        // and every silence at its end, seconds after the answers came, and an older answer laid itself over a newer death heard on
+        // another road. An answer now goes to the one book at its own moment, its capabilities with it; a silence the same, and only
+        // on the network the round began on. Nothing is written again at the round's end.
+        val asked = doors.map { d -> Thread {
+            val held = health(d)
+            if (held != null) {
+                found[d] = held
+                synchronized(caps) { caps[d] = held }   // merged, not replaced: a silent door keeps what it said before (iOS 157-159)
+                Signal.doorAnswered(d)
+            } else if (net == DoorBook.net()) Signal.doorFailed(d, -1, weight = 2)   // a silence of six seconds on its own probe weighs two
+        }.also { it.start() } }
         for (a in asked) a.join(12_500)
         val sameNet = net == DoorBook.net()   // the network did not change under the round
-        synchronized(caps) {
-            // merged, not replaced: a door that answered once and is silent now keeps its capabilities (iOS 147-150)
-            for (d in doors) found[d]?.let { caps[d] = it }
-            if (sameNet) verifiedAt = System.currentTimeMillis()
-        }
-        // THE ROUND'S ANSWERS AND SILENCES GO TO THE ONE BOOK (iOS verifyRound 153-157): an answer is a door's word and proof for the
-        // call's walk; a silence of six seconds on the door's own probe weighs two -- and a round that outlived a network change
-        // writes no silence
-        for (d in doors) if (found[d] != null) Signal.doorAnswered(d) else if (sameNet) Signal.doorFailed(d, -1, weight = 2)
+        synchronized(caps) { if (sameNet) verifiedAt = System.currentTimeMillis() }
         Log.d("Montana", "accel_paths ok=" + doors.filter { found[it] != null }.joinToString(",") { host(it) + "[" + found[it].orEmpty().sorted().joinToString("|") + "]" } + " of=" + doors.size)
         // THE MODE OF THE NETWORK (iOS MontanaWakePush 172-181, atoms c0b52069608a, b3f67ba312fd): a silent door is a question --
         // the mode is measured then, at most once a minute -- and the round runs once an hour on its own, so a verdict has open

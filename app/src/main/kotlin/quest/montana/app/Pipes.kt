@@ -2325,7 +2325,34 @@ object Post {
     private var lastWholeAt = 0L
     private const val WHOLE_EVERY = 60_000L
     private var fetching = false
-    private const val CARRY_MS = 30L * 86_400_000L   // iOS MontanaDeliveryEngine.carryDays: at least thirty days (the author's word 07.10)
+    // THE CARRIAGE OF A LETTER (iOS MontanaDeliveryEngine.carryDays = 7, fef4bfe0; the author's word 25683, 20.11.2026: «seven days
+    // there, otherwise show the error and the retry on the undelivered letter»; was thirty, the word of 07.10)
+    private const val CARRY_MS = 7L * 86_400_000L
+    /** The carriage before 20.11: a letter older than it had already ended its carriage as «sent», and is not called back red now. */
+    private const val OLD_CARRY_MS = 30L * 86_400_000L
+    private var undeliveredAt = 0L   // the last sweep (once an hour)
+    /**
+     * A LETTER THE NODE HELD AND NO RECEIPT CAME FOR, AT THE CARRIAGE'S END, TURNS RED WITH A RETRY (iOS carry_done → refuse
+     * .notDelivered, MTRefusal.notDelivered, fef4bfe0; the author's word 25683). The node boxed it and the queue let it go «sent» at
+     * once (here no held letter is carried or re-boxed, so none rings anybody -- the author's word 25675); seven days with no receipt,
+     * the row turns red and the bubble's tap carries it again (resendAny). Once an hour, the person's own words in the pairs.
+     */
+    private fun sweepUndelivered() {
+        val now = System.currentTimeMillis()
+        if (now - undeliveredAt < 3_600_000L) return
+        undeliveredAt = now
+        for (ref in Book.refs()) {
+            val c = Book.chat(ref) ?: continue
+            val due = c.msgs.filter { it.mine && it.state == 1 && (now - it.at) in CARRY_MS until OLD_CARRY_MS && !Marks.isService(it.text) }.map { it.mid }.toSet()
+            if (due.isEmpty()) continue
+            val red = mutableListOf<Msg>()
+            Book.edit(ref) { ch -> ch.msgs.filter { it.mid in due && it.mine }.forEach { m -> if (m.advance(-1)) red.add(m) } }
+            for (m in red) {
+                Log.d("Montana", "carry_done m=" + m.mid.take(8) + " — the node held it, no receipt came: red, with a retry")
+                CoinSend.hold(m, ref)
+            }
+        }
+    }
 
     // ── sending ──
     /**
@@ -2509,6 +2536,7 @@ object Post {
 
     /** Every waiting letter knocks once more; the ones a door boxed leave the queue. */
     fun flush() {
+        runCatching { sweepUndelivered() }
         val items = synchronized(outLock) { outbox() }
         val done = mutableSetOf<String>()
         for (i in 0 until items.length()) {
@@ -2566,10 +2594,10 @@ object Post {
             } else if (Marks.birthMs(mid)?.let { CARRY_MS <= System.currentTimeMillis() - it } == true) {
                 // THE CARRIAGE IS THE ONE END, AND NEVER A CLOCK'S RED FOR A LETTER A NODE TOOK (iOS carryDays and neverLeft,
                 // MontanaDeliveryEngine 315-316, 1354-1366; atom 4d96053c1090): a letter a door boxed left this queue at once, still
-                // sent; one no node ever took in thirty days turns red by that word -- it never left this phone -- and leaves the queue.
+                // sent; one no node ever took in the carriage's seven days turns red by that word -- it never left this phone -- and leaves the queue.
                 // A coin letter never reaches here: its day ends first (CoinSend.expire, the author's word 09.10 11:3x).
                 done.add(mid); Groups.copyLost(mid)
-                Log.d("Montana", "send_failed m=" + mid.take(8) + " — no node ever took it in the carriage's thirty days")
+                Log.d("Montana", "send_failed m=" + mid.take(8) + " — no node ever took it in the carriage's seven days")
                 var red: Msg? = null
                 val chat = SamePair.root(to)
                 Book.edit(chat) { c -> c.msgs.find { it.mid == mid && it.mine }?.let { m -> if (m.advance(-1)) red = m } }
