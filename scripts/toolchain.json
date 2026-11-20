@@ -45,6 +45,28 @@
     "why": "Google's own tool that makes the app bundle Google Play takes (AAB, the only form Play takes from a new app) out of the same dex and libraries as the APK; run by the pinned JDK, taken byte for byte by this digest (the release's own)"
   },
   "cargo_ndk": "4.1.2",
+  "go": {
+    "version": "1.26.8",
+    "macos-aarch64": {
+      "url": "https://go.dev/dl/go1.26.8.darwin-arm64.tar.gz",
+      "sha256": "a012b25b571bd0138a03dcd25375ceba866fe5ca822f426d2c66a4de56fd3f4b"
+    },
+    "linux-x86_64": {
+      "url": "https://go.dev/dl/go1.26.8.linux-amd64.tar.gz",
+      "sha256": "d0f743b33e8d8945e6b1f432edd15785c70507121d6e2a723b21285eddf8b57b"
+    },
+    "why": "the VPN wall's engine is Xray-core bound by gomobile, as iOS binds it (apps/messenger/ios/scripts/xray-ios: go 1.26.5 in its go.mod); 1.26.8 is the newest patch of that line at least two weeks old (01.09.2026; 1.26.9 came 08.10.2026)"
+  },
+  "vpn": {
+    "gomobile": "v0.0.0-20260803200217-62cee1672c8e",
+    "hev": {
+      "url": "https://github.com/heiher/hev-socks5-tunnel",
+      "tag": "2.18.0",
+      "commit": "d9dca26c7ad0e494492244f0309e80ee583e739e",
+      "why": "the packet pump between the VPN's tun and Xray's SOCKS inbound, as iOS carries it (scripts/hev-ios, MIT); iOS clones the head unpinned, here the newest release at least two weeks old (27.09.2026; 2.19.0 came 15.10.2026), its submodules fixed by this commit"
+    },
+    "why": "Xray-core itself is pinned by native/montana-xray/go.mod and go.sum (xray-core v1.260327.0, byte for byte iOS 2235's); gomobile is the golang.org/x/mobile those files name"
+  },
   "protocol": {
     "why": "the public core: core/Code of the Montana repository at a named main commit (the chairman's decision 312, issue #23); the checkout beside this repository is checked by that folder's tree, not by its head",
     "dir": "../montana_messenger",

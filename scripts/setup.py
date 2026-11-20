@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Installs the toolchain of scripts/toolchain.json on this computer: the JDK, the Android SDK pieces, the Kotlin compiler,
-the call engine (WebRTC), bundletool (the app bundle for Google Play), and the core's road (the NDK, the core's own Rust
+the call engine (WebRTC), the VPN wall's Go (Xray-core by gomobile), bundletool (the app bundle for Google Play), and the core's road (the NDK, the core's own Rust
 with the phone's target, cargo-ndk).
 
 usage: python3 scripts/setup.py [--apk-only]
@@ -171,6 +171,19 @@ def rust(p):
     say("Rust %s with aarch64-linux-android and cargo-ndk %s in place" % (channel, PIN["cargo_ndk"]))
 
 
+def go(p):
+    # the VPN wall's engine is Xray-core bound by gomobile, as iOS binds it (scripts/build.py vpn)
+    pin = PIN["go"]
+    if os.path.exists(p.go):
+        found = subprocess.run([p.go, "version"], capture_output=True, text=True).stdout
+        if ("go%s " % pin["version"]) not in found:
+            raise SystemExit("setup: %s holds %s; set it aside and run again (pinned go%s)"
+                             % (p.go_root, found.strip(), pin["version"]))
+        return say("Go %s in place" % pin["version"])
+    unpack(pin[p.host]["url"], "sha256", pin[p.host]["sha256"], "go", p.go_root)
+    say("Go %s installed" % pin["version"])
+
+
 def main():
     args = sys.argv[1:]
     if args not in ([], ["--apk-only"]):
@@ -190,6 +203,7 @@ def main():
     bundletool(p)
     if core:
         rust(p)
+        go(p)
     say("ready on %s%s" % (p.host, "" if core else " (the core is built on the shared host)"))
 
 

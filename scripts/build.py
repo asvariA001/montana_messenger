@@ -3,6 +3,8 @@
 
     the core     cargo ndk   native/montana-jni   →  libmontana.so (the core's crates, built by the core's own Rust)
     the engine   WebRTC      pinned by its digest →  its classes and libjingle_peerconnection_so.so (calls, as iOS)
+    the VPN      gomobile    native/montana-xray  →  Xray-core's classes and libgojni.so (the VPN wall, as iOS)
+                 NDK         hev-socks5-tunnel    →  libhev-socks5-tunnel.so (the pump between the tun and Xray)
     resources    aapt2       app/src/main/res     →  R.java and a resource package
     R.java       javac
     our Kotlin   kotlinc
@@ -152,6 +154,85 @@ def engine(p, out):
     return jar, so
 
 
+VPN = os.path.join(ROOT, "native", "montana-xray")
+GOMOBILE_TARGET = {"arm64-v8a": "android/arm64"}
+
+
+def vpn(p):
+    """THE VPN WALL'S ENGINES (iOS scripts/xray-ios and scripts/hev-ios; taken from dinetpda's port, PR #43): Xray-core
+    through the Montana wrapper (native/montana-xray: iOS's own files and the Android protect), bound by gomobile into its
+    classes and libgojni.so, and hev-socks5-tunnel built by the NDK -- each built once for its inputs and kept under their
+    digest, so a build with nothing of them changed takes them as they are. A builder without the pinned Go gets it here,
+    as setup.py would put it, so the shared build needs no step of its own."""
+    pin = PIN["vpn"]
+    have = subprocess.run([p.go, "version"], capture_output=True, text=True).stdout if os.path.exists(p.go) else ""
+    if ("go%s " % PIN["go"]["version"]) not in have:
+        if os.path.exists(p.go):
+            raise SystemExit("%s holds %s, not the pinned go%s" % (p.go_root, have.strip(), PIN["go"]["version"]))
+        import setup
+        if p.host.startswith("linux"):
+            os.umask(0o002)   # the shared host's prefix belongs to the builders' group, as setup.py keeps it
+        setup.go(p)
+    h = hashlib.sha256()
+    for name in sorted(os.listdir(VPN)):
+        if name.endswith((".go", ".mod", ".sum")):
+            h.update(name.encode() + b"\0" + open(os.path.join(VPN, name), "rb").read() + b"\0")
+    h.update(json.dumps([PIN["go"]["version"], PIN["ndk"], pin, ABI, MIN_SDK], sort_keys=True).encode())
+    place = os.path.join(p.vpn_cache, h.hexdigest()[:20])
+    if not os.path.exists(os.path.join(place, "done")):
+        os.makedirs(p.vpn_cache, exist_ok=True)
+        stage = tempfile.mkdtemp(prefix="stage-", dir=p.vpn_cache)
+        xray(p, stage)
+        hev(p, stage)
+        open(os.path.join(stage, "done"), "w", encoding="utf-8").write(time.strftime("%Y-%m-%d %H:%M:%S %Z") + "\n")
+        if os.path.exists(place):
+            shutil.rmtree(place)
+        os.rename(stage, place)
+    sos = [(open(os.path.join(place, "xray", "libgojni.so"), "rb").read(), "libgojni.so"),
+           (open(os.path.join(place, "hev", "libhev-socks5-tunnel.so"), "rb").read(), "libhev-socks5-tunnel.so")]
+    say("vpn: engines %s, %d+%d bytes" % (os.path.basename(place), len(sos[0][0]), len(sos[1][0])))
+    return os.path.join(place, "montanaxray.jar"), sos
+
+
+def xray(p, stage):
+    # gomobile and gobind are the golang.org/x/mobile the wrapper's go.mod names; no other Go than the pinned one is fetched
+    env = p.env()
+    env.update(GOROOT=p.go_root, GOPATH=p.go_path, GOMODCACHE=os.path.join(p.go_path, "pkg", "mod"), GOBIN=p.go_bin,
+               GOTOOLCHAIN="local", CGO_ENABLED="1", GOFLAGS="-modcacherw")
+    env["PATH"] = os.pathsep.join([os.path.join(p.go_root, "bin"), p.go_bin, env["PATH"]])
+    for tool in ("gomobile", "gobind"):
+        if not os.path.exists(os.path.join(p.go_bin, tool)):
+            run([p.go, "install", "golang.org/x/mobile/cmd/%s@%s" % (tool, PIN["vpn"]["gomobile"])], env=env, cwd=VPN)
+    aar = os.path.join(stage, "MontanaXray.aar")
+    say("vpn: Xray-core by gomobile for %s" % GOMOBILE_TARGET[ABI])
+    run([os.path.join(p.go_bin, "gomobile"), "bind", "-target=" + GOMOBILE_TARGET[ABI], "-androidapi", MIN_SDK, "-trimpath",
+         "-ldflags=-s -w -buildid= -extldflags=-Wl,-z,max-page-size=16384", "-o", aar, "."], env=env, cwd=VPN)
+    with zipfile.ZipFile(aar) as z:
+        open(os.path.join(stage, "montanaxray.jar"), "wb").write(z.read("classes.jar"))
+        os.makedirs(os.path.join(stage, "xray"))
+        open(os.path.join(stage, "xray", "libgojni.so"), "wb").write(z.read("jni/%s/libgojni.so" % ABI))
+
+
+def hev(p, stage):
+    # the pump's pinned release and its submodules, as that commit fixes them; its JNI names our class (HevTunnel, VpnTunnel.kt)
+    pin = PIN["vpn"]["hev"]
+    src = os.path.join(p.vpn_src, "hev-socks5-tunnel-" + pin["tag"])
+    if not os.path.isdir(os.path.join(src, ".git")):
+        os.makedirs(p.vpn_src, exist_ok=True)
+        run(["git", "clone", "-q", "--recursive", "--depth", "1", "--branch", pin["tag"], pin["url"], src])
+    if git(["rev-parse", "HEAD"], src) != pin["commit"]:
+        raise SystemExit("%s is not hev-socks5-tunnel %s at %s (scripts/toolchain.json)" % (src, pin["tag"], pin["commit"]))
+    out = os.path.join(stage, "hev-build")
+    say("vpn: hev-socks5-tunnel %s by the NDK for %s" % (pin["tag"], ABI))
+    run([os.path.join(p.ndk, "ndk-build"), "-C", src, "NDK_PROJECT_PATH=.", "APP_BUILD_SCRIPT=./Android.mk",
+         "NDK_APPLICATION_MK=./Application.mk", "APP_ABI=" + ABI, "APP_PLATFORM=android-" + MIN_SDK,
+         "APP_CFLAGS=-O3 -DPKGNAME=quest/montana/app -DCLSNAME=HevTunnel", "NDK_OUT=" + os.path.join(out, "obj"),
+         "NDK_LIBS_OUT=" + os.path.join(out, "libs"), "-j%d" % (os.cpu_count() or 2)], env=p.env())
+    os.makedirs(os.path.join(stage, "hev"))
+    shutil.copy(os.path.join(out, "libs", ABI, "libhev-socks5-tunnel.so"), os.path.join(stage, "hev"))
+    shutil.rmtree(out)
+
+
 def signing_key(p, given):
     if given:
         if not os.path.exists(given):
@@ -174,6 +255,7 @@ def apk(p, code, name, key, check):
             os.makedirs(d)
         base, proto = os.path.join(out, "base.apk"), os.path.join(out, "proto.apk")
         engine_jar, engine_so = engine(p, out)
+        vpn_jar, vpn_so = vpn(p)
         say("1/7 resources")
         run([os.path.join(bt, "aapt2"), "compile", "--dir", os.path.join(APP, "res"), "-o", res + "/compiled.zip"])
         linking = [os.path.join(bt, "aapt2"), "link", "-I", jar, "--manifest", os.path.join(APP, "AndroidManifest.xml"),
@@ -192,7 +274,7 @@ def apk(p, code, name, key, check):
         kenv = dict(env)
         kenv["JAVA_OPTS"] = "-Xmx2g -Xms128M"
         r = subprocess.run([p.kotlinc, "-nowarn", "-jvm-target", "17", "-no-reflect", "-no-stdlib",
-                            "-cp", os.pathsep.join([jar, p.stdlib, classes, engine_jar]), "-d", classes, "-Xjvm-default=all"]
+                            "-cp", os.pathsep.join([jar, p.stdlib, classes, engine_jar, vpn_jar]), "-d", classes, "-Xjvm-default=all"]
                            + files(os.path.join(APP, "kotlin"), ".kt"), env=kenv, cwd=ROOT, capture_output=True, text=True)
         for line in (r.stdout + r.stderr).splitlines():
             if not line.startswith("warning:"):
@@ -203,7 +285,7 @@ def apk(p, code, name, key, check):
             return say("the code compiles: %d classes" % len(files(classes, ".class")))
         say("4/7 dex")
         run([os.path.join(bt, "d8"), "--release", "--min-api", MIN_SDK, "--lib", jar, "--output", dex]
-            + files(classes, ".class") + [p.stdlib, engine_jar], env=env)
+            + files(classes, ".class") + [p.stdlib, engine_jar, vpn_jar], env=env)
         say("5/7 package")
         unsigned, aligned, signed = [os.path.join(out, n) for n in ("unsigned.apk", "aligned.apk", "signed.apk")]
         open(unsigned, "wb").write(open(base, "rb").read())
@@ -211,7 +293,8 @@ def apk(p, code, name, key, check):
         with zipfile.ZipFile(unsigned, "a") as z:
             for data, name, how in ((open(os.path.join(dex, "classes.dex"), "rb").read(), "classes.dex", zipfile.ZIP_DEFLATED),
                                     (open(CORE_SO, "rb").read(), "lib/%s/libmontana.so" % ABI, zipfile.ZIP_STORED),
-                                    (engine_so, "lib/%s/libjingle_peerconnection_so.so" % ABI, zipfile.ZIP_STORED)):
+                                    (engine_so, "lib/%s/libjingle_peerconnection_so.so" % ABI, zipfile.ZIP_STORED)) + tuple(
+                    (data, "lib/%s/%s" % (ABI, so), zipfile.ZIP_STORED) for data, so in vpn_so):
                 z.writestr(entry(name, how), data)
         say("6/7 align + sign")
         run([os.path.join(bt, "zipalign"), "-f", "-P", "16", "4", unsigned, aligned])
@@ -225,12 +308,12 @@ def apk(p, code, name, key, check):
         os.makedirs(BUILD, exist_ok=True)
         open(APK, "wb").write(open(signed, "rb").read())
         say("7/7 bundle")
-        bundle(p, out, proto, dex, engine_so, key)
+        bundle(p, out, proto, dex, engine_so, vpn_so, key)
     say("   %s  %d bytes" % (os.path.relpath(APK, ROOT), os.path.getsize(APK)))
     say("   %s  %d bytes" % (os.path.relpath(AAB, ROOT), os.path.getsize(AAB)))
 
 
-def bundle(p, out, proto, dex, engine_so, key):
+def bundle(p, out, proto, dex, engine_so, vpn_so, key):
     # Google Play takes an app bundle, not an APK: the same pieces laid as bundletool's base module -- the manifest in
     # manifest/, the resources as aapt2's protocol buffers, the dex in dex/, the libraries in lib/
     env, module = p.env(), os.path.join(out, "base.zip")
@@ -240,7 +323,7 @@ def bundle(p, out, proto, dex, engine_so, key):
             z.writestr(entry(name, zipfile.ZIP_DEFLATED), src.read(info))
         for path in files(dex, ".dex"):
             z.writestr(entry("dex/" + os.path.basename(path), zipfile.ZIP_DEFLATED), open(path, "rb").read())
-        for data, name in ((open(CORE_SO, "rb").read(), "libmontana.so"), (engine_so, "libjingle_peerconnection_so.so")):
+        for data, name in ((open(CORE_SO, "rb").read(), "libmontana.so"), (engine_so, "libjingle_peerconnection_so.so")) + tuple(vpn_so):
             z.writestr(entry("lib/%s/%s" % (ABI, name), zipfile.ZIP_DEFLATED), data)
     # the libraries stay stored and 16 KB aligned in the APKs Play makes from the bundle, as in our own APK
     config = os.path.join(out, "BundleConfig.json")
@@ -311,8 +394,7 @@ def main():
     a = ap.parse_args()
     p = toolchain.Paths()
     need = [p.java_home, p.kotlinc, p.build_tools, p.android_jar, p.webrtc, p.bundletool] if not a.core_only else []
-    if not a.check:
-        need.append(p.ndk)
+    need.append(p.ndk)   # the core, and the VPN wall's engines even for --check: Kotlin reads their classes
     missing = [n for n in need if not os.path.exists(n)]
     if missing:
         raise SystemExit("the toolchain is not complete here (%s): python3 scripts/setup.py\n  " % p.host
