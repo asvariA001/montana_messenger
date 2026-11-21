@@ -109,9 +109,9 @@ class FilmActivity : Activity() {
             override fun show(timeout: Int) { super.show(timeout); post { shareShown(true, this) } }
             override fun hide() { super.hide(); shareShown(false, this) }
         }.also {
-            it.setAnchorView(video)   // the controls' own view is born here; the share mark joins it, one window with the scrubber
-            (shareMark.parent as? android.view.ViewGroup)?.removeView(shareMark)
-            it.addView(shareMark, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(16); bottomMargin = dp(FALLBACK_RISE) })
+            // VideoView sets the controls' anchor again on setMediaController and on every opening of the film, and each anchoring
+            // empties the controls and bears their view anew: a mark seated once was gone from the screen (1079 on the test phone,
+            // the diary saying shown=true of a mark no window held). It is seated in each show, after the controls are born.
             video.setMediaController(it)
         }
         video.setOnPreparedListener { mp ->
@@ -129,6 +129,12 @@ class FilmActivity : Activity() {
     private var markShown = false
     private fun shareShown(on: Boolean, bar: MediaController) {
         if (on && isInPictureInPictureMode) return
+        if (on && shareMark.parent !== bar) {
+            (shareMark.parent as? android.view.ViewGroup)?.removeView(shareMark)
+            bar.addView(shareMark, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(16); bottomMargin = dp(FALLBACK_RISE) })
+            markShown = false
+            shareMark.alpha = 0f
+        }
         if (on) scrubberTop(bar)?.let { top ->
             val rise = bar.height - top + dp(GAP)
             val lp = shareMark.layoutParams as FrameLayout.LayoutParams
