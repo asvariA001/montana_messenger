@@ -816,7 +816,7 @@ object Channels {
     /**
      * THE ONE ADDRESS OF MY OWN A CORRESPONDENT CAN DIAL BY TCP (iOS MontanaNATService.selfEndpoint 27-39): a global IPv6 of a real
      * interface with the direct port. A carrier-NAT IPv4 is never named — nobody can dial it. (A port the router forwards: the
-     * router's own word is asked by iOS MontanaPortMap — not on this side yet.)
+     * router's own word is asked by PortMap, iOS MontanaPortMap; as iOS, what it reports is not named.)
      */
     // AN ADDRESS OF A FAMILY THIS NETWORK DOES NOT HOLD IS NOT NAMED (iOS selfEndpoint 29-42, N-7, the author's word 25217): iOS T3 at
     // v6=0 named its IPv6 to its peer, an interface the path does not carry. The one judge of a dial judges the name too (dialable).

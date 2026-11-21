@@ -38,6 +38,8 @@ object Mesh {
         started = true
         app = c.applicationContext
         if (discoverable && Channels.listening) advertise()
+        // the router's door, asked of the router rather than of a person: NAT-PMP first, then UPnP (iOS startLocalMeshIfAccepted 340-342)
+        if (discoverable) PortMap.open()
         BleMesh.start(c)   // and the radio, while the person lets the phone be found (iOS MontanaBLEMesh.start)
         // iOS startPeerScan: the first scan at 0.2 s, then every twenty; a scan of a phone that is not findable does nothing
         Thread { Thread.sleep(200); while (true) { runCatching { scan() }; Thread.sleep(20_000) } }.start()
@@ -53,6 +55,7 @@ object Mesh {
     fun setDiscoverable(on: Boolean) {
         Prefs.setBool(KEY, on)
         if (on) advertise() else stopAdvertising()
+        if (on && started) PortMap.open()   // iOS meshDiscoverable.set: a yes lifts the local half, the router's door with it
         BleMesh.setDiscoverable(on)
         Log.d("Montana", "discoverable on=" + (if (on) 1 else 0))
     }

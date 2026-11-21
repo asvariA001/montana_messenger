@@ -80,8 +80,9 @@ class FilmActivity : Activity() {
         root.addView(bar, FrameLayout.LayoutParams(MATCH, WRAP, Gravity.TOP).apply { topMargin = dp(8) })
         // THE PLAYER'S SHARE STANDS WITH THE PLAYER'S OWN MARKS (iOS MTVideoShareMark, 479d95b7; the author's words 25688, 25689, OZ 1
         // p.4): the glass round of forty-four at the lower left, above the scrubber, shown only while the player's controls are shown
+        // It lives INSIDE the player's controls (play() seats it there): the platform's controls are a window of their own over the page,
+        // so a mark on the page stood under their dark veil (dimmed) and measured its floor from another window's bottom (on the time).
         shareMark = mark(R.drawable.ic_share, R.string.share) { share() }.apply { alpha = 0f; isClickable = false }
-        root.addView(shareMark, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(16); bottomMargin = dp(FALLBACK_RISE) })
         // the page runs under the system's bars; the marks stand under the status bar
         root.setOnApplyWindowInsetsListener { _, ins ->
             @Suppress("DEPRECATION") val top = ins.systemWindowInsetTop
@@ -107,7 +108,12 @@ class FilmActivity : Activity() {
         ctl = object : MediaController(this) {
             override fun show(timeout: Int) { super.show(timeout); post { shareShown(true, this) } }
             override fun hide() { super.hide(); shareShown(false, this) }
-        }.also { it.setAnchorView(video); video.setMediaController(it) }
+        }.also {
+            it.setAnchorView(video)   // the controls' own view is born here; the share mark joins it, one window with the scrubber
+            (shareMark.parent as? android.view.ViewGroup)?.removeView(shareMark)
+            it.addView(shareMark, FrameLayout.LayoutParams(dp(44), dp(44), Gravity.BOTTOM or Gravity.START).apply { leftMargin = dp(16); bottomMargin = dp(FALLBACK_RISE) })
+            video.setMediaController(it)
+        }
         video.setOnPreparedListener { mp ->
             if (mp.videoWidth > 0 && mp.videoHeight > 0) shape = fit(mp.videoWidth, mp.videoHeight)
             params()
@@ -139,7 +145,8 @@ class FilmActivity : Activity() {
         var best: Int? = null
         fun walk(v: View, y: Int) {
             if (v.visibility != View.VISIBLE) return
-            if (v is android.widget.SeekBar && v.width * 2 > root.width) best = minOf(best ?: Int.MAX_VALUE, y + v.top)
+            // the scrubber's whole row: its times stand beside it and may rise above the bar itself
+            if (v is android.widget.SeekBar && v.width * 2 > root.width) best = minOf(best ?: Int.MAX_VALUE, y, y + v.top)
             if (v is android.view.ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i), y + v.top)
         }
         if (root is android.view.ViewGroup) for (i in 0 until root.childCount) walk(root.getChildAt(i), 0)
